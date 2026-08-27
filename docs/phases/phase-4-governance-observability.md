@@ -73,6 +73,12 @@ Record screenshots/logs in `docs/milestone-reports/M10-observability.md`.
 
 ---
 
+## Phase 4 Manual E2E Testing (performed by you, the agent)
+
+You, as the agent, must personally execute every Manual E2E Test in this phase (M9, M10) end-to-end. For M9, attempt the unauthorized operation yourself and confirm OPA actually rejects it — do not accept a policy file review as a substitute for a live denial. For M10, run a real execution yourself and locate it in Grafana by correlating timestamps across services. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M9-governance.md` and `M10-observability.md` before considering Phase 4 complete.
+
+---
+
 ## Phase 4 Exit Criteria
 
 - [ ] OpenBao holds all secrets previously stored in `.env`; no secret remains in source.

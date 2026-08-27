@@ -330,6 +330,17 @@ Record in `docs/milestone-reports/M11-remote.md`.
 
 ---
 
+## Phase 1 Manual E2E Testing (performed by you, the agent)
+
+You, as the agent, must personally execute every Manual E2E Test in this phase (M0, M1, M3, M6, M11) end-to-end, without skipping, faking, or simulating any step. Automated validation (`make doctor`, `make status`, etc.) is a precondition, not a substitute, for these manual walkthroughs. For each test:
+
+- run it yourself against the real host/server, not a description of what should happen;
+- capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2);
+- for M6 specifically, run the agent diagnosis test with both `opencode` and `pi` yourself, comparing your own diagnosis against the seeded known failure;
+- record the results in the corresponding `docs/milestone-reports/*.md` file before considering Phase 1 complete.
+
+---
+
 ## Phase 1 Exit Criteria
 
 - [ ] `make doctor` passes on a fresh host.

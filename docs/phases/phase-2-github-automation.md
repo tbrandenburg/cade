@@ -135,6 +135,12 @@ Record in `docs/milestone-reports/M7-gh-aw.md`.
 
 ---
 
+## Phase 2 Manual E2E Testing (performed by you, the agent)
+
+You, as the agent, must personally execute every Manual E2E Test in this phase (M2, M7) end-to-end — from a network outside the server's LAN for M2, and against a real seeded CI failure for M7. Do not simulate the runner triggering or the `gh-aw` reasoning step; trigger them for real and observe the actual result in GitHub. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M2-runner.md` and `M7-gh-aw.md` before considering Phase 2 complete.
+
+---
+
 ## Phase 2 Exit Criteria
 
 - [ ] Self-hosted runner registered, labeled `[self-hosted, private-lab]`, connects outbound only.

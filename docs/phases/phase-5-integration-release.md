@@ -50,9 +50,9 @@ Result must appear in GitHub as a workflow summary, issue comment, PR comment, o
 
 ---
 
-## Final Manual E2E Test Request
+## Final Manual E2E Test Request (performed by you, the agent)
 
-The implementing developer must execute this test personally. No automated test is accepted as a substitute.
+You, as the agent, must execute this test personally. No automated test is accepted as a substitute.
 
 Start from a clean state:
 
@@ -161,6 +161,6 @@ The implementation is complete only if all of the following are true:
 ## Phase 5 Exit Criteria
 
 - [ ] The full 8-step end-to-end scenario runs without a faked step.
-- [ ] The Final Manual E2E Test Request (A–L) passes, executed by the implementing developer personally.
+- [ ] The Final Manual E2E Test Request (A–L) passes, executed by you, the agent, personally.
 - [ ] Every checkbox in Final Acceptance Criteria is checked.
 - [ ] `VERSION.md` is bumped from `unreleased` to `0.1.0`.

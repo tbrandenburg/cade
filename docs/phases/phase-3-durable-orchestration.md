@@ -168,6 +168,12 @@ Record in `docs/milestone-reports/M8-mcp.md`.
 
 ---
 
+## Phase 3 Manual E2E Testing (performed by you, the agent)
+
+You, as the agent, must personally execute every Manual E2E Test in this phase (M5, M4, M8) end-to-end. For M5, actually kill and restart the worker container yourself and confirm the workflow resumes — do not accept a description of expected behavior in place of the real restart. For M4, delete and recreate the `embedded-linux` workspace yourself and produce the real artifact. For M8, drive the simulated device lifecycle (`reserve → run_test → get_logs → release`) yourself through the MCP tool calls, not a direct shell/API bypass. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M5-temporal.md`, `M4-embedded.md`, and `M8-mcp.md` before considering Phase 3 complete.
+
+---
+
 ## Phase 3 Exit Criteria
 
 - [ ] Temporal, Temporal-DB, Temporal-UI added to compose and healthy alongside Coder.
