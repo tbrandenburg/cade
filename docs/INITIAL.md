@@ -627,6 +627,12 @@ Only merge M0 after this report exists.
 
 # 7. Milestone 1 — Compose Foundation
 
+## Required Reading (before starting this milestone)
+
+- Docker Compose in production: https://docs.docker.com/compose/how-tos/production/
+- Dockerfile/image build best practices: https://docs.docker.com/build/building/best-practices/
+- Coder security best practices (introduced here, deepened in M3): https://coder.com/docs/tutorials/best-practices/security-best-practices
+
 ## Objective
 
 Prove that the platform can be brought up and down predictably.
@@ -749,6 +755,11 @@ Record:
 
 # 8. Milestone 2 — Self-Hosted GitHub Runner
 
+## Required Reading (before starting this milestone)
+
+- GitHub Actions security hardening (self-hosted runners section): https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions
+- Dockerfile/image build best practices (applies to `runner/Dockerfile` specifically, not just the workspace images): https://docs.docker.com/build/building/best-practices/
+
 ## Objective
 
 Give GitHub an **outbound-only execution channel** into the private server.
@@ -778,7 +789,11 @@ Build the runner image in:
 runner/Dockerfile
 ```
 
-Do not depend on an opaque third-party runner image.
+Do not depend on an opaque third-party runner image. Pin the **base OS image by digest** (not just the GitHub Actions Runner tarball version) — this is the highest-security-sensitivity image in the whole plan (a privileged execution channel from GitHub into the private network), and deserves the same digest-pinning discipline as the M6/M7 toolchain images. Document a rebuild/patch cadence (e.g. monthly, or on CVE) in `docs/operations.md`. Keep the final image minimal — don't retain build-time-only packages (e.g. `curl`/`tar` used to fetch/extract the runner tarball) beyond what's needed at execution time, per Docker's multi-stage-build guidance, to reduce the blast radius of a compromised runner.
+
+**Prefer Just-In-Time (JIT) / ephemeral runner registration over a long-lived persistent runner.** GitHub's own hardening guide recommends JIT runners (register via `--jitconfig`, run exactly one job, then auto-deregister) as the primary mitigation for runner-registration/persistence risk. `entrypoint.sh` should request a JIT config per job rather than registering once and persisting indefinitely; if a persistent runner is chosen instead for simplicity, record that as an explicit, time-boxed risk acceptance in `docs/security.md` (per the existing Docker-socket risk-acceptance pattern).
+
+**Be aware of the `ps`-based secret leak risk**, also called out in GitHub's hardening guide: any secret passed as a CLI argument to a job process is visible to every other process on the same runner host via `ps x -w`. This is a stronger reason (beyond registration persistence) to prefer single-job/ephemeral runners — a shared, long-lived runner multiplies this exposure across unrelated jobs.
 
 The runner container should:
 
@@ -1018,6 +1033,8 @@ The purpose is proving the environment contract.
 
 This persistent home volume is also where Milestone 4's Agent Host state lives — see M4 for the exact directory layout. Do not treat the workspace container filesystem and the persistent home volume as interchangeable: only `/home/coder` (or equivalent) survives a container replace.
 
+**Template governance (per Coder's own security best practices):** push template revisions via `coder templates push` in CI, not manual admin-console edits, using a dedicated non-human Coder account — don't grant the Template Admin role broadly. Never inline provider credentials or other secrets directly in the Terraform template's `.tf`/`.tfvars` files: Coder does not obscure template file contents and **persists template versions indefinitely**, so a secret committed into a template revision stays recoverable even after being "fixed" in a later version. Pass credentials via `TF_VAR_*` environment variables or Coder parameters instead, consistent with Rule 3's `.env` handling.
+
 ---
 
 ## Validation Milestone M3
@@ -1078,6 +1095,13 @@ YES
 
 # 10. Milestone 4 — VS Code Agent Host + AHP
 
+## Required Reading (before starting this milestone)
+
+- VS Code agent best practices: https://code.visualstudio.com/docs/agents/best-practices
+- VS Code Agent Host concepts: https://code.visualstudio.com/docs/agents/concepts/agent-host
+- VS Code agent security baseline (read in full — item #1 is directly required below): https://code.visualstudio.com/docs/agents/run/security
+- Remote agent sessions (SSH/dev tunnel): https://code.visualstudio.com/docs/agents/run/remote-agent-sessions
+
 ## Objective
 
 Prove the **Durable Session Plane** (Layer 2) independently of both the workspace (Layer 4, Coder) and any specific LLM/agent harness (Layer 3, chosen in M9).
@@ -1085,6 +1109,8 @@ Prove the **Durable Session Plane** (Layer 2) independently of both the workspac
 VS Code's Agent Host owns agent sessions independently of the UI client that's attached. Closing the editor window, reconnecting from another window, and the running host remaining the source of truth is the core property being validated here. Remote Agent Hosts communicate with clients through **AHP (Agent Host Protocol)**, typically over SSH or a dev tunnel.
 
 **Maturity note (verified against current VS Code/AHP docs):** this feature is real and works as described, but Microsoft's own documentation describes it as under active development, with new capabilities continuing to roll out. Treat the exact settings names, CLI flags, and behaviors as subject to change between VS Code releases — re-verify against `code.visualstudio.com/docs/agents` at implementation time rather than assuming this section is permanently accurate.
+
+**Enable VS Code's own agent sandbox, not just `srt` (M9).** `chat.agent.sandbox.enabled` is the **#1 item** in VS Code's documented security-baseline checklist ("restrict file system and network access for agent-executed commands"), available on Linux/WSL2 — i.e. applicable to this Docker-based workspace. Set it in `agent-host/settings.json` as a first OS-level sandbox layer, complementary to (not a substitute for) the `srt` wrapping introduced in M9 — the two are independent controls and both should be enabled.
 
 You probably do not need to package your own Agent Host implementation — VS Code already bundles it. For a remote host, the Coder-provisioned workspace runs it as a standalone process, and VS Code installs/starts the required CLI when making a remote session connection.
 
@@ -1327,6 +1353,10 @@ docs/milestone-reports/M5-sessions.md
 
 # 12. Milestone 6 — Embedded Simulation Workspace
 
+## Required Reading (before starting this milestone)
+
+- QEMU User Mode Emulation docs (read the "System call translation" section to understand qemu-user's actual scope): https://www.qemu.org/docs/master/user/main.html
+
 ## Objective
 
 Prove that the same Coder/Docker model supports an embedded-style toolchain.
@@ -1464,6 +1494,11 @@ docs/milestone-reports/M6-embedded.md
 
 # 13. Milestone 7 — Artifact Registry + Build Cache
 
+## Required Reading (before starting this milestone)
+
+- CNCF Distribution deployment guide: https://distribution.github.io/distribution/about/deploying/
+- sccache README (Known Caveats / `SCCACHE_BASEDIRS` sections): https://github.com/mozilla/sccache
+
 ## Objective
 
 For embedded development especially, fresh workspaces are painful without caching: Docker images, toolchains, C/C++ compilation, and generated firmware all benefit from a persistent cache. This isn't a conceptual developer-facing layer on its own, but it's a missing infrastructure capability under Layer 4 (Development Execution Plane) that M6's reproducibility goal depends on for usable performance.
@@ -1488,6 +1523,8 @@ cache/registry/
 
 and a `registry` service to compose.
 
+**Do not run it as an open, unauthenticated registry reachable from the host network.** CNCF Distribution's own deployment guide states plainly: "a production-ready registry must be protected by TLS and should ideally use an access-control mechanism" — an unauthenticated local registry is otherwise a write-anywhere artifact store reachable from any container on the network. For this platform's scale, either (a) bind the registry only to the internal compose network with no host port published, or (b) enable basic auth (htpasswd) if it needs to be reachable more broadly. If a Docker healthcheck is added, note that an authenticated registry returns `401` (not `200`) from `/v2/` — a naive `curl -f` healthcheck will misreport it as unhealthy; check for `401` as the healthy response, or hit `/` instead.
+
 ## Compiler Cache
 
 Use **sccache** (supports local and remote caches, suitable for compiler-heavy environments) for C/C++/Rust compilation caching. Add:
@@ -1497,6 +1534,8 @@ cache/sccache/
 ```
 
 Start with a persistent local sccache directory; a dedicated `sccache-storage` compose service is optional.
+
+**Cache-key gotcha that would silently invalidate M7's own validation test:** sccache's cache keys include absolute file paths by default, so a cache hit requires the compiling workspace's absolute checkout path to match between runs. Since M7's validation explicitly builds from *two different* fresh workspace instances (cold vs. warm cache), if their absolute paths differ, sccache will **not** produce cache hits even with a warm registry/cache — silently invalidating the whole comparison. Set `SCCACHE_BASEDIRS` (or ensure both workspaces mount the project at an identical absolute path, e.g. `/workspace`) so path-based hashing doesn't defeat the cache across workspace instances.
 
 ---
 
@@ -1526,9 +1565,23 @@ docs/milestone-reports/M7-cache.md
 
 # 14. Milestone 8 — Temporal Durable Workflow
 
+## Required Reading (before starting this milestone)
+
+- Temporal best practices index: https://docs.temporal.io/best-practices
+- Worker deployment/performance: https://docs.temporal.io/best-practices/worker
+- Error handling (idempotency, retries): https://docs.temporal.io/best-practices/error-handling
+- Retry policy reference: https://docs.temporal.io/encyclopedia/retry-policies
+- Self-hosted production checklist: https://docs.temporal.io/self-hosted-guide/production-checklist
+
 ## Objective
 
 Prove durable orchestration (Layer 5) independently of GitHub agents and independently of the session/workspace durability proven in M4/M5/M6 (Rule 7, Section 3).
+
+**Task Queue naming discipline is required, not optional:** Temporal's own worker best-practices doc warns that "a mismatch between the Client and Worker Task Queue names does not result in an error" — the workflow simply never gets picked up, silently. Define the Task Queue name (e.g. `demo-durable-workflow`) as a single shared constant referenced by both the workflow starter and the worker, not a hardcoded string duplicated in two places.
+
+**Activities must declare a timeout.** Temporal SDKs require at least one timeout (e.g. `StartToCloseTimeout`) to be set on an Activity or it cannot be scheduled at all — this isn't just a best practice, it will be a hard error if omitted. Set an explicit `StartToCloseTimeout` (e.g. `30s`) on both `prepare_build` and `verify_build`.
+
+**Activities must be idempotent.** Temporal's error-handling guide states Activities "may execute more than once due to retries" (e.g. a worker crash after an Activity completes but before Temporal receives the acknowledgment) and recommends an idempotency key derived from the Workflow Run ID + Activity ID. If `prepare_build`/`verify_build` write an artifact or mutate state, key that operation so a retried execution doesn't duplicate or corrupt it — this is also what makes M8's worker-kill test a meaningful proof rather than a lucky no-op.
 
 ## Add Temporal to Compose
 
@@ -1662,6 +1715,12 @@ YES
 
 # 15. Milestone 9 — Agent/Harness Integration
 
+## Required Reading (before starting this milestone)
+
+- Anthropic Sandbox Runtime README (full configuration reference): https://github.com/anthropic-experimental/sandbox-runtime
+- Claude Code sandboxing (same underlying primitives, deeper credentials-protection discussion): https://docs.claude.com/en/docs/claude-code/sandboxing
+- VS Code agent security baseline (already required in M4 — re-confirm `chat.agent.sandbox.enabled` is set before adding `srt` on top of it): https://code.visualstudio.com/docs/agents/run/security
+
 ## Objective
 
 Introduce the Agent/Harness Plane (Layer 3) on top of the now-proven Session Plane (M4/M5) and Development Execution Plane (M3/M6).
@@ -1780,13 +1839,15 @@ Version the template in the repo at `agent-host/srt-settings.json`, and have the
     "deniedDomains": []
   },
   "filesystem": {
-    "denyRead": ["~/.ssh", "~/.aws", ".env"],
+    "denyRead": ["~/.ssh", "~/.aws", ".env", "~/.claude", "~/.copilot"],
     "allowWrite": [".", "/tmp"],
     "denyWrite": [".env", "**/secrets/**"]
   },
   "enableWeakerNestedSandbox": false
 }
 ```
+
+**`denyRead` must include the agent's own credential stores.** M4's persistent home layout places `~/.claude` and `~/.copilot` (session tokens/credentials) inside the same `/home/coder` volume that `srt` is otherwise protecting — read access is allowed everywhere by default except what's explicitly denied, so if these paths aren't in `denyRead`, a sandboxed process can still read another provider's stored credentials even though `~/.ssh` is protected. Add both to `denyRead` as shown above, and add a check to M9's Manual E2E Test confirming a sandboxed session cannot read the *other* CLI's credential store (e.g. `opencode` sandboxed cannot read `~/.claude`'s token file).
 
 Adjust `network.allowedDomains` to match whichever backend provider was chosen above (Copilot, Claude, OpenAI, or Gemini endpoints), and add the MCP/lab-simulator endpoints from M11 once that milestone exists.
 
@@ -1809,7 +1870,8 @@ alias pi='srt pi --'
 1. Confirm `bwrap --version`, `socat -V`, and `rg --version` all succeed inside the workspace.
 2. Confirm `srt "cat ~/.ssh/id_rsa"` is blocked (`Operation not permitted`) while `srt "cat README.md"` succeeds.
 3. Confirm `srt "curl <an allowed domain>"` succeeds while `srt "curl <a non-allowlisted domain>"` is blocked by the network allowlist.
-4. Run the Agent Test below through the sandboxed alias and confirm the agent still functions normally against its allowlisted provider/MCP endpoints.
+4. Confirm `srt "cat ~/.claude/<credentials file>"` and `srt "cat ~/.copilot/<credentials file>"` are both blocked, so a sandboxed `opencode` session cannot read `pi`'s stored credentials (or vice versa).
+5. Run the Agent Test below through the sandboxed alias and confirm the agent still functions normally against its allowlisted provider/MCP endpoints.
 
 ---
 
@@ -1865,6 +1927,12 @@ docs/milestone-reports/M9-agent.md
 ---
 
 # 16. Milestone 10 — GitHub Agentic Workflows
+
+## Required Reading (before starting this milestone)
+
+- gh-aw architecture (security model, AWF network isolation): https://github.github.com/gh-aw/introduction/architecture/
+- gh-aw safe outputs reference: https://github.github.com/gh-aw/reference/safe-outputs/
+- gh-aw self-hosted runners reference (this platform's runner is self-hosted, not GitHub-hosted — read this before assuming the architecture doc's defaults apply as-is): https://github.github.com/gh-aw/reference/self-hosted-runners/
 
 ## Objective
 
@@ -1925,6 +1993,11 @@ Do not initially let it:
 - manipulate hardware
 
 Enforce this with `gh-aw`'s documented **"safe outputs"** mechanism — a separate, permission-scoped job that applies only validated, allow-listed write operations (e.g. posting an issue comment) rather than letting the agentic step itself hold write permissions. Do not rely on the prose constraint above alone; wire it through safe outputs so it's enforced, not just requested.
+
+**Also enforce, not just request, network and permission boundaries:**
+
+- **Network egress allowlist (AWF):** since this runs on a self-hosted runner (not GitHub-hosted), an agent step with unrestricted network egress could exfiltrate data or reach internal-only services on the private server — a direct violation of Rule 6. Configure gh-aw's Agent Workflow Firewall in the workflow frontmatter (`network: { firewall: true, allowed: [...] }`), scoped to only the domains the investigation actually needs (e.g. GitHub API endpoints), not left unrestricted.
+- **Minimal `permissions:` block:** explicitly declare `permissions: { contents: read }` (no `issues: write` etc.) in the workflow frontmatter rather than relying solely on safe-outputs' default read-only posture — this is a private repo, so gh-aw's public-repo `min-integrity: approved` auto-filtering doesn't apply here by default; be explicit instead of relying on an assumption that only holds for public repos.
 
 ---
 
@@ -1987,11 +2060,15 @@ docs/milestone-reports/M10-gh-aw.md
 
 # 17. Milestone 11 — MCP and Local Capability Fabric
 
+## Required Reading (before starting this milestone)
+
+- MCP security best practices (read "Local MCP Server Compromise" and "State Handle Hijacking" sections specifically): https://modelcontextprotocol.io/specification/draft/basic/security_best_practices
+
 ## Objective
 
 Allow humans and agents to query private capabilities (Layer 6) without granting arbitrary shell access.
 
-Implement two simple services.
+Implement two simple services. **Both must follow the transport-hardening guidance from the MCP spec's "Local MCP Server Compromise" section:** use `stdio` transport (spawned directly by the agent harness) wherever possible to limit access to just the calling client; if a service instead exposes HTTP for reuse across sessions, it must require a bearer token or bind to a Unix domain socket — never an open, unauthenticated TCP port.
 
 ---
 
@@ -2005,7 +2082,7 @@ get_architecture()
 get_build_instructions()
 ```
 
-Populate it from local Markdown documentation.
+Populate it from local Markdown documentation. Use `stdio` transport (spawned by the agent harness) — this service has no reason to be network-reachable at all.
 
 ---
 
@@ -2025,6 +2102,8 @@ release_device()
 ```
 
 against simulated devices.
+
+**Bind reservation tokens to the requesting caller.** Per the MCP spec's "State Handle Hijacking" guidance, `reserve_device()` returns a reservation identifier that is exactly the kind of server-issued state handle the spec warns must be bound server-side to the authenticated caller and never trusted as authentication by itself. `run_test()`, `get_logs()`, and `release_device()` must verify the calling session/agent identity matches the reservation's owner before acting — do not accept the reservation ID alone as sufficient authorization.
 
 Example state:
 
@@ -2072,6 +2151,15 @@ docs/milestone-reports/M11-mcp.md
 
 # 18. Milestone 12 — Governance Foundation
 
+## Required Reading (before starting this milestone)
+
+- OpenBao security model: https://openbao.org/docs/internals/security/
+- Vault production hardening (conceptually applicable — OpenBao is a Vault fork with the same architecture; OpenBao has no separate hardening checklist of its own): https://developer.hashicorp.com/vault/docs/concepts/production-hardening
+- OPA policy language / style: https://www.openpolicyagent.org/docs/policy-language
+- OPA policy performance (indexing): https://www.openpolicyagent.org/docs/policy-performance
+- Keycloak production configuration: https://www.keycloak.org/server/configuration-production
+- Keycloak in containers: https://www.keycloak.org/server/containers
+
 Do not build enterprise-scale security.
 
 Implement enough to prove the architecture.
@@ -2091,6 +2179,11 @@ service credentials
 No secret should need to appear in source code.
 
 Once OpenBao is live, rotate every credential introduced during M2–M11 under the interim secret handling rule (Rule 3, Section 3) and record the rotation here.
+
+**Baseline hardening (both OpenBao's own security model and Vault's hardening guide treat these as non-negotiable):**
+
+- **Configure TLS on the OpenBao listener** even for this local/demo deployment (a self-signed cert is acceptable). Both docs list eavesdropping as explicitly in-scope of the threat model — plain HTTP is not an acceptable default.
+- **Revoke the initial root token after setup.** After `bao operator init`, configure auth methods and policies using the root token, then revoke it — do not leave it live long-term. Record where the unseal key shares (or the auto-unseal KMS key reference) are stored; they must not be committed to git, and this location must itself be covered by M14's backup plan (see M14's OpenBao snapshot/unseal-key note).
 
 ---
 
@@ -2127,6 +2220,8 @@ allow if {
 
 The MCP lab-server (M11) queries OPA's decision endpoint before executing a privileged action and honors the `allow`/`deny` result — do not hardcode the allow/deny logic in the MCP server itself.
 
+**Add `opa test` unit tests, not just manual/curl checks.** `opa test` is OPA's standard, expected mechanism for pinning policy behavior — the Validation Milestone below requires proving ALLOW/DENY outcomes, which a one-off manual check does not durably guarantee against regressions. Add `lab_authz_test.rego` covering: `run_test` (allow), `flash_device` with/without `approved` (allow/deny), and `read_device` (allow); run `opa test` as part of M12's validation, in addition to the manual E2E check.
+
 ---
 
 ## Keycloak
@@ -2138,6 +2233,8 @@ Otherwise make this service optional through:
 ```text
 docker compose --profile governance
 ```
+
+**If enabled, avoid Keycloak's own documented anti-pattern:** its production-configuration guide states plainly that `start-dev` "should be strictly avoided in production environments because it has insecure defaults." Use `start` (not `start-dev`) even for this demo, and set `KC_BOOTSTRAP_ADMIN_PASSWORD` from a generated/rotated secret rather than a hardcoded default password.
 
 ---
 
@@ -2189,6 +2286,14 @@ Include the exact policy decision and the credential-rotation log for anything c
 
 # 19. Milestone 13 — Observability
 
+## Required Reading (before starting this milestone)
+
+- OpenTelemetry Collector configuration best practices: https://opentelemetry.io/docs/security/config-best-practices/
+- OpenTelemetry Collector hosting best practices: https://opentelemetry.io/docs/security/hosting-best-practices/
+- Prometheus security model (read the opening warning about public exposure specifically): https://prometheus.io/docs/operating/security/
+- Prometheus metric/label naming conventions: https://prometheus.io/docs/practices/naming/
+- Grafana dashboard best practices: https://grafana.com/docs/grafana/latest/best-practices/
+
 ## Objective
 
 Make executions visible across:
@@ -2210,6 +2315,12 @@ Grafana OSS      (visualization only, queries Prometheus)
 ```
 
 **Correction to the original assumption:** "OpenTelemetry Collector → Grafana" alone is **not** a complete pipeline. Grafana has no built-in ingestion or storage — a Grafana "data source" is a connection to a separate storage backend (Prometheus, Loki, Tempo, etc.); the Collector receives/processes/exports telemetry but does not serve queries itself. **Prometheus (metrics) is the minimum required backend**, not optional, for the Minimum Dashboard below to show anything at all.
+
+**Binding and exposure — both mandatory, not optional:**
+
+- **Bind the OTel Collector's receiver endpoints to the compose service hostname, not `0.0.0.0`**, and only publish ports actually needed by other containers on the compose network. OpenTelemetry's own config-best-practices doc names unrestricted-interface binding as a specific, tracked DoS-exposure risk (CWE-1327), with Docker Compose as one of its explicit examples. Also add a `memory_limiter` processor / bound `sending_queue.queue_size` so the Collector can't OOM while relaying telemetry from five services at once.
+- **Never publish Prometheus's port to the host/public network.** Prometheus's security-model doc opens with an explicit, bolded warning that its HTTP endpoints "should not be exposed to publicly accessible networks." Keep it reachable only from Grafana and the Collector on the internal Docker network — this is the single most emphasized point in Prometheus's own security documentation.
+- **Provision the Minimum Dashboard as version-controlled JSON**, not an ad hoc UI-created dashboard. Grafana's own best-practices doc lists dashboard-as-code as a baseline maturity practice, and this repo's own Rule 2 ("one repository is the source of truth") requires it anyway — put it at `observability/grafana/dashboards/phase4.json` (or equivalent) and provision it from file, not click-ops.
 
 Additional backends, add only if genuinely needed for the Manual E2E Test's cross-service timestamp correlation:
 
@@ -2332,6 +2443,11 @@ docs/milestone-reports/M14-backup.md
 
 # 21. Milestone 15 — Remote Access / Browser Handoff
 
+## Required Reading (before starting this milestone)
+
+- Tailscale ACLs: https://tailscale.com/kb/1018/acls
+- Tailscale SSH: https://tailscale.com/kb/1223/tailscale-ssh
+
 Automation already works without inbound access because the GitHub runner connects outbound (M2). This milestone covers **interactive** remote access, building on the AHP-over-SSH bridge established in M4.
 
 Recommended:
@@ -2341,6 +2457,8 @@ Tailscale Personal
 ```
 
 Do not publicly expose Coder.
+
+**Configure an explicit least-privilege ACL — do not rely on Tailscale's default.** Tailscale's own ACL doc states: "in the absence of an `acls` section in the tailnet policy file, Tailscale applies the default allow all policy" — every device on the tailnet can reach every other device. That default contradicts this platform's own Rule 6 ("no arbitrary external access to the private server"). Write an explicit ACL restricting which tailnet devices/users can reach the private server's Coder/SSH ports, rather than leaving the tailnet-wide allow-all default in place. Also consider enabling device approval (manually approving new devices before they can send/receive traffic) — directly relevant to M15's own "mobile hotspot" test scenario, where a new/unfamiliar network context is connecting.
 
 Target:
 
@@ -2738,20 +2856,22 @@ The implementation is complete only if all of the following are true:
 - [ ] Parallel agent sessions operate in isolated Git worktrees without overwriting each other.
 - [ ] Coder workspace autostop does not terminate an active agent session.
 - [ ] Both `opencode` and `pi` are installed in the workspace and have each successfully diagnosed a seeded failure.
-- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime), with a verified denied file read and a verified denied network destination.
+- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime) and VS Code's own `chat.agent.sandbox.enabled`, with a verified denied file read, a verified denied network destination, and verified cross-credential isolation.
+- [ ] Self-hosted runner uses JIT/ephemeral registration (or has a documented time-boxed risk acceptance) and a digest-pinned, minimal base image.
 - [ ] Normal GitHub Actions run deterministic CI.
-- [ ] `gh-aw` performs repository-centric reasoning.
-- [ ] Temporal survives worker interruption — Durability Test 2.
+- [ ] `gh-aw` performs repository-centric reasoning within an explicit network firewall allowlist and minimal `permissions:` block.
+- [ ] Temporal survives worker interruption — Durability Test 2 — using a shared Task Queue constant, explicit Activity timeouts, and idempotent Activities.
 - [ ] Coder workspace restart preserves repo and persistent home — Durability Test 3.
-- [ ] Local OCI registry + build cache measurably reduce fresh-workspace build time.
-- [ ] MCP/internal APIs expose controlled capabilities.
+- [ ] Local OCI registry (auth-protected, no public port) + build cache (cache-key path issues addressed) measurably reduce fresh-workspace build time.
+- [ ] MCP/internal APIs expose controlled capabilities over `stdio` or an authenticated/unix-socket transport, with reservation tokens bound to the requesting caller.
 - [ ] Simulated device operations work.
-- [ ] OPA can deny an unsafe action.
+- [ ] OPA can deny an unsafe action, backed by an `opa test` suite.
+- [ ] OpenBao runs with TLS, revoked initial root token, and securely backed-up unseal keys.
 - [ ] Secrets are not stored in source.
-- [ ] Important execution events are observable.
+- [ ] Important execution events are observable via Prometheus (not exposed publicly) and a version-controlled Grafana dashboard.
 - [ ] A full backup has been created and successfully restored, verified against every "MUST BACK UP" category.
 - [ ] End-to-end flow begins in GitHub and returns a result to GitHub.
-- [ ] Interactive access does not require public exposure of the server.
+- [ ] Interactive access does not require public exposure of the server, and uses an explicit least-privilege Tailscale ACL rather than the allow-all default.
 - [ ] All milestone reports are committed.
 
 ---

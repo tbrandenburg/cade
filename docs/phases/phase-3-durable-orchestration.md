@@ -8,6 +8,15 @@ Milestones covered: **M6** (Embedded Simulation Workspace), **M7** (Artifact Reg
 
 Depends on Phase 1's Coder/workspace mechanics (M3) and Session Plane (M4/M5) already being proven — M6 reuses the same workspace pattern with a heavier toolchain.
 
+## Required Reading (mandatory, before starting Phase 3)
+
+| Milestone | Tool | Required reading |
+|---|---|---|
+| M6 | QEMU user-mode emulation | https://www.qemu.org/docs/master/user/main.html |
+| M7 | CNCF Distribution, sccache | https://distribution.github.io/distribution/about/deploying/, https://github.com/mozilla/sccache |
+| M8 | Temporal | https://docs.temporal.io/best-practices, https://docs.temporal.io/best-practices/worker, https://docs.temporal.io/best-practices/error-handling, https://docs.temporal.io/self-hosted-guide/production-checklist |
+| M11 | MCP | https://modelcontextprotocol.io/specification/draft/basic/security_best_practices |
+
 ---
 
 ## M6 — Embedded Simulation Workspace
@@ -72,6 +81,10 @@ Artifact / Cache Services
 
 `cache/registry/` for the registry service, `cache/sccache/` for the compiler cache (start with a persistent local directory; a dedicated `sccache-storage` compose service is optional).
 
+**Registry must not be open/unauthenticated.** CNCF Distribution's deployment guide requires TLS and ideally access control for a production-ready registry. Bind it only to the internal compose network with no host port published, or enable basic auth. If a healthcheck is added, note that an authenticated registry returns `401` from `/v2/`, not `200` — a naive `curl -f` check will misreport it as unhealthy.
+
+**sccache cache-key gotcha:** cache keys include absolute paths by default, so the cold/warm comparison in the Validation below will silently fail to hit cache if the two fresh workspaces mount the project at different absolute paths. Set `SCCACHE_BASEDIRS` (or use an identical mount path, e.g. `/workspace`, across workspace instances).
+
 ### Validation Milestone M7
 
 1. Build `examples/embedded-sim` from a fresh workspace (cold cache) and record the build time.
@@ -131,6 +144,12 @@ Prove durable orchestration independently of GitHub agents, and independently of
 start → activity A → wait 30 seconds → activity B → finish
 ```
 
+**Three requirements from Temporal's own best-practices docs, not optional:**
+
+- **Shared Task Queue name constant.** A Client/Worker Task Queue name mismatch does not error — the workflow just silently never gets picked up. Define the name once (e.g. `demo-durable-workflow`) and import it in both the starter and the worker.
+- **Explicit Activity timeouts.** Temporal SDKs require at least one timeout (e.g. `StartToCloseTimeout: 30s`) per Activity or it cannot be scheduled — this is a hard requirement, not a style preference. Set it on both `prepare_build` and `verify_build`.
+- **Activity idempotency.** Activities may execute more than once due to retries (e.g. a worker crash after completing but before acknowledging). Key `prepare_build`/`verify_build` by Workflow Run ID so a retried execution doesn't duplicate or corrupt state — this is also what makes the worker-kill test below a meaningful proof rather than a lucky no-op.
+
 ### Required Demonstration
 
 The workflow must survive worker failure:
@@ -182,15 +201,19 @@ Record screenshots/logs and workflow ID in `docs/milestone-reports/M8-temporal.m
 
 ### Objective
 
-Allow humans and agents to query private capabilities without granting arbitrary shell access. Implement two simple services.
+Allow humans and agents to query private capabilities without granting arbitrary shell access. Implement two simple services. **Both must follow the MCP spec's "Local MCP Server Compromise" guidance:** use `stdio` transport (spawned by the agent harness) wherever possible; if a service instead exposes HTTP, it must require a bearer token or bind to a Unix domain socket — never an open, unauthenticated TCP port.
 
 ### MCP Service 1 — Documentation
 
-Tools: `search_docs(query)`, `get_architecture()`, `get_build_instructions()`. Populate from local Markdown documentation.
+Tools: `search_docs(query)`, `get_architecture()`, `get_build_instructions()`. Populate from local Markdown documentation. Use `stdio` transport — no reason for this service to be network-reachable.
 
 ### MCP/HTTP Service 2 — Lab Simulator
 
-Do not use physical hardware yet. Implement `list_devices()`, `reserve_device()`, `flash_device()`, `run_test()`, `get_logs()`, `release_device()` against simulated devices. Example state:
+Do not use physical hardware yet. Implement `list_devices()`, `reserve_device()`, `flash_device()`, `run_test()`, `get_logs()`, `release_device()` against simulated devices.
+
+**Bind reservation tokens to the requesting caller.** Per the MCP spec's "State Handle Hijacking" guidance, `reserve_device()`'s returned reservation ID is a server-issued state handle that must be bound server-side to the authenticated caller — `run_test()`/`get_logs()`/`release_device()` must verify the caller matches the reservation owner, not accept the ID alone as authorization.
+
+Example state:
 
 ```json
 { "device": "ecu-demo-01", "status": "available" }
@@ -229,10 +252,10 @@ Before Phase 3 is considered done, you, as the agent, must:
 ## Phase 3 Exit Criteria
 
 - [ ] `embedded-linux` workspace builds, tests, and simulates the embedded example from a fresh workspace with no host package installation, with recorded image digest.
-- [ ] A local OCI registry and sccache are in place, and a warm-cache build is measurably faster than a cold-cache build.
-- [ ] Temporal, Temporal-DB, Temporal-UI added to compose and healthy alongside Coder.
+- [ ] A local OCI registry (auth-protected or internal-network-only) and sccache (with `SCCACHE_BASEDIRS` or a fixed mount path) are in place, and a warm-cache build is measurably faster than a cold-cache build.
+- [ ] Temporal, Temporal-DB, Temporal-UI added to compose and healthy alongside Coder, with a shared Task Queue constant, explicit Activity timeouts, and idempotent Activities.
 - [ ] A durable workflow completes correctly across a worker kill/restart (Durability Test 2).
-- [ ] MCP docs + lab-simulator services respond only to defined tool calls (no arbitrary shell), verified via service logs.
+- [ ] MCP docs + lab-simulator services respond only to defined tool calls (no arbitrary shell) over `stdio` or an authenticated/unix-socket transport, with reservation tokens bound to the requesting caller, verified via service logs.
 - [ ] `docs/milestone-reports/M1-compose.md` (updated), `M6-embedded.md`, `M7-cache.md`, `M8-temporal.md`, `M11-mcp.md` are committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 3 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 3 Lessons Learned entry.

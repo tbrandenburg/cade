@@ -14,6 +14,18 @@ Temporal/Temporal-DB are explicitly **deferred to Phase 3 (M8)** — nothing in 
 
 See `docs/INITIAL.md` Section 3 (Core Architectural Rules) and Section 4 (Repository Structure) for rules that apply across all phases.
 
+## Required Reading (mandatory, before starting Phase 1)
+
+Read these before touching the corresponding milestone — each is the official best-practices/security/hardening reference for a tool this phase introduces. `docs/INITIAL.md`'s per-milestone sections (linked below) also fold each doc's major recommendations directly into the plan; this list is for reading the primary source, not just the summary.
+
+| Milestone | Tool | Required reading |
+|---|---|---|
+| M1 | Docker Compose | https://docs.docker.com/compose/how-tos/production/, https://docs.docker.com/build/building/best-practices/ |
+| M3 | Coder | https://coder.com/docs/tutorials/best-practices/security-best-practices |
+| M4 | VS Code Agent Host | https://code.visualstudio.com/docs/agents/best-practices, https://code.visualstudio.com/docs/agents/run/security, https://code.visualstudio.com/docs/agents/run/remote-agent-sessions |
+| M9 | Anthropic Sandbox Runtime (`srt`) | https://github.com/anthropic-experimental/sandbox-runtime (README), https://docs.claude.com/en/docs/claude-code/sandboxing |
+| M15 | Tailscale | https://tailscale.com/kb/1018/acls, https://tailscale.com/kb/1223/tailscale-ssh |
+
 ---
 
 ## M0 — Host Preparation
@@ -153,6 +165,8 @@ Create `examples/hello-service/`, supporting `make build`, `make test`, `make ru
 
 This persistent home volume is also where M4's Agent Host state lives — see M4 for the exact directory layout. Only `/home/coder` (or equivalent) survives a container replace; the rest of the workspace container is ephemeral.
 
+**Template governance (per Coder's own security best practices):** push template revisions via `coder templates push` in CI with a dedicated non-human account — don't grant Template Admin broadly, and never inline credentials in the Terraform template (Coder persists template versions indefinitely; a secret committed into one revision stays recoverable even after a later "fix"). Pass credentials via `TF_VAR_*` / Coder parameters instead.
+
 ### Validation Milestone M3
 
 From Coder: `Create Workspace → docker-standard`. Inside VS Code:
@@ -190,6 +204,8 @@ Prove the **Durable Session Plane** independently of both the workspace (M3, Cod
 You probably do not need to package your own Agent Host implementation — VS Code already bundles it. For a remote host, the Coder-provisioned workspace runs it as a standalone process, and VS Code installs/starts the required CLI when making a remote session connection.
 
 **Important qualifier:** an active turn continues while the Agent Host remains running — this does **not** mean the agent survives deletion of its Docker workspace. That's a *workspace* durability question (M3/M6), not a session durability question. See `docs/INITIAL.md` Section 2.2 and Rule 7.
+
+**Enable VS Code's own agent sandbox, not just `srt` (M9).** `chat.agent.sandbox.enabled` is item #1 in VS Code's documented security-baseline checklist and works on Linux/WSL2. Set it in `agent-host/settings.json` as a first OS-level sandbox layer, independent of and complementary to `srt` (introduced in M9) — both should be enabled, not one instead of the other.
 
 ### Bridge Coder Workspaces to AHP via SSH
 
@@ -385,13 +401,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     "deniedDomains": []
   },
   "filesystem": {
-    "denyRead": ["~/.ssh", "~/.aws", ".env"],
+    "denyRead": ["~/.ssh", "~/.aws", ".env", "~/.claude", "~/.copilot"],
     "allowWrite": [".", "/tmp"],
     "denyWrite": [".env", "**/secrets/**"]
   },
   "enableWeakerNestedSandbox": false
 }
 ```
+
+**`denyRead` must include the agent's own credential stores.** M4's persistent home places `~/.claude` and `~/.copilot` inside the same volume `srt` otherwise protects — without adding both here, a sandboxed `opencode` session could still read `pi`'s stored credentials (or vice versa), since read access is allowed by default except what's explicitly denied.
 
 Adjust `network.allowedDomains` to the chosen backend provider's endpoints, and extend with MCP/lab-simulator endpoints once Phase 3's M11 exists.
 
@@ -430,6 +448,7 @@ Run this test with **both** `opencode` and `pi` at least once, and record which 
 5. Compare the diagnosis with the known problem.
 6. Save transcript/evidence for each CLI.
 7. Confirm the sandbox actually restricts the agent: attempt to read `~/.ssh/id_rsa` and to reach a non-allowlisted domain, and confirm both are blocked by `srt`.
+8. Confirm cross-credential isolation: a sandboxed `opencode` session cannot read `pi`'s credential store (`~/.copilot`) and vice versa.
 
 Record in `docs/milestone-reports/M9-agent.md`.
 
@@ -442,6 +461,8 @@ Record in `docs/milestone-reports/M9-agent.md`.
 Automation already works without inbound access once the GitHub runner exists (Phase 2), but Phase 1's deliverable is specifically the *interactive* remote path — pulled forward here because without it the workspace is only reachable on the local LAN, not "remote." This builds on the AHP-over-SSH bridge established in M4.
 
 Recommended: **Tailscale Personal**. Do not publicly expose Coder.
+
+**Configure an explicit least-privilege ACL — Tailscale's default is allow-all.** Without an `acls` section in the tailnet policy file, every device on the tailnet can reach every other device, which contradicts Rule 6. Write an ACL restricting access to the private server's Coder/SSH ports to only the devices/users that need it, and consider enabling device approval given M15's own "unfamiliar network" test scenario.
 
 Target:
 
@@ -515,8 +536,9 @@ Do not skip this step even if nothing "went wrong" — record confirmations as w
 - [ ] An agent session survives closing and reopening the VS Code window (Durability Test 1 from `docs/INITIAL.md` Section 23).
 - [ ] Two parallel agent sessions operate in separate worktrees without overwriting each other's edits.
 - [ ] Both `opencode` and `pi` are installed in the workspace and each has successfully diagnosed the seeded failing test, grounded in repo context, without manual copy-paste.
-- [ ] Both `opencode` and `pi` run wrapped in `srt` (Anthropic Sandbox Runtime), with a confirmed denied file read (`~/.ssh/id_rsa`) and a confirmed denied network destination, while remaining functional against their allowlisted endpoints.
-- [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test).
+- [ ] `chat.agent.sandbox.enabled` is set in `agent-host/settings.json` (VS Code's own agent sandbox baseline, independent of `srt`).
+- [ ] Both `opencode` and `pi` run wrapped in `srt` (Anthropic Sandbox Runtime), with a confirmed denied file read (`~/.ssh/id_rsa`), a confirmed denied network destination, and confirmed cross-credential isolation (`~/.claude`/`~/.copilot`), while remaining functional against their allowlisted endpoints.
+- [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test), with an explicit least-privilege ACL in place (not Tailscale's allow-all default).
 - [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M4-agent-host.md`, `M5-sessions.md`, `M9-agent.md`, `M15-remote.md` are all committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 1 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 1 Lessons Learned entry.

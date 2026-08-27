@@ -8,6 +8,13 @@ Milestones covered: **M2** (Self-Hosted GitHub Runner), **M10** (GitHub Agentic 
 
 Depends on Phase 1 only for the agent harness existing (`opencode`/`pi` chosen as default in M9); does not depend on Coder workspaces or the Session Plane (M4/M5) being up.
 
+## Required Reading (mandatory, before starting Phase 2)
+
+| Milestone | Tool | Required reading |
+|---|---|---|
+| M2 | GitHub Actions self-hosted runners | https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions, https://docs.docker.com/build/building/best-practices/ |
+| M10 | gh-aw | https://github.github.com/gh-aw/introduction/architecture/, https://github.github.com/gh-aw/reference/safe-outputs/, https://github.github.com/gh-aw/reference/self-hosted-runners/ |
+
 ---
 
 ## M2 — Self-Hosted GitHub Runner
@@ -29,12 +36,14 @@ local Docker / APIs
 
 ### Runner Requirements
 
-Build the runner image in `runner/Dockerfile`. Do not depend on an opaque third-party runner image. The runner container should:
+Build the runner image in `runner/Dockerfile`. Do not depend on an opaque third-party runner image. Pin the base OS image by digest (this is the highest-security-sensitivity image in the plan) and document a rebuild/patch cadence in `docs/operations.md`; keep the final image minimal (no unnecessary build-time-only packages). The runner container should:
 
 - download a pinned GitHub Actions Runner version
 - persist runner configuration in a named volume
 - connect outbound only
 - use labels: `self-hosted`, `linux`, `private-lab`, `docker`
+
+**Prefer JIT/ephemeral runner registration** (`--jitconfig`, one job then auto-deregister) over a long-lived persistent runner — GitHub's hardening guide names this as the primary mitigation for registration/persistence risk, and it also limits the blast radius of the documented `ps`-based secret leak (any secret passed as a CLI arg to a job is visible to other processes on the same runner host via `ps x -w`). If a persistent runner is chosen instead for simplicity, record it as an explicit, time-boxed risk acceptance in `docs/security.md`.
 
 ### Important Security Restriction
 
@@ -118,6 +127,8 @@ It should:
 
 Do not initially let it: deploy, modify infrastructure, control Docker host arbitrarily, or manipulate hardware. Enforce this with `gh-aw`'s documented **"safe outputs"** mechanism (a separate, permission-scoped job for validated writes) rather than relying on the prose constraint alone.
 
+**Also enforce network and permission boundaries, not just request them:** since this runs on a self-hosted runner, configure gh-aw's Agent Workflow Firewall (`network: { firewall: true, allowed: [...] }` in frontmatter) scoped to only the domains the investigation needs — unrestricted egress on a self-hosted runner could exfiltrate data or reach internal-only services, violating Rule 6. Also declare an explicit minimal `permissions: { contents: read }` block rather than relying on safe-outputs' default alone — this is a private repo, so gh-aw's public-repo integrity auto-filtering doesn't apply here.
+
 ### Keep Deterministic Capabilities Separate
 
 Example normal workflow: `.github/workflows/local-capability.yml`, performing build/test/simulation. The agent can request the capability but should not reimplement it itself.
@@ -159,10 +170,11 @@ Before Phase 2 is considered done, you, as the agent, must:
 
 ## Phase 2 Exit Criteria
 
-- [ ] Self-hosted runner registered, labeled `[self-hosted, private-lab]`, connects outbound only.
+- [ ] Self-hosted runner registered, labeled `[self-hosted, private-lab]`, connects outbound only, either via JIT/ephemeral registration or with a documented time-boxed risk acceptance for a persistent runner.
+- [ ] Runner base image pinned by digest, minimal final image, rebuild cadence documented.
 - [ ] Docker socket is not directly mounted into the runner (mitigation from M2 applied).
 - [ ] `runner-smoke.yml` passes, triggered from outside the server's LAN, with no inbound port opened.
-- [ ] `gh-aw` investigates a seeded CI failure and produces a bounded, non-destructive diagnosis using the chosen harness (`opencode`/`pi`).
+- [ ] `gh-aw` investigates a seeded CI failure and produces a bounded, non-destructive diagnosis using the chosen harness (`opencode`/`pi`), with an explicit network firewall allowlist and minimal `permissions:` block configured.
 - [ ] `docs/milestone-reports/M2-runner.md` and `M10-gh-aw.md` are committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/security.md` reflect the actual Phase 2 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 2 Lessons Learned entry.

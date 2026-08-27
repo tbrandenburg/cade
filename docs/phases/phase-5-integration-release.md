@@ -220,20 +220,22 @@ The implementation is complete only if all of the following are true:
 - [ ] Parallel agent sessions operate in isolated Git worktrees without overwriting each other.
 - [ ] Coder workspace autostop does not terminate an active agent session.
 - [ ] Both `opencode` and `pi` are installed in the workspace and have each successfully diagnosed a seeded failure.
-- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime), with a verified denied file read and a verified denied network destination.
+- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime) and VS Code's own `chat.agent.sandbox.enabled`, with verified denied file read, denied network destination, and cross-credential isolation.
+- [ ] Self-hosted runner uses JIT/ephemeral registration (or a documented time-boxed risk acceptance) and a digest-pinned, minimal base image.
 - [ ] Normal GitHub Actions run deterministic CI.
-- [ ] `gh-aw` performs repository-centric reasoning.
-- [ ] Temporal survives worker interruption (Durability Test 2).
+- [ ] `gh-aw` performs repository-centric reasoning within an explicit network firewall allowlist and minimal `permissions:` block.
+- [ ] Temporal survives worker interruption (Durability Test 2), using a shared Task Queue constant, explicit Activity timeouts, and idempotent Activities.
 - [ ] Coder workspace restart preserves repo and persistent home (Durability Test 3).
-- [ ] Local OCI registry + build cache measurably reduce fresh-workspace build time.
-- [ ] MCP/internal APIs expose controlled capabilities.
+- [ ] Local OCI registry (auth-protected, no public port) + build cache (cache-key path issues addressed) measurably reduce fresh-workspace build time.
+- [ ] MCP/internal APIs expose controlled capabilities over `stdio` or an authenticated/unix-socket transport, with reservation tokens bound to the requesting caller.
 - [ ] Simulated device operations work.
-- [ ] OPA can deny an unsafe action.
+- [ ] OPA can deny an unsafe action, backed by an `opa test` suite.
+- [ ] OpenBao runs with TLS, revoked initial root token, and securely backed-up unseal keys.
 - [ ] Secrets are not stored in source.
-- [ ] Important execution events are observable.
+- [ ] Important execution events are observable via Prometheus (not exposed publicly) and a version-controlled Grafana dashboard.
 - [ ] A full backup has been created and successfully restored, verified against every "MUST BACK UP" category (M14).
 - [ ] End-to-end flow begins in GitHub and returns a result to GitHub.
-- [ ] Interactive access does not require public exposure of the server.
+- [ ] Interactive access does not require public exposure of the server, and uses an explicit least-privilege Tailscale ACL rather than the allow-all default.
 - [ ] All milestone reports (across all five phases) are committed.
 
 ---
