@@ -141,6 +141,8 @@ Implement `docker-standard` using Coder Community + Docker + Dev Container conce
 
 Install at minimum: `git`, `curl`, `build-essential`, `python`, `node` (or another simple runtime), GitHub CLI, Docker CLI if required. Use a project-specific non-root user.
 
+M9 later adds `bubblewrap`, `socat`, and `ripgrep` to this image to support sandboxing the agent CLIs with `srt` (Anthropic Sandbox Runtime).
+
 ### Example Application
 
 Create `examples/hello-service/`, supporting `make build`, `make test`, `make run` inside the workspace. The test suite may be tiny — the purpose is proving the environment contract.
@@ -340,9 +342,59 @@ Gemini
 
 Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4). Store the provider credential per the interim secret handling rule (Rule 3) — `.env` with `chmod 600`, never committed, rotated once OpenBao exists (Phase 4, M12).
 
+### Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)
+
+Run `opencode` and `pi` wrapped in [Anthropic's Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) (`srt`) — an OS-level sandbox (`bubblewrap` on Linux, no container-in-container) that enforces filesystem and network allowlists on the wrapped process tree. This is defense-in-depth on top of the workspace container itself: it stops a compromised or misbehaving agent session from reading `~/.ssh`/`.env` or exfiltrating to an arbitrary host, even with a shell inside the workspace. **Status:** beta research preview from Anthropic — an additional layer, not a replacement for the workspace/runner isolation already required by Rule 1/Rule 6.
+
+**Install** (needs Node.js, already required by M3's Workspace Contents):
+
+```bash
+npm install -g @anthropic-ai/sandbox-runtime
+```
+
+**Workspace image preconditions** — add to `coder/Dockerfile`:
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bubblewrap socat ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Host/Docker nested-sandbox precondition** — `bubblewrap` runs nested inside the already-containerized workspace, which needs unprivileged user namespaces at the host kernel level:
+
+1. Check `sysctl kernel.unprivileged_userns_clone` on the private server; must be `1`.
+2. On **Ubuntu 24.04+ hosts**, AppArmor restricts unprivileged user namespaces by default even when the sysctl above is set — run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` on the host (or install a scoped AppArmor profile granting `userns` to `bwrap`/`node` instead of a system-wide disable).
+3. Smoke-test from inside the workspace: `bwrap --unshare-user --unshare-pid --ro-bind / / echo ok`. If it still fails after the host fixes above, set `"enableWeakerNestedSandbox": true` in `~/.srt-settings.json` (srt's documented flag for Docker environments) rather than loosening the workspace container's own `seccomp`/`apparmor` profile — do not reach for `--privileged` or `--security-opt seccomp=unconfined` on the workspace container as a first fix, since that weakens the Rule 1 container boundary itself.
+
+**Configuration** — version the template at `agent-host/srt-settings.json` in the repo; have the workspace startup script copy/symlink it to `~/.srt-settings.json` in the persistent home volume (M4) on first boot:
+
+```json
+{
+  "network": {
+    "allowedDomains": ["github.com", "*.github.com", "api.github.com", "copilot-proxy.githubusercontent.com"],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": ["~/.ssh", "~/.aws", ".env"],
+    "allowWrite": [".", "/tmp"],
+    "denyWrite": [".env", "**/secrets/**"]
+  },
+  "enableWeakerNestedSandbox": false
+}
+```
+
+Adjust `network.allowedDomains` to the chosen backend provider's endpoints, and extend with MCP/lab-simulator endpoints once Phase 3's M11 exists.
+
+**Wrap the harnesses** by default via shell alias:
+
+```bash
+alias opencode='srt opencode --'
+alias pi='srt pi --'
+```
+
 ### Agent Test
 
-Create a deliberately failing unit test in a branch. Ask the agent (via `opencode` or `pi`):
+Create a deliberately failing unit test in a branch. Ask the agent (via `opencode` or `pi`, sandboxed):
 
 ```text
 Investigate why the test fails.
@@ -357,16 +409,17 @@ Return:
 
 The model must see repository context, identify the known failure, and not require manual copying of the entire repository into chat.
 
-Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later milestones (M10's `gh-aw`, M11's agent-driven MCP calls).
+Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later milestones (M10's `gh-aw`, M11's agent-driven MCP calls). Additionally, confirm both harnesses run correctly through the `srt` sandbox wrapper (restrictions enforced, agent still functional against allowlisted endpoints).
 
 ### Manual E2E Test M9
 
 1. Create fresh agent workspace (or worktree, per M5).
 2. Authenticate the selected provider.
 3. Intentionally break the sample project.
-4. Ask the agent (`opencode` first, then `pi`) to diagnose it.
+4. Ask the agent (`opencode` first, then `pi`) to diagnose it — both wrapped in `srt`.
 5. Compare the diagnosis with the known problem.
 6. Save transcript/evidence for each CLI.
+7. Confirm the sandbox actually restricts the agent: attempt to read `~/.ssh/id_rsa` and to reach a non-allowlisted domain, and confirm both are blocked by `srt`.
 
 Record in `docs/milestone-reports/M9-agent.md`.
 
@@ -424,7 +477,7 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 - capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2);
 - for M4, actually close and reopen the VS Code window yourself and confirm the same Agent Host session continues — do not accept "it should work" as a substitute for reconnecting;
 - for M5, actually run two parallel worktree sessions yourself and diff the files to confirm isolation;
-- for M9, run the agent diagnosis test with both `opencode` and `pi` yourself, comparing your own diagnosis against the seeded known failure;
+- for M9, run the agent diagnosis test with both `opencode` and `pi` yourself, comparing your own diagnosis against the seeded known failure, and confirm the `srt` sandbox actually blocks a denied file read and a denied network destination;
 - record the results in the corresponding `docs/milestone-reports/*.md` file before considering Phase 1 complete.
 
 ---
@@ -435,8 +488,8 @@ Before Phase 1 is considered done, you, as the agent, must:
 
 1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, AHP/Agent Host bridge via `coder config-ssh`, worktree layout, Tailscale access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
 2. **Update `AGENTS.md`** at the repo root with:
-   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas, AHP/SSH connection quirks, autostop-vs-agent-session conflicts observed).
-   - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how to bridge it via `coder config-ssh`, how each CLI authenticates, how to create/clean up a worktree, any flags or config needed to ground the agent in repo context.
+   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas, AHP/SSH connection quirks, autostop-vs-agent-session conflicts observed, `srt` nested-sandbox quirks on the host kernel).
+   - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how to bridge it via `coder config-ssh`, how each CLI authenticates, how to create/clean up a worktree, how to update `~/.srt-settings.json` allowlists when a new legitimate domain/path is needed, any flags or config needed to ground the agent in repo context.
    - **Lessons Learned** — a dated entry (`## Phase 1 — <date>`) describing what broke, what surprised you, and what to avoid next time. Do not overwrite prior entries; append.
 
 Do not skip this step even if nothing "went wrong" — record confirmations as well as problems, so future phases know what's already solid.
@@ -452,6 +505,7 @@ Do not skip this step even if nothing "went wrong" — record confirmations as w
 - [ ] An agent session survives closing and reopening the VS Code window (Durability Test 1 from `docs/INITIAL.md` Section 23).
 - [ ] Two parallel agent sessions operate in separate worktrees without overwriting each other's edits.
 - [ ] Both `opencode` and `pi` are installed in the workspace and each has successfully diagnosed the seeded failing test, grounded in repo context, without manual copy-paste.
+- [ ] Both `opencode` and `pi` run wrapped in `srt` (Anthropic Sandbox Runtime), with a confirmed denied file read (`~/.ssh/id_rsa`) and a confirmed denied network destination, while remaining functional against their allowlisted endpoints.
 - [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test).
 - [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M4-agent-host.md`, `M5-sessions.md`, `M9-agent.md`, `M15-remote.md` are all committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 1 implementation.

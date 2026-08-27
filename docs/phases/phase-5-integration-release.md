@@ -215,6 +215,7 @@ The implementation is complete only if all of the following are true:
 - [ ] Parallel agent sessions operate in isolated Git worktrees without overwriting each other.
 - [ ] Coder workspace autostop does not terminate an active agent session.
 - [ ] Both `opencode` and `pi` are installed in the workspace and have each successfully diagnosed a seeded failure.
+- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime), with a verified denied file read and a verified denied network destination.
 - [ ] Normal GitHub Actions run deterministic CI.
 - [ ] `gh-aw` performs repository-centric reasoning.
 - [ ] Temporal survives worker interruption (Durability Test 2).

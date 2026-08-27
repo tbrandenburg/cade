@@ -401,6 +401,7 @@ private-dev-platform/
 ├── agent-host/
 │   ├── README.md
 │   ├── settings.json
+│   ├── srt-settings.json
 │   └── tests/
 │       ├── persistence.md
 │       └── handoff.md
@@ -974,6 +975,8 @@ Docker CLI if required
 ```
 
 Use a project-specific non-root user.
+
+M9 later adds `bubblewrap`, `socat`, and `ripgrep` to this image to support sandboxing the agent CLIs with `srt` (Anthropic Sandbox Runtime) — see M9's "Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)" subsection for why and how.
 
 ---
 
@@ -1679,6 +1682,114 @@ Do not integrate four providers simultaneously. Recommended first option: **GitH
 
 ---
 
+## Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)
+
+Run `opencode` and `pi` wrapped in [Anthropic's Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) (`srt`), an OS-level sandbox (no container-in-container needed) that enforces filesystem and network allowlists on the wrapped process tree. This is a defense-in-depth layer on top of the workspace container itself — the workspace already isolates the agent from the host (Rule 1), `srt` further isolates the agent from the rest of the workspace filesystem and from arbitrary network egress, so a compromised or misbehaving agent session cannot read `~/.ssh`, `.env`, or exfiltrate data to an arbitrary host even if it has a shell inside the workspace.
+
+**Status:** this is a beta research preview from Anthropic, not a hardened production sandbox. Treat it as an additional layer, not a replacement for the workspace/runner isolation already required by Rule 1 and Rule 6.
+
+### Installation
+
+`srt` ships as an npm package and needs Node.js already present in the workspace image (already a requirement per M3's Workspace Contents):
+
+```bash
+npm install -g @anthropic-ai/sandbox-runtime
+```
+
+### Linux (workspace container) Preconditions
+
+`srt` uses `bubblewrap` on Linux, not a container — it must be installed as an OS package **inside the workspace image**, alongside two more dependencies:
+
+```dockerfile
+# coder/Dockerfile (docker-standard workspace image)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bubblewrap \
+    socat \
+    ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+- `bubblewrap` (`bwrap`) — the actual sandboxing primitive (user + network namespaces).
+- `socat` — bridges the sandboxed process to the host-side proxy over a Unix domain socket.
+- `ripgrep` (`rg`) — used internally for deny-path detection.
+
+### Docker/Host Preconditions (nested sandboxing)
+
+Because the workspace itself is already a Docker container, `srt`'s `bubblewrap` sandbox runs **nested inside** that container. This needs unprivileged user namespaces to be available at the container level, which depends on the **host** kernel, not just the workspace image:
+
+1. Confirm the private server's host kernel allows unprivileged user namespaces:
+
+   ```bash
+   sysctl kernel.unprivileged_userns_clone
+   ```
+
+   If present and `0`, the host does not allow them by default; this must be enabled for `bwrap` to work inside any container on that host.
+
+2. **Ubuntu 24.04+ hosts specifically** restrict unprivileged user namespaces via AppArmor by default, which blocks `bubblewrap` even if `unprivileged_userns_clone` is set. Disable the restriction on the host:
+
+   ```bash
+   sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+   ```
+
+   (or install a scoped AppArmor profile that grants `userns` to `bwrap`/`node` instead of disabling the restriction system-wide — prefer this on a host that runs other untrusted workloads).
+
+3. Smoke-test nested sandboxing from inside the workspace container before relying on it:
+
+   ```bash
+   bwrap --unshare-user --unshare-pid --ro-bind / / echo ok
+   ```
+
+   If this fails inside the Docker workspace even after the host-level fixes above, set `enableWeakerNestedSandbox: true` in `~/.srt-settings.json` (documented explicitly by `srt` as the flag for "Docker environments") rather than loosening the container's `seccomp`/`apparmor` profile broadly. Do not reach for `--privileged` or `--security-opt seccomp=unconfined` on the workspace container as a first fix — that weakens the Rule 1 container boundary itself, which is a bigger concession than nested-sandbox mode.
+
+### Configuration
+
+Version the template in the repo at `agent-host/srt-settings.json`, and have the Coder workspace startup script (or `configure-coder-ssh.sh`) copy/symlink it to `~/.srt-settings.json` inside the persistent Coder home volume (M4's persistent home layout) on first boot, so it survives a workspace container replace and stays under source control for review:
+
+```json
+{
+  "network": {
+    "allowedDomains": [
+      "github.com",
+      "*.github.com",
+      "api.github.com",
+      "copilot-proxy.githubusercontent.com"
+    ],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": ["~/.ssh", "~/.aws", ".env"],
+    "allowWrite": [".", "/tmp"],
+    "denyWrite": [".env", "**/secrets/**"]
+  },
+  "enableWeakerNestedSandbox": false
+}
+```
+
+Adjust `network.allowedDomains` to match whichever backend provider was chosen above (Copilot, Claude, OpenAI, or Gemini endpoints), and add the MCP/lab-simulator endpoints from M11 once that milestone exists.
+
+### Wrapping the Harnesses
+
+```bash
+srt opencode -- <opencode args>
+srt pi -- <pi args>
+```
+
+Alias these in the workspace shell profile (`/home/coder/.bashrc` or equivalent) so `opencode`/`pi` are sandboxed by default rather than opt-in:
+
+```bash
+alias opencode='srt opencode --'
+alias pi='srt pi --'
+```
+
+### Validation
+
+1. Confirm `bwrap --version`, `socat -V`, and `rg --version` all succeed inside the workspace.
+2. Confirm `srt "cat ~/.ssh/id_rsa"` is blocked (`Operation not permitted`) while `srt "cat README.md"` succeeds.
+3. Confirm `srt "curl <an allowed domain>"` succeeds while `srt "curl <a non-allowlisted domain>"` is blocked by the network allowlist.
+4. Run the Agent Test below through the sandboxed alias and confirm the agent still functions normally against its allowlisted provider/MCP endpoints.
+
+---
+
 ## Agent Test
 
 Create a deliberately failing unit test in a branch.
@@ -1706,6 +1817,8 @@ The model must:
 
 Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later milestones (M10's `gh-aw` and M11's agent-driven MCP calls should reuse whichever is chosen, unless there's a reason to keep both).
 
+Additionally, confirm both harnesses run correctly through the `srt` sandbox wrapper (network/filesystem restrictions enforced, agent still functional against its allowlisted endpoints) before considering M9 complete.
+
 ---
 
 ## Manual E2E Test M9
@@ -1715,9 +1828,10 @@ You, as the implementing agent, must:
 1. Create fresh agent workspace (or worktree, per M5).
 2. Authenticate the selected provider.
 3. Intentionally break the sample project.
-4. Ask the agent (`opencode` first, then `pi`) to diagnose it.
+4. Ask the agent (`opencode` first, then `pi`) to diagnose it — both wrapped in `srt`.
 5. Compare the diagnosis with the known problem.
 6. Save transcript/evidence for each CLI.
+7. Separately, confirm the sandbox actually restricts the agent: attempt (via the agent or directly) to read `~/.ssh/id_rsa` and to reach a non-allowlisted domain, and confirm both are blocked by `srt`.
 
 Record in:
 
@@ -2561,6 +2675,7 @@ The implementation is complete only if all of the following are true:
 - [ ] Parallel agent sessions operate in isolated Git worktrees without overwriting each other.
 - [ ] Coder workspace autostop does not terminate an active agent session.
 - [ ] Both `opencode` and `pi` are installed in the workspace and have each successfully diagnosed a seeded failure.
+- [ ] Both `opencode` and `pi` run sandboxed via `srt` (Anthropic Sandbox Runtime), with a verified denied file read and a verified denied network destination.
 - [ ] Normal GitHub Actions run deterministic CI.
 - [ ] `gh-aw` performs repository-centric reasoning.
 - [ ] Temporal survives worker interruption — Durability Test 2.
