@@ -4,9 +4,9 @@
 
 Prove that GitHub can trigger deterministic CI and repository-centric agent reasoning on the private server, using an outbound-only connection — independent of Phase 1's interactive workspace.
 
-Milestones covered: **M2** (Self-Hosted GitHub Runner), **M7** (GitHub Agentic Workflows).
+Milestones covered: **M2** (Self-Hosted GitHub Runner), **M10** (GitHub Agentic Workflows).
 
-Depends on Phase 1 only for the repository/agent harness existing (`opencode`/`pi` chosen as default in M6); does not depend on Coder workspaces being up.
+Depends on Phase 1 only for the agent harness existing (`opencode`/`pi` chosen as default in M9); does not depend on Coder workspaces or the Session Plane (M4/M5) being up.
 
 ---
 
@@ -83,7 +83,7 @@ Record in `docs/milestone-reports/M2-runner.md`, explicitly answering: *"Can Git
 
 ---
 
-## M7 — GitHub Agentic Workflows
+## M10 — GitHub Agentic Workflows
 
 ### Objective
 
@@ -101,7 +101,7 @@ safe decision
 deterministic workflow
 ```
 
-`gh-aw`'s reasoning step should invoke the same harness chosen in Phase 1 M6 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool.
+`gh-aw`'s reasoning step should invoke the harness chosen in Phase 1 M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool.
 
 ### First Agentic Workflow
 
@@ -118,11 +118,11 @@ Do not initially let it: deploy, modify infrastructure, control Docker host arbi
 
 Example normal workflow: `.github/workflows/local-capability.yml`, performing build/test/simulation. The agent can request the capability but should not reimplement it itself.
 
-### Validation Milestone M7
+### Validation Milestone M10
 
 Create a known build failure. Expected lifecycle: CI fails → agentic workflow executes → agent investigates → result is visible in GitHub.
 
-### Manual E2E Test M7
+### Manual E2E Test M10
 
 1. Introduce the documented test failure.
 2. Push branch.
@@ -131,13 +131,13 @@ Create a known build failure. Expected lifecycle: CI fails → agentic workflow 
 5. Review agent reasoning.
 6. Verify the agent did not perform unauthorized actions.
 
-Record in `docs/milestone-reports/M7-gh-aw.md`.
+Record in `docs/milestone-reports/M10-gh-aw.md`.
 
 ---
 
 ## Phase 2 Manual E2E Testing (performed by you, the agent)
 
-You, as the agent, must personally execute every Manual E2E Test in this phase (M2, M7) end-to-end — from a network outside the server's LAN for M2, and against a real seeded CI failure for M7. Do not simulate the runner triggering or the `gh-aw` reasoning step; trigger them for real and observe the actual result in GitHub. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M2-runner.md` and `M7-gh-aw.md` before considering Phase 2 complete.
+You, as the agent, must personally execute every Manual E2E Test in this phase (M2, M10) end-to-end — from a network outside the server's LAN for M2, and against a real seeded CI failure for M10. Do not simulate the runner triggering or the `gh-aw` reasoning step; trigger them for real and observe the actual result in GitHub. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M2-runner.md` and `M10-gh-aw.md` before considering Phase 2 complete.
 
 ---
 
@@ -159,6 +159,6 @@ Before Phase 2 is considered done, you, as the agent, must:
 - [ ] Docker socket is not directly mounted into the runner (mitigation from M2 applied).
 - [ ] `runner-smoke.yml` passes, triggered from outside the server's LAN, with no inbound port opened.
 - [ ] `gh-aw` investigates a seeded CI failure and produces a bounded, non-destructive diagnosis using the chosen harness (`opencode`/`pi`).
-- [ ] `docs/milestone-reports/M2-runner.md` and `M7-gh-aw.md` are committed with command-level evidence.
+- [ ] `docs/milestone-reports/M2-runner.md` and `M10-gh-aw.md` are committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/security.md` reflect the actual Phase 2 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 2 Lessons Learned entry.

@@ -4,8 +4,9 @@
 
 Build a **single-repository, Docker-first private developer platform** that demonstrates the 2027-style development architecture discussed earlier:
 
-- VS Code as the human control surface
-- persistent/remote agent sessions
+- VS Code (or browser / CLI) as the human control surface
+- **VS Code Agent Host + AHP (Agent Host Protocol) as a durable session plane**, independent of which client is attached
+- persistent/remote agent sessions, with explicit memory and worktree isolation
 - paid LLM access where desired
 - Coder Community for remote development workspaces
 - Docker + Dev Containers as the default execution environment
@@ -16,6 +17,8 @@ Build a **single-repository, Docker-first private developer platform** that demo
 - MCP/internal APIs for tools and context
 - optional Keycloak, OpenBao, OPA, OpenTelemetry, and Grafana for governance and observability
 
+See `docs/devenv-cloud.png` for the seven-layer reference diagram this plan implements.
+
 The setup must:
 
 1. Run primarily on **one Linux server**.
@@ -25,11 +28,83 @@ The setup must:
 5. Use Docker wherever reasonably possible.
 6. Allow later addition of GCP without redesigning the platform.
 7. Include explicit validation milestones.
-8. Require the implementing developer to perform manual end-to-end tests before proceeding to the next milestone.
+8. Require you, as the implementing agent, to perform manual end-to-end tests before proceeding to the next milestone.
 
 ---
 
 # 2. Target Architecture
+
+## 2.1 Seven-Layer Model
+
+The platform is organized into seven layers (see `docs/devenv-cloud.png` for the full diagram):
+
+```text
+1. HUMAN CONTROL SURFACE
+   VS Code / Browser / CLI
+             │
+             │ AHP (Agent Host Protocol)
+             ▼
+2. DURABLE SESSION PLANE
+   VS Code Agent Host
+   session state / chats / worktrees / approvals
+             │
+             ▼
+3. AGENT / HARNESS PLANE
+   GitHub Copilot / Claude / Gemini / OpenAI / OpenCode / Pi
+             │
+             ▼
+4. DEVELOPMENT EXECUTION PLANE
+   Coder Community
+      ↓
+   Docker workspace (Dev Containers / Podman / Incus VMs / Proxmox optional)
+      ↓
+   repo + buildchain + tools
+             │
+             ▼
+5. COORDINATION / AUTOMATION
+   GitHub
+   ├─ Actions  → deterministic
+   ├─ gh-aw    → reasoning
+   └─ Temporal → durable processes
+             │
+             ▼
+6. TOOL / CONTEXT FABRIC
+   MCP / internal APIs / simulated lab API / docs & telemetry
+             │
+             ▼
+7. GOVERNANCE / OPERATIONS
+   identity (Keycloak) / secrets (OpenBao) / policy (OPA)
+   network (Tailscale) / telemetry (OpenTelemetry, Grafana)
+   backup / recovery
+```
+
+**The most important distinction in this model: Layer 2 (session persistence) and Layer 4 (workspace persistence) are not the same thing**, and neither is the same as Layer 5's durable orchestration (Temporal). Conflating these is the single biggest architectural mistake this plan originally made — see Section 2.2.
+
+## 2.2 Three Durability Levels
+
+```text
+UI durability
+VS Code closes
+    ↓
+AHP / Agent Host survives
+    (client comes and goes; the Agent Host owns the session)
+
+Workspace durability
+workspace container restarts
+    ↓
+Coder persistent volume survives
+    (the repo, toolchain state, and agent home directory survive a container replace)
+
+Process durability
+machine / worker crashes for hours
+    ↓
+Temporal survives
+    (a durable workflow resumes exactly where it left off, state intact)
+```
+
+Do not assume that proving one durability level implies another. UI durability (AHP) proves the client is replaceable. Workspace durability (Coder) proves the execution environment survives a restart. Process durability (Temporal) proves long-running orchestration survives a worker crash. **All three must be tested independently** — see the Final Milestone (Section 22) Durability Boundary Tests.
+
+## 2.3 Physical Deployment
 
 ```text
                           GitHub.com
@@ -53,9 +128,10 @@ The setup must:
 │         │                 │                              │
 │         ▼                 ▼                              │
 │  ┌──────────────────────────────────────┐                │
-│  │ Development / Agent Containers       │                │
+│  │ Development / Agent Workspaces       │                │
 │  │                                      │                │
-│  │ repo + toolchain + agent + tests     │                │
+│  │ repo + toolchain + VS Code Agent     │                │
+│  │ Host (AHP) + agent CLI + tests       │                │
 │  └──────────────────────────────────────┘                │
 │                                                          │
 │  ┌──────────────────────────────────────┐                │
@@ -66,7 +142,7 @@ The setup must:
 │        ┌────────┼──────────────┐                         │
 │        ▼        ▼              ▼                         │
 │      Docker   Temporal       Local APIs                  │
-│      builds   workflows      / lab simulation            │
+│      builds   workflows      / lab simulation             │
 │                                                          │
 │  ┌─────────┐ ┌─────────┐ ┌─────┐ ┌───────────────┐      │
 │  │OpenBao  │ │Keycloak │ │ OPA │ │ MCP services  │      │
@@ -75,21 +151,25 @@ The setup must:
 │  ┌───────────────────────────────────────────────┐       │
 │  │ OpenTelemetry → Grafana                       │       │
 │  └───────────────────────────────────────────────┘       │
+│                                                          │
+│  ┌───────────────────────────────────────────────┐       │
+│  │ Artifact / Cache: OCI registry, sccache        │       │
+│  └───────────────────────────────────────────────┘       │
 └──────────────────────────────────────────────────────────┘
 
                 ▲
-                │ LAN / optional Tailscale
+                │ AHP over SSH (Tailscale / LAN), or AHP over dev tunnel from browser
                 │
-             VS Code
+       VS Code / Browser
 ```
 
-Note: the diagram shows the target end-state after all milestones are complete. `OpenBao`, `Keycloak`, and `OPA` are not present until Milestone 9 and are added incrementally, not deployed alongside Coder/Temporal from the start — see Section 15 for their actual (deferred, partly optional) rollout order.
+Note: the diagram shows the target end-state after all milestones are complete. `OpenBao`, `Keycloak`, and `OPA` are not present until Milestone 12 and are added incrementally, not deployed alongside Coder/Temporal from the start — see Section 18 for their actual (deferred, partly optional) rollout order.
 
 ---
 
 # 3. Core Architectural Rules
 
-The junior developer should follow these rules throughout the implementation.
+You, as the implementing agent, should follow these rules throughout the implementation.
 
 ## Rule 1 — Docker first, not Docker only
 
@@ -108,6 +188,7 @@ Use Docker for:
 - development workspaces
 - build environments
 - agent runtimes
+- artifact/cache services (registry, sccache)
 
 Do not introduce Kubernetes, GCP, Incus, or Proxmox in the initial implementation.
 
@@ -167,13 +248,13 @@ Commit only:
 
 with placeholder values.
 
-### Interim secret handling before Milestone 9 (OpenBao)
+### Interim secret handling before Milestone 12 (OpenBao)
 
-OpenBao is not deployed until Milestone 9, but the runner (M2), Coder workspaces (M3), and the agent/harness (M6) all require real credentials long before that. Until OpenBao exists:
+OpenBao is not deployed until Milestone 12, but the runner (M2), Coder workspaces (M3), the agent host (M4), and the agent/harness (M9) all require real credentials long before that. Until OpenBao exists:
 
 - Store all real secrets in a local `.env` file with permissions `chmod 600`, never in tracked files.
 - Reference `.env` values from `compose.yaml` only through `env_file:` / `${VAR}` interpolation — never hardcode a secret in a committed YAML file.
-- Treat every credential introduced before M9 (GitHub runner registration token, Coder admin password, LLM API key) as temporary: rotate it once OpenBao is available in M9, and record the rotation in `docs/milestone-reports/M9-governance.md`.
+- Treat every credential introduced before M12 (GitHub runner registration token, Coder admin password, LLM API key) as temporary: rotate it once OpenBao is available in M12, and record the rotation in `docs/milestone-reports/M12-governance.md`.
 - `scripts/doctor.sh` must fail loudly if it detects a secret-shaped string (e.g. `ghp_`, `sk-`) inside any tracked file, as an early regression guard.
 
 ---
@@ -231,10 +312,40 @@ Laptop
    ↓
 LAN / Tailscale
    ↓
-Coder / VS Code
+AHP (over SSH or dev tunnel)
+   ↓
+VS Code Agent Host
+   ↓
+Coder workspace
 ```
 
 Do not expose Docker, Temporal, OpenBao, Coder, or internal APIs directly to the public Internet.
+
+---
+
+## Rule 7 — Respect the three durability levels (Section 2.2)
+
+Do not conflate:
+
+- **UI durability** (AHP / Agent Host session survives closing VS Code) with
+- **Workspace durability** (Coder persistent volume survives a container restart) with
+- **Process durability** (Temporal survives a worker crash).
+
+Each is validated by a different mechanism and a different test. A milestone that proves one does **not** imply the others pass. See M4 (AHP), M3/M6 (Coder persistence), and M8 (Temporal) for where each is validated individually, and the Final Milestone (Section 22) for the combined Durability Boundary Tests.
+
+---
+
+## Rule 8 — Agent session data stays local by default
+
+VS Code's Agent Host can maintain searchable session history and, for some providers, optionally sync it to a cloud account. For this private platform:
+
+```json
+{
+  "chat.sessionSync.enabled": false
+}
+```
+
+must be the default in `.vscode/settings.json` / `agent-host/settings.json`. This is a deliberate choice, not an oversight: the goal is a self-controlled platform where session state (live session, local history, user/repository memory) stays on the private server unless a future milestone explicitly and intentionally enables sync.
 
 ---
 
@@ -265,6 +376,11 @@ private-dev-platform/
 │   ├── wait-for-services.sh
 │   ├── register-runner.sh
 │   ├── unregister-runner.sh
+│   ├── configure-coder-ssh.sh
+│   ├── verify-agent-host.sh
+│   ├── verify-ahp-session.sh
+│   ├── create-agent-worktree.sh
+│   ├── cleanup-agent-worktree.sh
 │   ├── backup.sh
 │   └── restore-test.sh
 │
@@ -282,12 +398,27 @@ private-dev-platform/
 │   │       └── README.md
 │   └── examples/
 │
+├── agent-host/
+│   ├── README.md
+│   ├── settings.json
+│   └── tests/
+│       ├── persistence.md
+│       └── handoff.md
+│
+├── sessions/
+│   ├── README.md
+│   └── worktree-policy.md
+│
 ├── temporal/
 │   ├── worker/
 │   │   ├── Dockerfile
 │   │   └── src/
 │   ├── workflows/
 │   └── README.md
+│
+├── cache/
+│   ├── registry/
+│   └── sccache/
 │
 ├── mcp/
 │   ├── docs-server/
@@ -301,6 +432,10 @@ private-dev-platform/
 ├── observability/
 │   ├── otel/
 │   └── grafana/
+│
+├── backup/
+│   ├── backup-policy.md
+│   └── restore-test.md
 │
 ├── devcontainers/
 │   └── base/
@@ -319,6 +454,10 @@ private-dev-platform/
 │       ├── tests/
 │       └── scripts/
 │
+├── .vscode/
+│   ├── settings.json
+│   └── extensions.json
+│
 └── .github/
     ├── workflows/
     │   ├── platform-ci.yml
@@ -334,7 +473,7 @@ private-dev-platform/
 
 # 5. Standard Make Targets
 
-The junior developer must maintain these commands as the stable interface to the repository:
+You, as the implementing agent, must maintain these commands as the stable interface to the repository:
 
 ```bash
 make doctor
@@ -347,6 +486,10 @@ make test
 make runner-register
 make runner-unregister
 make coder-init
+make agent-host-verify
+make worktree-new
+make worktree-cleanup
+make cache-up
 make e2e
 make backup
 make restore-test
@@ -356,7 +499,7 @@ A user should not need to memorize Docker Compose commands.
 
 ### Script test coverage
 
-`make test` must include automated tests for the repository's own automation scripts (`doctor.sh`, `bootstrap.sh`, `wait-for-services.sh`, `register-runner.sh`, `unregister-runner.sh`, `backup.sh`, `restore-test.sh`), not only the example applications. Use `shellcheck` for static analysis and `bats` (or an equivalent shell-testing framework) for behavioral tests covering at least: expected success path, missing-dependency failure path, and idempotency (running twice does not corrupt state). Do not treat these scripts as untested glue code — they are the operational core of the platform.
+`make test` must include automated tests for the repository's own automation scripts (`doctor.sh`, `bootstrap.sh`, `wait-for-services.sh`, `register-runner.sh`, `unregister-runner.sh`, `configure-coder-ssh.sh`, `verify-agent-host.sh`, `verify-ahp-session.sh`, `create-agent-worktree.sh`, `cleanup-agent-worktree.sh`, `backup.sh`, `restore-test.sh`), not only the example applications. Use `shellcheck` for static analysis and `bats` (or an equivalent shell-testing framework) for behavioral tests covering at least: expected success path, missing-dependency failure path, and idempotency (running twice does not corrupt state). Do not treat these scripts as untested glue code — they are the operational core of the platform.
 
 ---
 
@@ -443,7 +586,7 @@ Do not continue otherwise.
 
 ## Manual E2E Test M0
 
-The junior developer must manually perform:
+You, as the implementing agent, must manually perform:
 
 1. Reboot the server.
 2. Log back in.
@@ -476,7 +619,7 @@ Include:
 - CPU
 - RAM
 - free disk
-- screenshot or pasted output showing PASS
+- command output / exit codes showing PASS (per the evidence standard in Rule 2)
 
 Only merge M0 after this report exists.
 
@@ -491,13 +634,11 @@ Prove that the platform can be brought up and down predictably.
 Initially include only:
 
 ```text
-PostgreSQL
+PostgreSQL (coder-db)
 Coder
-Temporal
-Temporal UI
 ```
 
-Do not add governance or observability yet.
+Temporal is **deliberately deferred to Milestone 8** — it is not needed until the durable-orchestration milestone, and standing it up here would add unnecessary footprint before it's used. Do not add governance or observability yet either.
 
 ---
 
@@ -557,9 +698,6 @@ Verify:
 ```text
 coder          healthy
 coder-db       healthy
-temporal       healthy
-temporal-db    healthy
-temporal-ui    healthy
 ```
 
 Then:
@@ -575,24 +713,23 @@ Verify all persistent data remains valid.
 
 ## Manual E2E Test M1
 
-The junior developer must:
+You, as the implementing agent, must:
 
 1. Start the stack.
 2. Open Coder UI in a browser.
-3. Open Temporal UI.
-4. Stop all containers:
+3. Stop all containers:
 
 ```bash
 make down
 ```
 
-5. Start everything again:
+4. Start everything again:
 
 ```bash
 make up
 ```
 
-6. Confirm both UIs return.
+5. Confirm the UI returns.
 
 Create:
 
@@ -603,7 +740,7 @@ docs/milestone-reports/M1-compose.md
 Record:
 
 - commands
-- screenshots
+- screenshots/logs
 - container status
 - startup time
 - restart result
@@ -875,6 +1012,8 @@ The purpose is proving the environment contract.
 5. expose VS Code connection
 6. start in project directory
 
+This persistent home volume is also where Milestone 4's Agent Host state lives — see M4 for the exact directory layout. Do not treat the workspace container filesystem and the persistent home volume as interchangeable: only `/home/coder` (or equivalent) survives a container replace.
+
 ---
 
 ## Validation Milestone M3
@@ -900,17 +1039,17 @@ Everything must pass without installing extra packages manually.
 
 ## Manual E2E Test M3
 
-The junior developer must:
+You, as the implementing agent, must:
 
 1. Delete the existing workspace.
 2. Create a completely fresh workspace.
 3. Connect using VS Code.
 4. Confirm the repository exists.
 5. Build the sample.
-6. run tests.
-7. edit one line.
-8. commit the change on a test branch.
-9. push the branch to GitHub.
+6. Run tests.
+7. Edit one line.
+8. Commit the change on a test branch.
+9. Push the branch to GitHub.
 
 Record results in:
 
@@ -933,7 +1072,252 @@ YES
 
 ---
 
-# 10. Milestone 4 — Embedded Simulation Workspace
+# 10. Milestone 4 — VS Code Agent Host + AHP
+
+## Objective
+
+Prove the **Durable Session Plane** (Layer 2) independently of both the workspace (Layer 4, Coder) and any specific LLM/agent harness (Layer 3, chosen in M9).
+
+VS Code's Agent Host owns agent sessions independently of the UI client that's attached. Closing the editor window, reconnecting from another window, and the running host remaining the source of truth is the core property being validated here. Remote Agent Hosts communicate with clients through **AHP (Agent Host Protocol)**, typically over SSH or a dev tunnel.
+
+You probably do not need to package your own Agent Host implementation — VS Code already bundles it. For a remote host, the Coder-provisioned workspace runs it as a standalone process, and VS Code installs/starts the required CLI when making a remote session connection.
+
+**Important qualifier:** VS Code's own docs note that an active turn continues while the Agent Host remains running. Do not interpret AHP alone as "my agent survives deletion of its Docker workspace" — that is a *workspace* durability question (M3/M6, Coder's persistent volume), not a session durability question. See Rule 7 (Section 3) and Section 2.2.
+
+---
+
+## Bridge Coder Workspaces to AHP via SSH
+
+Coder supports generating standard OpenSSH entries:
+
+```bash
+coder config-ssh
+```
+
+after which workspaces become reachable as normal SSH hosts, e.g. `ssh coder.my-workspace`. VS Code's Remote Agent Session feature explicitly supports AHP connections over SSH, so the connection path becomes:
+
+```text
+VS Code Agents window
+       │
+       │ AHP over SSH
+       ▼
+coder.<workspace-name>
+       │
+       ▼
+VS Code Agent Host
+       │
+       ▼
+repo / tools / terminal
+```
+
+Add `scripts/configure-coder-ssh.sh` to automate the `coder config-ssh` step and `scripts/verify-agent-host.sh` / `scripts/verify-ahp-session.sh` to check the Agent Host process is reachable over the configured SSH host.
+
+---
+
+## Persist the Agent Host's Workspace
+
+The Coder Docker template's persistent home volume (M3) must explicitly include Agent Host state, not just the repo:
+
+```text
+Coder workspace container       ephemeral
+│
+├── /usr/local/toolchain         image
+├── /usr/bin/...                 image
+│
+└── /home/coder                  persistent volume
+    ├── project/
+    ├── .config/
+    ├── .cache/
+    ├── .copilot/
+    ├── .claude/
+    └── agent/session state
+```
+
+Do not put the repository or agent session state purely into the ephemeral container filesystem — only the persistent volume survives a workspace container replace.
+
+---
+
+## Session Data Locality
+
+Apply Rule 8 (Section 3) here: set `chat.sessionSync.enabled: false` in `agent-host/settings.json` / `.vscode/settings.json` so session history stays local to the private server rather than syncing to a cloud account by default.
+
+---
+
+## Coordinate Coder's Lifecycle with Active Agent Sessions
+
+Coder supports automatic workspace stopping/scheduling, determining activity from IDE, SSH, terminal, and similar connections. There is no confirmed guarantee that VS Code Agent Host activity alone counts toward Coder's idle detection. This means a workspace could autostop while an agent is still working in the background, with no editor attached.
+
+For the first implementation:
+
+- Disable aggressive autostop on **agent-capable** workspaces specifically, while keeping a normal autostop policy (e.g. 4 hours) on human-only workspaces:
+
+```text
+human-only workspace:   autostop = 4 hours
+agent-capable workspace: autostop = disabled / long
+```
+
+- Document this as a known limitation to revisit with a proper workspace lease later:
+
+```text
+Agent session starts
+        │
+        ▼
+workspace lease ACTIVE
+        │
+agent finishes
+        │
+        ▼
+workspace lease RELEASED
+        │
+        ▼
+Coder may autostop
+```
+
+This is a small implementation detail with large reliability consequences — do not skip it.
+
+---
+
+## Validation Milestone M4
+
+`scripts/verify-agent-host.sh` confirms the Agent Host process is running and reachable over the `coder config-ssh`-generated host, independent of any VS Code window being open.
+
+---
+
+## Manual E2E Test M4 (AHP Persistence)
+
+This test was completely missing from the original plan.
+
+You, as the implementing agent, must:
+
+1. Create fresh Coder workspace.
+2. Configure SSH: `coder config-ssh`.
+3. Open VS Code Agents window.
+4. Select the Coder SSH host.
+5. Start an agent session.
+6. Give the agent a task that takes long enough to observe (e.g. a multi-minute build).
+7. Close the project VS Code window.
+8. Wait.
+9. Open the Agents window again.
+10. Reconnect to the same host.
+11. Confirm the same session remains available.
+12. Confirm the agent continued while no editor window was attached.
+
+This directly proves the architectural principle: **client comes and goes; Agent Host owns the session.**
+
+Record in:
+
+```text
+docs/milestone-reports/M4-agent-host.md
+```
+
+---
+
+# 11. Milestone 5 — Agent Session Persistence & Worktrees
+
+## Objective
+
+Session persistence and memory are different concepts from the AHP transport proven in M4. This milestone covers both **agent memory** (what the agent remembers across conversations) and **code isolation** (how multiple parallel agent sessions avoid clobbering each other's working tree).
+
+Extend the Layer 2 model from:
+
+```text
+Durable Work Session
+```
+
+to:
+
+```text
+Durable Session & Memory Plane
+AHP
+Agent Host
+session state
+session history
+repository memory
+user memory
+```
+
+Do not put memory into Temporal — that's a different concern (durable orchestration, M8), not conversational/repository memory.
+
+Both **user memory** and **repository memory** should live under the same persistent Coder home volume established in M4:
+
+```text
+persistent Coder home
+│
+└── VS Code agent memories
+    ├── user
+    └── repository
+```
+
+---
+
+## Worktree Isolation for Parallel Sessions
+
+If you want multiple parallel agents, they should not all arbitrarily mutate the same checkout:
+
+```text
+Agent session A
+Agent session B
+Agent session C
+```
+
+VS Code explicitly supports worktree-based agent sessions. A Git worktree is a **code isolation boundary, not a security sandbox** — do not treat it as one.
+
+Structure the session plane as:
+
+```text
+Coder workspace
+│
+├── repo main checkout
+│
+├── worktree/session-001
+│     └── Agent Host session A
+│
+├── worktree/session-002
+│     └── Agent Host session B
+│
+└── worktree/session-003
+      └── Agent Host session C
+```
+
+For the first implementation, use a simple rule:
+
+```text
+1 agent session = 1 worktree
+```
+
+Add `scripts/create-agent-worktree.sh` and `scripts/cleanup-agent-worktree.sh` to automate creation/teardown. Document the policy in `sessions/worktree-policy.md`.
+
+---
+
+## Validation Milestone M5
+
+1. Start two agent sessions.
+2. Have each modify the same file differently.
+3. Confirm they're operating in separate worktrees.
+4. Confirm neither silently overwrites the other's working tree.
+
+---
+
+## Manual E2E Test M5
+
+You, as the implementing agent, must:
+
+1. Create two agent worktrees via `scripts/create-agent-worktree.sh`.
+2. Start an agent session in each.
+3. Ask each session to edit the same file (e.g. append a different comment to the same line range).
+4. Confirm both edits exist independently in their own worktree with no cross-contamination.
+5. Clean up both worktrees via `scripts/cleanup-agent-worktree.sh` and confirm the main checkout is unaffected.
+6. Separately, confirm repository memory persists: end a session, start a new one, and confirm the agent recalls prior repository-level notes without you re-explaining them.
+
+Record in:
+
+```text
+docs/milestone-reports/M5-sessions.md
+```
+
+---
+
+# 12. Milestone 6 — Embedded Simulation Workspace
 
 ## Objective
 
@@ -994,7 +1378,32 @@ Do not require host package installation.
 
 ---
 
-## Validation Milestone M4
+## Toolchain Provenance
+
+The buildchain should not just be "latest ubuntu + random apt installs." Use:
+
+```text
+Dockerfile
+→ pinned base
+→ pinned tool versions
+→ image digest
+```
+
+and eventually push it to the local OCI registry introduced in M7. This gives a workspace a reproducible identity:
+
+```text
+Repo revision
++
+Dev Container revision
++
+toolchain image digest
+```
+
+For embedded development specifically, this identity matters — a "works on my workspace" artifact should be traceable back to an exact image digest.
+
+---
+
+## Validation Milestone M6
 
 Fresh workspace:
 
@@ -1013,7 +1422,7 @@ make -C examples/embedded-sim simulate
 
 ---
 
-## Manual E2E Test M4
+## Manual E2E Test M6
 
 Delete the workspace first.
 
@@ -1030,6 +1439,7 @@ Record:
 ```text
 artifact filename
 compiler version
+image digest
 test output
 simulation output
 ```
@@ -1037,16 +1447,111 @@ simulation output
 in:
 
 ```text
-docs/milestone-reports/M4-embedded.md
+docs/milestone-reports/M6-embedded.md
 ```
 
 ---
 
-# 11. Milestone 5 — Temporal Durable Workflow
+# 13. Milestone 7 — Artifact Registry + Build Cache
 
 ## Objective
 
-Prove durable orchestration independently of GitHub agents.
+For embedded development especially, fresh workspaces are painful without caching: Docker images, toolchains, C/C++ compilation, and generated firmware all benefit from a persistent cache. This isn't a conceptual developer-facing layer on its own, but it's a missing infrastructure capability under Layer 4 (Development Execution Plane) that M6's reproducibility goal depends on for usable performance.
+
+Add under Layer 4:
+
+```text
+Artifact / Cache Services
+├── local OCI registry
+├── BuildKit cache
+├── sccache / ccache
+└── persistent dependency caches
+```
+
+## Local OCI Registry
+
+Use **CNCF Distribution** (Apache-2.0, self-hostable) for the local registry. Add:
+
+```text
+cache/registry/
+```
+
+and a `registry` service to compose.
+
+## Compiler Cache
+
+Use **sccache** (supports local and remote caches, suitable for compiler-heavy environments) for C/C++/Rust compilation caching. Add:
+
+```text
+cache/sccache/
+```
+
+Start with a persistent local sccache directory; a dedicated `sccache-storage` compose service is optional.
+
+---
+
+## Validation Milestone M7
+
+1. Build `examples/embedded-sim` from a fresh workspace (cold cache) and record the build time.
+2. Build it again from a second fresh workspace (warm cache via registry/sccache) and record the build time.
+3. Confirm the second build is measurably faster and confirm cache hits in `sccache --show-stats` (or equivalent).
+
+---
+
+## Manual E2E Test M7
+
+1. Delete any existing registry/cache volumes to guarantee a cold start.
+2. Time a fresh `embedded-linux` workspace build (M6's example).
+3. Delete the workspace (but not the cache volumes) and create a new one.
+4. Time the build again.
+5. Compare timings and cache-hit statistics.
+
+Record in:
+
+```text
+docs/milestone-reports/M7-cache.md
+```
+
+---
+
+# 14. Milestone 8 — Temporal Durable Workflow
+
+## Objective
+
+Prove durable orchestration (Layer 5) independently of GitHub agents and independently of the session/workspace durability proven in M4/M5/M6 (Rule 7, Section 3).
+
+## Add Temporal to Compose
+
+Add to the compose stack already running Coder + Coder-DB since M1:
+
+```text
+Temporal
+Temporal-DB
+Temporal UI
+```
+
+Apply the same Compose Requirements as M1 (pinned versions, explicit networks, named volumes, restart policy, health checks; no `network_mode: host`).
+
+### Validation
+
+```bash
+make up
+make status
+```
+
+Verify:
+
+```text
+coder          healthy
+coder-db       healthy
+temporal       healthy
+temporal-db    healthy
+temporal-ui    healthy
+```
+
+Then `make down && make up` and verify all persistent data (Coder + Temporal) remains valid. Update `docs/milestone-reports/M1-compose.md` with the Temporal addition.
+
+## Durable Workflow
 
 Implement a deliberately simple workflow:
 
@@ -1082,19 +1587,17 @@ Temporal
 
 ---
 
-## Validation Milestone M5
+## Validation Milestone M8
 
 Start workflow.
 
-During timer:
+During the timer:
 
 ```bash
 docker compose stop temporal-worker
 ```
 
-Wait several seconds.
-
-Then:
+Wait several seconds, then:
 
 ```bash
 docker compose start temporal-worker
@@ -1110,21 +1613,21 @@ workflow state not lost
 
 ---
 
-## Manual E2E Test M5
+## Manual E2E Test M8
 
-The junior developer must deliberately:
+You, as the implementing agent, must deliberately:
 
-1. start the durable demo
-2. kill worker container (`docker compose kill temporal-worker`)
-3. restart the Temporal server component only (`docker compose restart temporal`) — do not reboot the host for this step
-4. restart worker (`docker compose start temporal-worker`)
-5. verify workflow resumes
-6. inspect Temporal UI history
+1. Start the durable demo.
+2. Kill worker container (`docker compose kill temporal-worker`).
+3. Restart the Temporal server component only (`docker compose restart temporal`) — do not reboot the host for this step.
+4. Restart worker (`docker compose start temporal-worker`).
+5. Verify workflow resumes.
+6. Inspect Temporal UI history.
 
-Record screenshots and workflow ID in:
+Record screenshots/logs and workflow ID in:
 
 ```text
-docs/milestone-reports/M5-temporal.md
+docs/milestone-reports/M8-temporal.md
 ```
 
 Explicitly answer:
@@ -1141,13 +1644,26 @@ YES
 
 ---
 
-# 12. Milestone 6 — Agent/Harness Integration
+# 15. Milestone 9 — Agent/Harness Integration
 
 ## Objective
 
-Introduce an actual paid or subscribed LLM.
+Introduce the Agent/Harness Plane (Layer 3) on top of the now-proven Session Plane (M4/M5) and Development Execution Plane (M3/M6).
 
-Choose exactly one initial provider:
+## Local Agent Harness
+
+This platform standardizes on two CLI-based agent harnesses, both already installed and confirmed working:
+
+```text
+opencode   (OpenCode CLI, v1.18.21)
+pi         (Pi CLI, v0.84.2)
+```
+
+Install both into the agent workspace — this is not optional, since both are the supported harnesses for this platform. Test the Agent Test below with each. The harness software itself should remain replaceable at the interface level (each just needs to see repository context and call the same MCP/API surface later phases expose), and each should run through the AHP session plane established in M4/M5 rather than as a bare terminal process disconnected from that infrastructure.
+
+## Backend Model Provider
+
+Each CLI harness (`opencode`, `pi`) still needs a backend model/auth provider. Choose exactly one initial provider for the first pass:
 
 ```text
 GitHub Copilot
@@ -1159,28 +1675,7 @@ OR
 Gemini
 ```
 
-Do not integrate four providers simultaneously.
-
-Recommended first option:
-
-```text
-GitHub Copilot
-```
-
-because GitHub is already the coordination plane.
-
----
-
-## Local Agent Harness
-
-This platform standardizes on two CLI-based agent harnesses, both already installed and confirmed working:
-
-```text
-opencode   (OpenCode CLI, v1.18.21)
-pi         (Pi CLI, v0.84.2)
-```
-
-Install both into the agent workspace — this is not optional, since both are the supported harnesses for this platform. Test the Agent Test below with each. The harness software itself should remain replaceable at the interface level (each just needs to see repository context and call the same MCP/API surface later phases expose).
+Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4).
 
 ---
 
@@ -1201,7 +1696,7 @@ Return:
 
 ---
 
-## Validation Milestone M6
+## Validation Milestone M9
 
 The model must:
 
@@ -1209,28 +1704,30 @@ The model must:
 - identify the known failure
 - not require manual copying of the entire repository into chat
 
+Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later milestones (M10's `gh-aw` and M11's agent-driven MCP calls should reuse whichever is chosen, unless there's a reason to keep both).
+
 ---
 
-## Manual E2E Test M6
+## Manual E2E Test M9
 
-The junior developer must:
+You, as the implementing agent, must:
 
-1. create fresh agent workspace
-2. authenticate the selected provider
-3. intentionally break the sample project
-4. ask the agent to diagnose it
-5. compare the diagnosis with the known problem
-6. save transcript/evidence
+1. Create fresh agent workspace (or worktree, per M5).
+2. Authenticate the selected provider.
+3. Intentionally break the sample project.
+4. Ask the agent (`opencode` first, then `pi`) to diagnose it.
+5. Compare the diagnosis with the known problem.
+6. Save transcript/evidence for each CLI.
 
 Record in:
 
 ```text
-docs/milestone-reports/M6-agent.md
+docs/milestone-reports/M9-agent.md
 ```
 
 ---
 
-# 13. Milestone 7 — GitHub Agentic Workflows
+# 16. Milestone 10 — GitHub Agentic Workflows
 
 ## Objective
 
@@ -1255,6 +1752,8 @@ safe decision
     ↓
 deterministic workflow
 ```
+
+`gh-aw`'s reasoning step should invoke the harness chosen in M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool.
 
 ---
 
@@ -1302,7 +1801,7 @@ The agent can request the capability, but should not reimplement the capability 
 
 ---
 
-## Validation Milestone M7
+## Validation Milestone M10
 
 Create known build failure.
 
@@ -1320,30 +1819,30 @@ result is visible in GitHub
 
 ---
 
-## Manual E2E Test M7
+## Manual E2E Test M10
 
-The junior developer must:
+You, as the implementing agent, must:
 
-1. introduce the documented test failure
-2. push branch
-3. observe deterministic CI fail
-4. trigger or observe `gh-aw`
-5. review agent reasoning
-6. verify the agent did not perform unauthorized actions
+1. Introduce the documented test failure.
+2. Push branch.
+3. Observe deterministic CI fail.
+4. Trigger or observe `gh-aw`.
+5. Review agent reasoning.
+6. Verify the agent did not perform unauthorized actions.
 
 Record:
 
 ```text
-docs/milestone-reports/M7-gh-aw.md
+docs/milestone-reports/M10-gh-aw.md
 ```
 
 ---
 
-# 14. Milestone 8 — MCP and Local Capability Fabric
+# 17. Milestone 11 — MCP and Local Capability Fabric
 
 ## Objective
 
-Allow humans and agents to query private capabilities without granting arbitrary shell access.
+Allow humans and agents to query private capabilities (Layer 6) without granting arbitrary shell access.
 
 Implement two simple services.
 
@@ -1391,9 +1890,9 @@ Example state:
 
 ---
 
-## Validation Milestone M8
+## Validation Milestone M11
 
-Agent should be able to answer:
+Agent (via the harness chosen in M9) should be able to answer:
 
 ```text
 Which demo ECU is currently available,
@@ -1404,27 +1903,27 @@ using the appropriate tool services.
 
 ---
 
-## Manual E2E Test M8
+## Manual E2E Test M11
 
 Ask the agent to:
 
-1. query available simulated devices
-2. reserve one
-3. execute approved test operation
-4. retrieve logs
-5. release device
+1. Query available simulated devices.
+2. Reserve one.
+3. Execute approved test operation.
+4. Retrieve logs.
+5. Release device.
 
 Verify through service logs that calls happened through defined APIs rather than arbitrary host shell commands.
 
 Record:
 
 ```text
-docs/milestone-reports/M8-mcp.md
+docs/milestone-reports/M11-mcp.md
 ```
 
 ---
 
-# 15. Milestone 9 — Governance Foundation
+# 18. Milestone 12 — Governance Foundation
 
 Do not build enterprise-scale security.
 
@@ -1443,6 +1942,8 @@ service credentials
 ```
 
 No secret should need to appear in source code.
+
+Once OpenBao is live, rotate every credential introduced during M2–M11 under the interim secret handling rule (Rule 3, Section 3) and record the rotation here.
 
 ---
 
@@ -1470,7 +1971,7 @@ docker compose --profile governance
 
 ---
 
-## Validation Milestone M9
+## Validation Milestone M12
 
 Attempt:
 
@@ -1500,23 +2001,23 @@ DENY
 
 ---
 
-## Manual E2E Test M9
+## Manual E2E Test M12
 
-The junior developer must intentionally try an unauthorized operation.
+You, as the implementing agent, must intentionally try an unauthorized operation.
 
 The test only passes if the system rejects it.
 
 Record:
 
 ```text
-docs/milestone-reports/M9-governance.md
+docs/milestone-reports/M12-governance.md
 ```
 
-Include the exact policy decision.
+Include the exact policy decision and the credential-rotation log for anything carried over from M2–M11.
 
 ---
 
-# 16. Milestone 10 — Observability
+# 19. Milestone 13 — Observability
 
 ## Objective
 
@@ -1527,6 +2028,7 @@ GitHub runner
 Temporal worker
 MCP service
 lab simulation
+Agent Host sessions
 ```
 
 Deploy:
@@ -1562,7 +2064,7 @@ workflow failures
 
 ---
 
-## Validation Milestone M10
+## Validation Milestone M13
 
 Execute:
 
@@ -1576,28 +2078,86 @@ All three must produce observable telemetry.
 
 ---
 
-## Manual E2E Test M10
+## Manual E2E Test M13
 
-Junior developer:
+You, as the implementing agent, must:
 
-1. execute complete local test
-2. open Grafana
-3. find execution
-4. correlate timestamps across services
+1. Execute a complete local test.
+2. Open Grafana.
+3. Find the execution.
+4. Correlate timestamps across services.
 
-Record screenshots in:
+Record screenshots/logs in:
 
 ```text
-docs/milestone-reports/M10-observability.md
+docs/milestone-reports/M13-observability.md
 ```
 
 ---
 
-# 17. Milestone 11 — Remote Interactive Access
+# 20. Milestone 14 — Backup / Restore
 
-Automation already works without inbound access because the GitHub runner connects outbound.
+## Objective
 
-Now optionally add interactive remote access.
+By this point the stack has state scattered across many services. This milestone was created in the original plan (`scripts/backup.sh`, `scripts/restore-test.sh`) but never actually validated with a real milestone. **A backup nobody has restored is not a backup strategy.**
+
+## Classify State
+
+```text
+MUST BACK UP
+platform repository
+Coder database
+Temporal database
+OpenBao
+important workspace state (persistent /home/coder, incl. agent memory/session state)
+
+REPRODUCIBLE / DON'T NEED BACKUP
+containers
+Docker images you can rebuild
+Dev Containers
+toolchains generated from Dockerfiles
+build caches (registry, sccache)
+temporary agent worktrees
+```
+
+Document this classification in `backup/backup-policy.md`.
+
+---
+
+## Validation Milestone M14
+
+1. Create workspace.
+2. Create Temporal workflow.
+3. Store test secret (in OpenBao, per M12).
+4. Create agent/session data (per M4/M5).
+5. Run `make backup`.
+6. Destroy relevant containers/volumes (the "MUST BACK UP" set only).
+7. Run `make restore-test` (or equivalent restore procedure).
+8. Verify state: workspace, workflow, secret, and agent/session data are all recovered.
+
+---
+
+## Manual E2E Test M14
+
+You, as the implementing agent, must personally run the 8-step sequence above against the real stack — not a dry run or a description of expected behavior. Confirm each of the four "MUST BACK UP" categories independently:
+
+1. Repository/platform config restored.
+2. Coder database restored (workspace metadata intact).
+3. Temporal database restored (workflow history intact).
+4. OpenBao restored (test secret still retrievable).
+5. Persistent workspace home restored (agent memory/session state intact).
+
+Record in `backup/restore-test.md` and:
+
+```text
+docs/milestone-reports/M14-backup.md
+```
+
+---
+
+# 21. Milestone 15 — Remote Access / Browser Handoff
+
+Automation already works without inbound access because the GitHub runner connects outbound (M2). This milestone covers **interactive** remote access, building on the AHP-over-SSH bridge established in M4.
 
 Recommended:
 
@@ -1623,45 +2183,60 @@ workspace
 
 ---
 
-## Validation Milestone M11
+## Validation Milestone M15
 
 From a network outside the server LAN:
 
-1. connect through Tailscale
-2. open Coder
-3. connect VS Code
-4. edit source
-5. run build
+1. Connect through Tailscale.
+2. Open Coder.
+3. Connect VS Code.
+4. Edit source.
+5. Run build.
 
 No public port forwarding should be required.
 
 ---
 
-## Manual E2E Test M11
+## Manual E2E Test M15
 
-Use a mobile hotspot rather than the server's normal LAN.
-
-Confirm:
-
-```text
-VS Code → private Coder workspace
-```
-
-works.
+Use a mobile hotspot rather than the server's normal LAN. Confirm `VS Code → private Coder workspace` works.
 
 Record:
 
 ```text
-docs/milestone-reports/M11-remote.md
+docs/milestone-reports/M15-remote.md
 ```
 
 ---
 
-# 18. Final Milestone — Complete End-to-End Scenario
+## Optional: Browser Agent Handoff Test
+
+VS Code currently supports accessing remote Agent Host sessions from the browser through a dev tunnel. This is a stronger proof than SSH-based remote access alone, because it shows the **control surface itself** (not just the network path) is replaceable.
+
+```text
+VS Code desktop
+     │
+start session
+     │
+close desktop
+     │
+     ▼
+browser Agents window
+     │
+same remote host
+     │
+same session
+```
+
+Mark this **optional** for the initial implementation — it introduces dev-tunnel authentication and another connectivity mechanism on top of what M15 already validates. Record results (if attempted) in `docs/milestone-reports/M15-remote.md` under a "Browser Handoff (optional)" subsection.
+
+---
+
+# 22. Final Milestone — Complete End-to-End Scenario
 
 This is the most important acceptance test.
 
-The junior developer should not be told to fake any step.
+You, as the implementing agent, should not fake any step.
 
 Use the simulated embedded project.
 
@@ -1789,9 +2364,9 @@ check result
 
 ---
 
-# 19. Final Manual E2E Test Request
+# 23. Final Manual E2E Test Request
 
-The implementing junior developer must execute this test personally.
+You, as the implementing agent, must execute this test personally.
 
 No automated test is accepted as a substitute.
 
@@ -1922,7 +2497,55 @@ Final result must appear back in GitHub.
 
 ---
 
-# 20. Final Acceptance Criteria
+## Durability Boundary Tests
+
+Steps A–L above prove the automation/coordination chain. These three additional tests prove the three durability levels from Section 2.2 individually — **do not assume proving one implies the others**.
+
+### Durability Test 1 — UI failure (AHP)
+
+```text
+agent running
+ ↓
+close VS Code
+ ↓
+reopen
+ ↓
+same session continues
+```
+
+This is the same test as M4's Manual E2E Test, repeated here as part of the final combined proof. AHP validates this.
+
+### Durability Test 2 — Worker failure (Temporal)
+
+```text
+Temporal workflow running
+ ↓
+kill worker
+ ↓
+restart
+ ↓
+workflow continues
+```
+
+This is the same test as M8's Manual E2E Test. Temporal validates this.
+
+### Durability Test 3 — Workspace restart (Coder)
+
+```text
+Coder workspace
+ ↓
+stop
+ ↓
+start
+ ↓
+repo + persistent home survive
+```
+
+Coder validates this — Coder explicitly separates persistent resources (the home volume) from ephemeral workspace resources (the container). Do not assume Durability Test 1 (UI/AHP) passing means Durability Test 3 (workspace) automatically passes — that conflation was the central architectural gap in the original version of this plan.
+
+---
+
+# 24. Final Acceptance Criteria
 
 The implementation is complete only if all of the following are true:
 
@@ -1934,21 +2557,28 @@ The implementation is complete only if all of the following are true:
 - [ ] Workspace automatically obtains repository source.
 - [ ] Workspace contains a working custom build toolchain.
 - [ ] VS Code can attach to the workspace.
+- [ ] VS Code Agent Host session persists across editor close/reopen (AHP session survives UI disconnect) — Durability Test 1.
+- [ ] Parallel agent sessions operate in isolated Git worktrees without overwriting each other.
+- [ ] Coder workspace autostop does not terminate an active agent session.
+- [ ] Both `opencode` and `pi` are installed in the workspace and have each successfully diagnosed a seeded failure.
 - [ ] Normal GitHub Actions run deterministic CI.
 - [ ] `gh-aw` performs repository-centric reasoning.
-- [ ] Temporal survives worker interruption.
+- [ ] Temporal survives worker interruption — Durability Test 2.
+- [ ] Coder workspace restart preserves repo and persistent home — Durability Test 3.
+- [ ] Local OCI registry + build cache measurably reduce fresh-workspace build time.
 - [ ] MCP/internal APIs expose controlled capabilities.
 - [ ] Simulated device operations work.
 - [ ] OPA can deny an unsafe action.
 - [ ] Secrets are not stored in source.
 - [ ] Important execution events are observable.
+- [ ] A full backup has been created and successfully restored, verified against every "MUST BACK UP" category.
 - [ ] End-to-end flow begins in GitHub and returns a result to GitHub.
 - [ ] Interactive access does not require public exposure of the server.
 - [ ] All milestone reports are committed.
 
 ---
 
-# 21. Development Workflow for the Junior Developer
+# 25. Development Workflow
 
 Each milestone should use:
 
@@ -1958,6 +2588,7 @@ main
  └── milestone/M1-compose
  └── milestone/M2-runner
  └── milestone/M3-coder
+ └── milestone/M4-agent-host
  ...
 ```
 
@@ -1966,7 +2597,7 @@ For every milestone:
 1. create branch
 2. implement only that milestone
 3. run automated validation
-4. execute manual E2E validation
+4. execute manual E2E validation (personally, as the implementing agent)
 5. create milestone report
 6. open PR
 7. review changes
@@ -1976,35 +2607,45 @@ Do not implement three milestones simultaneously.
 
 ---
 
-# 22. Recommended Implementation Order
+# 26. Recommended Implementation Order
 
 ```text
 M0  Host readiness
  ↓
-M1  Docker Compose base
+M1  Docker Compose base (Coder only)
  ↓
 M2  GitHub self-hosted runner
  ↓
-M3  Coder standard workspace
+M3  Coder workspace
  ↓
-M4  Embedded Docker workspace
+M4  VS Code Agent Host + AHP
  ↓
-M5  Temporal durability
+M5  Agent session persistence + worktrees
  ↓
-M6  LLM / coding agent
+M6  Embedded toolchain workspace
  ↓
-M7  gh-aw
+M7  Artifact registry + build cache
  ↓
-M8  MCP + Lab API simulation
+M8  Temporal durability
  ↓
-M9  governance
+M9  LLM / agent harness
  ↓
-M10 observability
+M10 gh-aw
  ↓
-M11 remote access
+M11 MCP + Lab API
+ ↓
+M12 Governance
+ ↓
+M13 Observability
+ ↓
+M14 Backup / restore
+ ↓
+M15 Remote access / browser handoff
  ↓
 FINAL E2E
 ```
+
+**AHP (M4) is deliberately placed before the LLM/agent-harness milestone (M9).** First prove session infrastructure works, then prove intelligence inside that session works. Otherwise those two concerns get mixed together and a failure in one is hard to attribute to the right layer.
 
 Do not start with the AI components.
 
@@ -2019,6 +2660,8 @@ Coder
 +
 runner
 +
+VS Code Agent Host
++
 Temporal
 ```
 
@@ -2028,21 +2671,21 @@ Then add agents.
 
 ---
 
-# 23. Versioning Policy
+# 27. Versioning Policy
 
 `VERSION.md` tracks the platform's release version, not individual milestones.
 
-Milestones (M0–M11) are implementation stages, not releases. Do not tag or version-bump per milestone.
+Milestones (M0–M15) are implementation stages, not releases. Do not tag or version-bump per milestone.
 
 Rules:
 
-- While any milestone from Section 6–17 is incomplete, the platform is pre-release. `VERSION.md` should read:
+- While any milestone from Section 6–21 is incomplete, the platform is pre-release. `VERSION.md` should read:
 
   ```text
   unreleased
   ```
 
-- Once every checkbox in Section 20 (Final Acceptance Criteria) is checked and the Final Milestone (Section 18) end-to-end scenario passes, set:
+- Once every checkbox in Section 24 (Final Acceptance Criteria) is checked and the Final Milestone (Section 22) end-to-end scenario — including the Durability Boundary Tests — passes, set:
 
   ```text
   0.1.0
@@ -2060,7 +2703,7 @@ Rules:
 
 ---
 
-# 24. Future GCP Extension
+# 28. Future GCP Extension
 
 GCP should not be required for the initial implementation.
 
@@ -2118,39 +2761,48 @@ Cloud should therefore become **another execution location**, not another develo
 
 ---
 
-# 25. Final Design Principle
+# 29. Final Design Principle
 
-The implementation should prove this model:
+The implementation should prove this corrected mental model:
 
 ```text
-            HUMAN
-              │
-              ▼
-          VS CODE
-              │
-              ▼
-        WORK SESSION
-              │
-              ▼
-        AGENT / HUMAN
-              │
-              ▼
-       CODER WORKSPACE
-          Docker
-              │
-              ▼
-           GITHUB
-              │
-       ┌──────┼───────┐
-       ▼      ▼       ▼
-    Actions  gh-aw  Temporal
-       │      │       │
-       └──────┼───────┘
-              ▼
-        APPROVED APIs
-              │
-              ▼
-     simulated / real world
+VS Code / Browser / CLI
+       │
+       │ AHP
+       ▼
+┌──────────────────────────┐
+│ SESSION PLANE            │
+│ Agent Host + AHP         │
+│ chats / state / memory   │
+│ worktrees                │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ WORKSPACE PLANE          │
+│ Coder                    │
+│ Docker / Dev Container   │
+│ repo / compiler / tools  │
+│ persistent home          │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ AUTOMATION PLANE         │
+│ GitHub                   │
+│ Actions / gh-aw          │
+│ Temporal                 │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ CAPABILITY PLANE         │
+│ MCP / APIs / lab         │
+└──────────────────────────┘
+
+cross-cutting:
+identity / policy / secrets
+telemetry / cache / backup
 ```
 
 The platform is successful when changing:
@@ -2179,5 +2831,6 @@ real ECU
 
 does **not** require redesigning the developer experience or coordination model.
 
-That is the architecture the implementation should optimize for.
+The must-fix omissions that made this correction necessary were: AHP/session persistence being conflated with workspace persistence, missing parallel-session isolation (worktrees), a missing Coder/Agent-Host lifecycle coordination point (autostop vs. active sessions), and a missing backup/restore milestone. The local registry/build cache is a slightly less architectural addition, but for embedded development it's worth adding early — otherwise workspace reproducibility can be correct while startup/build performance is miserable.
 
+That is the architecture the implementation should optimize for.

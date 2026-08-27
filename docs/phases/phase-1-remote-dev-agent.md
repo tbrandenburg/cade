@@ -4,11 +4,13 @@
 
 Deliver a self-contained, demoable outcome with no dependency on GitHub automation, Temporal, or governance:
 
-> From a laptop anywhere (mobile hotspot test), connect via Tailscale → Coder → VS Code, into a Docker workspace with the repository auto-cloned, and have a working coding agent that can read repository context and diagnose a known failing test.
+> From a laptop anywhere (mobile hotspot test), connect via Tailscale → AHP over SSH → VS Code Agent Host, into a Docker workspace with the repository auto-cloned, and have a working coding agent that can read repository context and diagnose a known failing test — with the session surviving closing and reopening the editor.
 
-Milestones covered: **M0** (Host Preparation), **M1 — trimmed** (Compose Foundation: Coder only), **M3** (Coder Development Workspace), **M6 — fixed** (Agent/Harness Integration), **M11** (Remote Interactive Access).
+Milestones covered: **M0** (Host Preparation), **M1 — trimmed** (Compose Foundation: Coder only), **M3** (Coder Development Workspace), **M4** (VS Code Agent Host + AHP), **M5** (Agent Session Persistence & Worktrees), **M9** (LLM/Agent Harness Integration), **M15** (Remote Access / Browser Handoff).
 
-Temporal/Temporal-DB are explicitly **deferred to Phase 3** — nothing in Phase 1 needs durable orchestration, and skipping it here reduces RAM/disk footprint for an initial PoC.
+Temporal/Temporal-DB are explicitly **deferred to Phase 3 (M8)** — nothing in Phase 1 needs durable orchestration, and skipping it here reduces RAM/disk footprint for an initial PoC.
+
+**Why M4/M5 sit between M3 and M9:** the original plan jumped straight from "Coder workspace" to "LLM/agent harness," treating VS Code purely as an editor. That skipped an entire architectural layer — the Session Plane (AHP / VS Code Agent Host), which owns agent sessions independently of the workspace container or the UI client attached to it. M4 and M5 prove that layer on its own, before M9 puts an actual LLM behind it. See `docs/INITIAL.md` Section 2.2 (Three Durability Levels) and Rule 7 (Section 3) for why this distinction matters.
 
 See `docs/INITIAL.md` Section 3 (Core Architectural Rules) and Section 4 (Repository Structure) for rules that apply across all phases.
 
@@ -54,23 +56,6 @@ Create `scripts/doctor.sh`. It must verify:
 - outbound HTTPS connectivity to GitHub
 - ports required by the stack are available
 
-Example expected behavior:
-
-```bash
-./scripts/doctor.sh
-```
-
-Output:
-
-```text
-[OK] Docker
-[OK] Docker Compose
-[OK] Git
-[OK] outbound github.com connectivity
-[OK] free disk: 312 GB
-[OK] required ports
-```
-
 ### Validation Milestone M0
 
 ```bash
@@ -95,7 +80,7 @@ Only merge M0 after this report exists.
 
 ### Objective
 
-Prove that the Coder half of the platform can be brought up and down predictably. Temporal/Temporal-DB/Temporal-UI are **not** part of this phase — add them in Phase 3.
+Prove that the Coder half of the platform can be brought up and down predictably. Temporal/Temporal-DB/Temporal-UI are **not** part of this phase — added in Phase 3, M8.
 
 Initially include only:
 
@@ -104,26 +89,11 @@ PostgreSQL (coder-db)
 Coder
 ```
 
-Do not add Temporal, governance, or observability yet.
-
 ### Compose Requirements
 
-Every service must have:
+Every service must have: pinned image version, explicit network, named volume if persistent, restart policy, health check where supported.
 
-- pinned image version
-- explicit network
-- named volume if persistent
-- restart policy
-- health check where supported
-
-Create networks:
-
-```text
-platform-control
-platform-workspaces
-```
-
-Do not use `network_mode: host`.
+Create networks: `platform-control`, `platform-workspaces`. Do not use `network_mode: host`.
 
 ### Commands
 
@@ -143,14 +113,7 @@ make up
 make status
 ```
 
-Verify:
-
-```text
-coder          healthy
-coder-db       healthy
-```
-
-Then `make down && make up` and verify persistent data remains valid.
+Verify: `coder healthy`, `coder-db healthy`. Then `make down && make up` and verify persistent data remains valid.
 
 ### Manual E2E Test M1 (trimmed)
 
@@ -186,6 +149,8 @@ Create `examples/hello-service/`, supporting `make build`, `make test`, `make ru
 
 `coder/templates/docker-workspace/` must: create workspace container, mount persistent home volume, clone repository, start Coder agent, expose VS Code connection, start in project directory.
 
+This persistent home volume is also where M4's Agent Host state lives — see M4 for the exact directory layout. Only `/home/coder` (or equivalent) survives a container replace; the rest of the workspace container is ephemeral.
+
 ### Validation Milestone M3
 
 From Coder: `Create Workspace → docker-standard`. Inside VS Code:
@@ -214,29 +179,154 @@ Record results in `docs/milestone-reports/M3-coder.md`. The report must explicit
 
 ---
 
-## M6 (fixed) — Agent/Harness Integration
+## M4 — VS Code Agent Host + AHP
 
 ### Objective
 
-Introduce a coding agent harness inside the workspace, using the CLIs already installed and verified on this platform:
+Prove the **Durable Session Plane** independently of both the workspace (M3, Coder) and any specific LLM/agent harness (M9). VS Code's Agent Host owns agent sessions independently of the UI client attached — close the editor, reconnect from another window, and the running host remains the source of truth. Remote Agent Hosts communicate with clients through **AHP (Agent Host Protocol)**, typically over SSH or a dev tunnel.
 
-```text
-opencode   (OpenCode CLI)
-pi         (Pi CLI)
-```
+You probably do not need to package your own Agent Host implementation — VS Code already bundles it. For a remote host, the Coder-provisioned workspace runs it as a standalone process, and VS Code installs/starts the required CLI when making a remote session connection.
 
-Both are already installed and confirmed working:
+**Important qualifier:** an active turn continues while the Agent Host remains running — this does **not** mean the agent survives deletion of its Docker workspace. That's a *workspace* durability question (M3/M6), not a session durability question. See `docs/INITIAL.md` Section 2.2 and Rule 7.
+
+### Bridge Coder Workspaces to AHP via SSH
 
 ```bash
-opencode --version   # 1.18.21
-pi --version          # 0.84.2
+coder config-ssh
 ```
 
-Install both into the `docker-standard` workspace image (not "optionally," as originally drafted — they are the two supported harnesses for this platform, and both should be present so either can be used or compared). The harness software itself remains replaceable; do not hard-couple the platform to either CLI's internals.
+Workspaces become reachable as normal SSH hosts (e.g. `ssh coder.my-workspace`). VS Code's Remote Agent Session feature supports AHP over SSH:
+
+```text
+VS Code Agents window → AHP over SSH → coder.<workspace-name> → VS Code Agent Host → repo / tools / terminal
+```
+
+Add `scripts/configure-coder-ssh.sh` to automate `coder config-ssh`, and `scripts/verify-agent-host.sh` / `scripts/verify-ahp-session.sh` to check the Agent Host process is reachable over the configured SSH host.
+
+### Persist the Agent Host's Workspace
+
+The persistent home volume from M3 must explicitly include Agent Host state, not just the repo:
+
+```text
+Coder workspace container       ephemeral
+│
+├── /usr/local/toolchain         image
+├── /usr/bin/...                 image
+│
+└── /home/coder                  persistent volume
+    ├── project/
+    ├── .config/
+    ├── .cache/
+    ├── .copilot/
+    ├── .claude/
+    └── agent/session state
+```
+
+Do not put the repository or agent session state purely into the ephemeral container filesystem.
+
+### Session Data Locality
+
+Set `chat.sessionSync.enabled: false` in `agent-host/settings.json` / `.vscode/settings.json` (Rule 8) — session history stays local to the private server by default.
+
+### Coordinate Coder's Lifecycle with Active Agent Sessions
+
+Coder's autostop/scheduling is driven by IDE/SSH/terminal activity; there's no confirmed guarantee that Agent Host activity alone counts toward idle detection. A workspace could autostop while an agent is still working with no editor attached.
+
+For the first implementation: disable aggressive autostop on **agent-capable** workspaces specifically, while keeping normal autostop (e.g. 4 hours) on human-only workspaces. Document this as a known limitation to revisit with a proper workspace lease later.
+
+### Validation Milestone M4
+
+`scripts/verify-agent-host.sh` confirms the Agent Host process is running and reachable over the `coder config-ssh`-generated host, independent of any VS Code window being open.
+
+### Manual E2E Test M4 (AHP Persistence)
+
+1. Create fresh Coder workspace.
+2. Configure SSH: `coder config-ssh`.
+3. Open VS Code Agents window.
+4. Select the Coder SSH host.
+5. Start an agent session.
+6. Give the agent a task that takes long enough to observe (e.g. a multi-minute build).
+7. Close the project VS Code window.
+8. Wait.
+9. Open the Agents window again.
+10. Reconnect to the same host.
+11. Confirm the same session remains available.
+12. Confirm the agent continued while no editor window was attached.
+
+Record in `docs/milestone-reports/M4-agent-host.md`.
+
+---
+
+## M5 — Agent Session Persistence & Worktrees
+
+### Objective
+
+Session persistence and memory are different concepts from the AHP transport proven in M4. This milestone covers **agent memory** (what the agent remembers across conversations) and **code isolation** (how multiple parallel agent sessions avoid clobbering each other's working tree).
+
+Layer 2 becomes:
+
+```text
+Durable Session & Memory Plane
+AHP
+Agent Host
+session state / session history
+repository memory / user memory
+```
+
+Do not put memory into Temporal — that's a different concern (durable orchestration, M8). Both user and repository memory live under the same persistent Coder home volume established in M4.
+
+### Worktree Isolation for Parallel Sessions
+
+Parallel agent sessions should not all mutate the same checkout. A Git worktree is a **code isolation boundary, not a security sandbox**. Structure:
+
+```text
+Coder workspace
+│
+├── repo main checkout
+│
+├── worktree/session-001 → Agent Host session A
+├── worktree/session-002 → Agent Host session B
+└── worktree/session-003 → Agent Host session C
+```
+
+Simple rule for the first implementation: **1 agent session = 1 worktree**. Add `scripts/create-agent-worktree.sh` and `scripts/cleanup-agent-worktree.sh`. Document the policy in `sessions/worktree-policy.md`.
+
+### Validation Milestone M5
+
+1. Start two agent sessions.
+2. Have each modify the same file differently.
+3. Confirm they're operating in separate worktrees.
+4. Confirm neither silently overwrites the other's working tree.
+
+### Manual E2E Test M5
+
+1. Create two agent worktrees via `scripts/create-agent-worktree.sh`.
+2. Start an agent session in each.
+3. Ask each session to edit the same file (e.g. append a different comment to the same line range).
+4. Confirm both edits exist independently in their own worktree with no cross-contamination.
+5. Clean up both worktrees via `scripts/cleanup-agent-worktree.sh` and confirm the main checkout is unaffected.
+6. Confirm repository memory persists: end a session, start a new one, and confirm the agent recalls prior repository-level notes without you re-explaining them.
+
+Record in `docs/milestone-reports/M5-sessions.md`.
+
+---
+
+## M9 — Agent/Harness Integration
+
+### Objective
+
+Introduce the Agent/Harness Plane on top of the now-proven Session Plane (M4/M5) and Development Execution Plane (M3), using the CLIs already installed and verified on this platform:
+
+```text
+opencode   (OpenCode CLI, v1.18.21)
+pi         (Pi CLI, v0.84.2)
+```
+
+Install both into the agent workspace — not optional, since both are the supported harnesses for this platform. Each should run through the AHP session plane established in M4/M5 rather than as a bare terminal process disconnected from that infrastructure.
 
 ### Backend Model Provider
 
-Each CLI harness (`opencode`, `pi`) still needs a backend model/auth provider. Choose exactly one initial provider for the first pass:
+Choose exactly one initial provider for the first pass:
 
 ```text
 GitHub Copilot
@@ -248,13 +338,11 @@ OR
 Gemini
 ```
 
-Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4).
-
-Store the provider credential per the interim secret handling rule in `docs/INITIAL.md` Section 3 (Rule 3) — `.env` with `chmod 600`, never committed, rotated once OpenBao exists (Phase 4).
+Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4). Store the provider credential per the interim secret handling rule (Rule 3) — `.env` with `chmod 600`, never committed, rotated once OpenBao exists (Phase 4, M12).
 
 ### Agent Test
 
-Create a deliberately failing unit test in a branch. Ask the agent (via `opencode` or `pi`, whichever is under test):
+Create a deliberately failing unit test in a branch. Ask the agent (via `opencode` or `pi`):
 
 ```text
 Investigate why the test fails.
@@ -265,52 +353,40 @@ Return:
 - recommended fix
 ```
 
-### Validation Milestone M6
+### Validation Milestone M9
 
-The model must:
+The model must see repository context, identify the known failure, and not require manual copying of the entire repository into chat.
 
-- see repository context
-- identify the known failure
-- not require manual copying of the entire repository into chat
+Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later milestones (M10's `gh-aw`, M11's agent-driven MCP calls).
 
-Run this test with **both** `opencode` and `pi` at least once, and record which one becomes the default harness for later phases (Phase 2's `gh-aw` and Phase 3's agent-driven MCP calls should reuse whichever is chosen, unless there's a reason to keep both).
+### Manual E2E Test M9
 
-### Manual E2E Test M6
-
-1. Create fresh agent workspace.
+1. Create fresh agent workspace (or worktree, per M5).
 2. Authenticate the selected provider.
 3. Intentionally break the sample project.
 4. Ask the agent (`opencode` first, then `pi`) to diagnose it.
 5. Compare the diagnosis with the known problem.
 6. Save transcript/evidence for each CLI.
 
-Record in `docs/milestone-reports/M6-agent.md`.
+Record in `docs/milestone-reports/M9-agent.md`.
 
 ---
 
-## M11 — Remote Interactive Access
+## M15 — Remote Access / Browser Handoff
 
 ### Objective
 
-Automation already works without inbound access once the GitHub runner exists (Phase 2), but Phase 1's deliverable is specifically the *interactive* remote path — pulled forward here because without it the workspace is only reachable on the local LAN, not "remote."
+Automation already works without inbound access once the GitHub runner exists (Phase 2), but Phase 1's deliverable is specifically the *interactive* remote path — pulled forward here because without it the workspace is only reachable on the local LAN, not "remote." This builds on the AHP-over-SSH bridge established in M4.
 
 Recommended: **Tailscale Personal**. Do not publicly expose Coder.
 
 Target:
 
 ```text
-Laptop
-  │
-Tailscale
-  │
-private server
-  │
-Coder
-  │
-workspace
+Laptop → Tailscale → private server → Coder → workspace
 ```
 
-### Validation Milestone M11
+### Validation Milestone M15
 
 From a network outside the server LAN:
 
@@ -322,21 +398,33 @@ From a network outside the server LAN:
 
 No public port forwarding should be required.
 
-### Manual E2E Test M11
+### Manual E2E Test M15
 
 Use a mobile hotspot rather than the server's normal LAN. Confirm `VS Code → private Coder workspace` works.
 
-Record in `docs/milestone-reports/M11-remote.md`.
+Record in `docs/milestone-reports/M15-remote.md`.
+
+### Optional: Browser Agent Handoff Test
+
+VS Code supports accessing remote Agent Host sessions from the browser through a dev tunnel — a stronger proof than SSH-based remote access alone, since it shows the *control surface itself* (not just the network path) is replaceable:
+
+```text
+VS Code desktop → start session → close desktop → browser Agents window → same remote host → same session
+```
+
+Mark this **optional** for the initial implementation (dev-tunnel auth adds another connectivity mechanism). Record results, if attempted, in `docs/milestone-reports/M15-remote.md` under a "Browser Handoff (optional)" subsection.
 
 ---
 
 ## Phase 1 Manual E2E Testing (performed by you, the agent)
 
-You, as the agent, must personally execute every Manual E2E Test in this phase (M0, M1, M3, M6, M11) end-to-end, without skipping, faking, or simulating any step. Automated validation (`make doctor`, `make status`, etc.) is a precondition, not a substitute, for these manual walkthroughs. For each test:
+You, as the agent, must personally execute every Manual E2E Test in this phase (M0, M1, M3, M4, M5, M9, M15) end-to-end, without skipping, faking, or simulating any step. Automated validation (`make doctor`, `make status`, `scripts/verify-agent-host.sh`, etc.) is a precondition, not a substitute, for these manual walkthroughs. For each test:
 
 - run it yourself against the real host/server, not a description of what should happen;
 - capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2);
-- for M6 specifically, run the agent diagnosis test with both `opencode` and `pi` yourself, comparing your own diagnosis against the seeded known failure;
+- for M4, actually close and reopen the VS Code window yourself and confirm the same Agent Host session continues — do not accept "it should work" as a substitute for reconnecting;
+- for M5, actually run two parallel worktree sessions yourself and diff the files to confirm isolation;
+- for M9, run the agent diagnosis test with both `opencode` and `pi` yourself, comparing your own diagnosis against the seeded known failure;
 - record the results in the corresponding `docs/milestone-reports/*.md` file before considering Phase 1 complete.
 
 ---
@@ -345,13 +433,13 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 Before Phase 1 is considered done, you, as the agent, must:
 
-1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, Tailscale access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
+1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, AHP/Agent Host bridge via `coder config-ssh`, worktree layout, Tailscale access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
 2. **Update `AGENTS.md`** at the repo root with:
-   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas).
-   - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how each CLI authenticates, any flags or config needed to ground the agent in repo context.
+   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas, AHP/SSH connection quirks, autostop-vs-agent-session conflicts observed).
+   - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how to bridge it via `coder config-ssh`, how each CLI authenticates, how to create/clean up a worktree, any flags or config needed to ground the agent in repo context.
    - **Lessons Learned** — a dated entry (`## Phase 1 — <date>`) describing what broke, what surprised you, and what to avoid next time. Do not overwrite prior entries; append.
 
-Do not skip this step even if nothing "went wrong" — record confirmations (e.g. "workspace creation worked first try, no gotchas") as well as problems, so future phases know what's already solid.
+Do not skip this step even if nothing "went wrong" — record confirmations as well as problems, so future phases know what's already solid.
 
 ---
 
@@ -360,8 +448,11 @@ Do not skip this step even if nothing "went wrong" — record confirmations (e.g
 - [ ] `make doctor` passes on a fresh host.
 - [ ] Coder + Coder-DB come up healthy via `make up` and survive `make down && make up`.
 - [ ] A fresh `docker-standard` workspace auto-clones the repo, builds and tests `examples/hello-service` without manual setup.
+- [ ] `coder config-ssh` bridges the workspace to a normal SSH host, and VS Code's Agents window connects via AHP over that SSH host.
+- [ ] An agent session survives closing and reopening the VS Code window (Durability Test 1 from `docs/INITIAL.md` Section 23).
+- [ ] Two parallel agent sessions operate in separate worktrees without overwriting each other's edits.
 - [ ] Both `opencode` and `pi` are installed in the workspace and each has successfully diagnosed the seeded failing test, grounded in repo context, without manual copy-paste.
 - [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test).
-- [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M6-agent.md`, `M11-remote.md` are all committed with command-level evidence.
+- [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M4-agent-host.md`, `M5-sessions.md`, `M9-agent.md`, `M15-remote.md` are all committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 1 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 1 Lessons Learned entry.
