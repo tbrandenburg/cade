@@ -1680,6 +1680,16 @@ Gemini
 
 Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4).
 
+### Zero-Configuration Starting Point: `opencode/big-pickle`
+
+Before setting up any of the above paid providers, start with `opencode`'s built-in `opencode/big-pickle` model — it requires **no API key and no environment variable**:
+
+```bash
+opencode run --model opencode/big-pickle "Say hello in exactly 3 words."
+```
+
+Confirmed working with a completely clean environment (verified: no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` API-key/token variables set). This makes it the right first thing to try when validating M9's mechanics (agent sees repo context, diagnoses a seeded failure) before spending time on provider authentication — get the harness plumbing proven with `big-pickle` first, then swap in the chosen paid provider above for production use. Note this is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default.
+
 ---
 
 ## Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)

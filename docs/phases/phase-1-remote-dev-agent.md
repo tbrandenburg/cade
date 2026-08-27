@@ -342,6 +342,16 @@ Gemini
 
 Do not integrate four providers simultaneously. Recommended first option: **GitHub Copilot**, because GitHub is already the coordination plane (Rule 4). Store the provider credential per the interim secret handling rule (Rule 3) — `.env` with `chmod 600`, never committed, rotated once OpenBao exists (Phase 4, M12).
 
+### Zero-Configuration Starting Point: `opencode/big-pickle`
+
+Before setting up any of the above paid providers, start with `opencode`'s built-in `opencode/big-pickle` model — it requires **no API key and no environment variable**:
+
+```bash
+opencode run --model opencode/big-pickle "Say hello in exactly 3 words."
+```
+
+Confirmed working with a completely clean environment (no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` variables set). Use this to validate M9's mechanics (agent sees repo context, diagnoses a seeded failure) first, before spending setup time on provider authentication — then swap in the chosen paid provider above for production use. This is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default.
+
 ### Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)
 
 Run `opencode` and `pi` wrapped in [Anthropic's Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) (`srt`) — an OS-level sandbox (`bubblewrap` on Linux, no container-in-container) that enforces filesystem and network allowlists on the wrapped process tree. This is defense-in-depth on top of the workspace container itself: it stops a compromised or misbehaving agent session from reading `~/.ssh`/`.env` or exfiltrating to an arbitrary host, even with a shell inside the workspace. **Status:** beta research preview from Anthropic — an additional layer, not a replacement for the workspace/runner isolation already required by Rule 1/Rule 6.
