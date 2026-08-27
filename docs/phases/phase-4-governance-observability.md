@@ -79,6 +79,18 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 ---
 
+## Phase 4 Documentation & Agent Instructions Update
+
+Before Phase 4 is considered done, you, as the agent, must:
+
+1. **Update project docs** — update `docs/security.md` with the actual OpenBao/OPA setup (secret paths, policy files, credential rotation record) and `docs/operations.md` with the Grafana dashboard layout and how to correlate a request across services.
+2. **Update `AGENTS.md`** at the repo root with:
+   - **Guidelines** — any new binding rule discovered (e.g. OPA policy authoring conventions, OpenBao unseal/auth quirks, what telemetry fields are actually useful vs. noise).
+   - **Agent Instructions** — how to fetch a secret from OpenBao for local testing, how to check an OPA decision manually, and how to find a given execution in Grafana.
+   - **Lessons Learned** — a dated entry (`## Phase 4 — <date>`) covering what broke, what surprised you, and what to avoid next time. Append; do not overwrite prior entries.
+
+---
+
 ## Phase 4 Exit Criteria
 
 - [ ] OpenBao holds all secrets previously stored in `.env`; no secret remains in source.
@@ -87,3 +99,5 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 - [ ] Keycloak is either not deployed or gated behind the `governance` compose profile.
 - [ ] A single execution (build + Temporal workflow + MCP request) is traceable end-to-end in Grafana.
 - [ ] `docs/milestone-reports/M9-governance.md` and `M10-observability.md` are committed with command-level evidence.
+- [ ] `docs/security.md` and `docs/operations.md` reflect the actual Phase 4 implementation.
+- [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 4 Lessons Learned entry.

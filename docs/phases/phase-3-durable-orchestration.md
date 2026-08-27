@@ -174,6 +174,18 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 ---
 
+## Phase 3 Documentation & Agent Instructions Update
+
+Before Phase 3 is considered done, you, as the agent, must:
+
+1. **Update project docs** — update `docs/architecture.md` and `docs/operations.md` to describe the added Temporal topology, the `embedded-linux` toolchain contents, and the MCP tool surface (docs server + lab simulator) as actually implemented.
+2. **Update `AGENTS.md`** at the repo root with:
+   - **Guidelines** — any new binding rule discovered (e.g. Temporal worker restart timing, embedded toolchain image size limits on constrained hardware, MCP tool-call error handling conventions).
+   - **Agent Instructions** — how to start/inspect a Temporal workflow, how to open the `embedded-linux` workspace, and how the agent harness (`opencode`/`pi`) should call the MCP docs/lab-simulator tools instead of shelling out.
+   - **Lessons Learned** — a dated entry (`## Phase 3 — <date>`) covering what broke, what surprised you, and what to avoid next time. Append; do not overwrite prior entries.
+
+---
+
 ## Phase 3 Exit Criteria
 
 - [ ] Temporal, Temporal-DB, Temporal-UI added to compose and healthy alongside Coder.
@@ -181,3 +193,5 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 - [ ] `embedded-linux` workspace builds, tests, and simulates the embedded example from a fresh workspace with no host package installation.
 - [ ] MCP docs + lab-simulator services respond only to defined tool calls (no arbitrary shell), verified via service logs.
 - [ ] `docs/milestone-reports/M1-compose.md` (updated), `M5-temporal.md`, `M4-embedded.md`, `M8-mcp.md` are committed with command-level evidence.
+- [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 3 implementation.
+- [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 3 Lessons Learned entry.

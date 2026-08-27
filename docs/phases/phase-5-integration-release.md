@@ -158,9 +158,24 @@ The implementation is complete only if all of the following are true:
 
 ---
 
+## Phase 5 Documentation & Agent Instructions Update
+
+Before Phase 5 is considered done, you, as the agent, must:
+
+1. **Update project docs** — do a final pass over `docs/architecture.md`, `docs/operations.md`, `docs/security.md`, and `docs/disaster-recovery.md` so they describe the fully integrated system as it actually exists, with no remaining drift from any earlier phase.
+2. **Update `AGENTS.md`** at the repo root with:
+   - **Guidelines** — consolidate any cross-phase rules that only became clear once everything was integrated (e.g. ordering dependencies between services on startup, timing constraints across the full chain).
+   - **Agent Instructions** — a single "how to run the full end-to-end scenario yourself" walkthrough, referencing the Final Manual E2E Test Request above.
+   - **Lessons Learned** — a dated entry (`## Phase 5 — <date>`) covering what broke, what surprised you, and what to avoid next time. Append; do not overwrite prior entries. This closes out the lessons-learned log for the `0.1.0` release.
+3. **Update `VERSION.md`** per the Versioning Policy below, only after all other steps in this section are complete.
+
+---
+
 ## Phase 5 Exit Criteria
 
 - [ ] The full 8-step end-to-end scenario runs without a faked step.
 - [ ] The Final Manual E2E Test Request (A–L) passes, executed by you, the agent, personally.
 - [ ] Every checkbox in Final Acceptance Criteria is checked.
+- [ ] `docs/architecture.md`, `docs/operations.md`, `docs/security.md`, and `docs/disaster-recovery.md` are fully up to date with no drift from the implementation.
+- [ ] `AGENTS.md` has a final consolidated Guidelines section, complete Agent Instructions, and a dated Phase 5 Lessons Learned entry.
 - [ ] `VERSION.md` is bumped from `unreleased` to `0.1.0`.

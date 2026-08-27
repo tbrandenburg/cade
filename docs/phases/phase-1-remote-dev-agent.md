@@ -341,6 +341,20 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 ---
 
+## Phase 1 Documentation & Agent Instructions Update
+
+Before Phase 1 is considered done, you, as the agent, must:
+
+1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, Tailscale access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
+2. **Update `AGENTS.md`** at the repo root with:
+   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas).
+   - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how each CLI authenticates, any flags or config needed to ground the agent in repo context.
+   - **Lessons Learned** — a dated entry (`## Phase 1 — <date>`) describing what broke, what surprised you, and what to avoid next time. Do not overwrite prior entries; append.
+
+Do not skip this step even if nothing "went wrong" — record confirmations (e.g. "workspace creation worked first try, no gotchas") as well as problems, so future phases know what's already solid.
+
+---
+
 ## Phase 1 Exit Criteria
 
 - [ ] `make doctor` passes on a fresh host.
@@ -349,3 +363,5 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 - [ ] Both `opencode` and `pi` are installed in the workspace and each has successfully diagnosed the seeded failing test, grounded in repo context, without manual copy-paste.
 - [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test).
 - [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M6-agent.md`, `M11-remote.md` are all committed with command-level evidence.
+- [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 1 implementation.
+- [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 1 Lessons Learned entry.

@@ -141,6 +141,18 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 ---
 
+## Phase 2 Documentation & Agent Instructions Update
+
+Before Phase 2 is considered done, you, as the agent, must:
+
+1. **Update project docs** — update `docs/architecture.md` and `docs/security.md` to describe the actual runner setup (rootless/DinD/socket-proxy mitigation chosen, actual labels, branch-protection config) and the `gh-aw` reasoning boundary that was implemented.
+2. **Update `AGENTS.md`** at the repo root with:
+   - **Guidelines** — any new binding rule discovered (e.g. runner registration quirks, `gh-aw` prompt constraints, GitHub API rate-limit behavior observed).
+   - **Agent Instructions** — how to register/unregister the runner, how to trigger `runner-smoke.yml` and the `gh-aw` investigator manually, and how the chosen harness (`opencode`/`pi`) is invoked from within `gh-aw`.
+   - **Lessons Learned** — a dated entry (`## Phase 2 — <date>`) covering what broke, what surprised you, and what to avoid next time. Append; do not overwrite Phase 1's entry.
+
+---
+
 ## Phase 2 Exit Criteria
 
 - [ ] Self-hosted runner registered, labeled `[self-hosted, private-lab]`, connects outbound only.
@@ -148,3 +160,5 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 - [ ] `runner-smoke.yml` passes, triggered from outside the server's LAN, with no inbound port opened.
 - [ ] `gh-aw` investigates a seeded CI failure and produces a bounded, non-destructive diagnosis using the chosen harness (`opencode`/`pi`).
 - [ ] `docs/milestone-reports/M2-runner.md` and `M7-gh-aw.md` are committed with command-level evidence.
+- [ ] `docs/architecture.md` and `docs/security.md` reflect the actual Phase 2 implementation.
+- [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 2 Lessons Learned entry.

@@ -1,6 +1,6 @@
 # Implementation Phases — Index
 
-This directory splits `docs/INITIAL.md` into five sequential delivery phases. Each phase document is self-contained (objective, tasks, validation, manual E2E test, milestone reports) for the milestones it covers. The full architectural rules, repository structure, and make-target contract that apply across all phases remain defined once in `docs/INITIAL.md` Sections 3–5 — do not duplicate them; refer back.
+This directory splits `docs/INITIAL.md` into five sequential delivery phases. Each phase document is self-contained (objective, tasks, validation, manual E2E test, milestone reports) for the milestones it covers, and ends with a mandatory documentation and `AGENTS.md` update step before its exit criteria are considered met. The full architectural rules, repository structure, and make-target contract that apply across all phases remain defined once in `docs/INITIAL.md` Sections 3–5 — do not duplicate them; refer back.
 
 | Phase | File | Milestones | Deliverable |
 |---|---|---|---|
@@ -20,3 +20,4 @@ The original milestone order (M0→M11 sequential) groups the agent-facing devel
 - **Section 4 — Repository Structure** (`docs/INITIAL.md`): the full target repo layout; each phase only creates the subset of paths relevant to its milestones.
 - **Section 5 — Standard Make Targets** (`docs/INITIAL.md`): the stable `make` interface, including required script test coverage (`shellcheck` + `bats`).
 - **Section 21 — Development Workflow**: one milestone per branch, PR, and merge only after acceptance criteria pass — this applies within every phase.
+- **`/AGENTS.md`** (repo root): every phase must end with a "Documentation & Agent Instructions Update" step that updates this file's Guidelines, Agent Instructions, and appends a dated Lessons Learned entry — do not close out a phase without it. See each phase's own "Documentation & Agent Instructions Update" section for phase-specific detail.
