@@ -18,7 +18,7 @@ Prove that the same Coder/Docker model from Phase 1 M3 supports an embedded-styl
 
 ### Example
 
-Create `examples/embedded-sim/`. Possible toolchain: `gcc`, `cmake`, `ninja`, `qemu-user` or a small emulator. A simple example could compile a C application, execute tests, produce a firmware-like binary artifact, and run a simulated target:
+Create `examples/embedded-sim/`. Possible toolchain: `gcc`, `cmake`, `ninja`, `qemu-user` or a small emulator. **Caveat:** `qemu-user` only emulates userspace/syscalls for a cross-compiled binary against the target's libc — no MMIO/interrupts/peripherals/boot process. Good for "compile → run → check exit code/stdout," not a hardware simulator; for bare-metal firmware use `qemu-system` with a machine model instead. A simple example could compile a C application, execute tests, produce a firmware-like binary artifact, and run a simulated target:
 
 ```bash
 make configure
@@ -98,9 +98,11 @@ Add to the compose stack already running Coder + Coder-DB since Phase 1:
 
 ```text
 Temporal
-Temporal-DB
+Temporal-DB (PostgreSQL, pin to a Temporal-supported major version)
 Temporal UI
 ```
+
+**Use the SQL-based visibility variant (no Elasticsearch/OpenSearch)** — Temporal's own headline reference compose additionally requires Elasticsearch for visibility by default; this plan deliberately uses Postgres for both persistence and visibility instead, per `temporalio/samples-server`'s `docker-compose-postgres.yml` reference (the older `temporalio/docker-compose` repo is archived).
 
 Apply the same Compose Requirements as Phase 1 (pinned versions, explicit networks, named volumes, restart policy, health checks; no `network_mode: host`).
 
@@ -159,6 +161,8 @@ docker compose start temporal-worker
 
 Expected: workflow continues, workflow completes, workflow state not lost.
 
+**Why this is safe:** the Timer is server-side state in the workflow's Event History (Temporal-DB), not worker memory — killing the worker during the timer doesn't affect it, as long as the Temporal Server itself stays up.
+
 ### Manual E2E Test M8
 
 1. Start the durable demo.
@@ -167,6 +171,8 @@ Expected: workflow continues, workflow completes, workflow state not lost.
 4. Restart worker (`docker compose start temporal-worker`).
 5. Verify workflow resumes.
 6. Inspect Temporal UI history.
+
+**Note:** steps 2 and 3 test two different failure modes — worker absence (step 2) vs. server-process restart (step 3). Both should succeed because state lives in Temporal-DB, not in either process's memory; report on both independently rather than as one combined test.
 
 Record screenshots/logs and workflow ID in `docs/milestone-reports/M8-temporal.md`, explicitly answering: *"Did the process survive worker failure without manual state reconstruction?"* Expected: YES.
 

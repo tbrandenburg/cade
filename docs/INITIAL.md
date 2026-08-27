@@ -337,7 +337,7 @@ Each is validated by a different mechanism and a different test. A milestone tha
 
 ## Rule 8 — Agent session data stays local by default
 
-VS Code's Agent Host can maintain searchable session history and, for some providers, optionally sync it to a cloud account. For this private platform:
+VS Code's `chat.sessionSync.enabled` setting **defaults to `true`**, syncing Copilot chat/session data to the user's GitHub.com account (this also requires `github.copilot.chat.localIndex.enabled`). For this private platform, that default must be explicitly overridden:
 
 ```json
 {
@@ -345,7 +345,7 @@ VS Code's Agent Host can maintain searchable session history and, for some provi
 }
 ```
 
-must be the default in `.vscode/settings.json` / `agent-host/settings.json`. This is a deliberate choice, not an oversight: the goal is a self-controlled platform where session state (live session, local history, user/repository memory) stays on the private server unless a future milestone explicitly and intentionally enables sync.
+set in `.vscode/settings.json` / `agent-host/settings.json`. This is a deliberate override of VS Code's out-of-the-box behavior, not a description of what happens by default: the goal is a self-controlled platform where session state (live session, local history, user/repository memory) stays on the private server unless a future milestone explicitly and intentionally re-enables sync.
 
 ---
 
@@ -460,14 +460,13 @@ private-dev-platform/
 │   └── extensions.json
 │
 └── .github/
-    ├── workflows/
-    │   ├── platform-ci.yml
-    │   ├── runner-smoke.yml
-    │   ├── durable-demo.yml
-    │   └── local-capability.yml
-    │
-    └── agentic-workflows/
-        └── investigate-failure.md
+    └── workflows/
+        ├── platform-ci.yml
+        ├── runner-smoke.yml
+        ├── durable-demo.yml
+        ├── local-capability.yml
+        ├── investigate-failure.md      # gh-aw source
+        └── investigate-failure.lock.yml # gh-aw compiled (gh aw compile)
 ```
 
 ---
@@ -811,6 +810,8 @@ This must be actively enforced, not merely stated as intent:
 - Do not enable this runner on any repository accepting external forks or contributions.
 - Configure branch protection so `runner-smoke.yml` and any workflow targeting `[self-hosted, private-lab]` can only be triggered by collaborators with write access (`workflow_dispatch` restricted to the default branch, no `pull_request` trigger from forks).
 
+**This is not sufficient on its own.** Per GitHub's own "Security hardening for GitHub Actions" guidance, self-hosted runners "should almost never be used for public repositories," and even on a **private** repo, *any* collaborator who can open a pull request can compromise the runner if a workflow targeting `[self-hosted, private-lab]` is triggered by `pull_request` (not just `pull_request_target`) — this is broader than just avoiding the one dangerous trigger keyword. Restrict collaborators on this repository to fully trusted individuals, and gate every self-hosted-runner workflow behind `workflow_dispatch` (manual, explicit trigger) only — never an automatic `pull_request` trigger, regardless of trigger type.
+
 Do not use:
 
 ```text
@@ -826,7 +827,7 @@ Direct Docker socket access is equivalent to unauthenticated root on the host: a
 Use one of the following instead, in order of preference:
 
 1. **Rootless / isolated execution** — run job containers through `sysbox-runc` or a rootless Docker daemon so the runner can launch containers without host-level socket exposure.
-2. **Docker-in-Docker (DinD) sidecar** — give the runner its own isolated Docker daemon (a `docker:dind` sidecar container) instead of the host socket, so a compromised job cannot reach host containers/volumes.
+2. **Docker-in-Docker (DinD) sidecar** — give the runner its own isolated Docker daemon (a `docker:dind` sidecar container) instead of the host socket, so a compromised job cannot reach host containers/volumes. **Caveat:** the standard `docker:dind` image commonly still needs `--privileged` on the sidecar itself unless it is paired with `sysbox-runc` (option 1) — a naive DinD sidecar is not automatically a lower-risk option than the socket proxy below; pair it with rootless/sysbox execution or it reintroduces a similar host-level risk on the sidecar container.
 3. **Socket proxy** — if a proxy is unavoidable, put `docker-socket-proxy` (or equivalent) in front of the socket, allow-listing only the specific API calls the runner needs (e.g. `build`, `run` on approved images) and denying host-level operations (`exec` into arbitrary containers, volume mounts of host paths, `--privileged`).
 
 If, after evaluating these options, direct socket access is still chosen for a specific milestone, this must be recorded as an explicit, time-boxed risk acceptance in `docs/security.md` — not silently accepted in this plan.
@@ -1083,6 +1084,8 @@ Prove the **Durable Session Plane** (Layer 2) independently of both the workspac
 
 VS Code's Agent Host owns agent sessions independently of the UI client that's attached. Closing the editor window, reconnecting from another window, and the running host remaining the source of truth is the core property being validated here. Remote Agent Hosts communicate with clients through **AHP (Agent Host Protocol)**, typically over SSH or a dev tunnel.
 
+**Maturity note (verified against current VS Code/AHP docs):** this feature is real and works as described, but Microsoft's own documentation describes it as under active development, with new capabilities continuing to roll out. Treat the exact settings names, CLI flags, and behaviors as subject to change between VS Code releases — re-verify against `code.visualstudio.com/docs/agents` at implementation time rather than assuming this section is permanently accurate.
+
 You probably do not need to package your own Agent Host implementation — VS Code already bundles it. For a remote host, the Coder-provisioned workspace runs it as a standalone process, and VS Code installs/starts the required CLI when making a remote session connection.
 
 **Important qualifier:** VS Code's own docs note that an active turn continues while the Agent Host remains running. Do not interpret AHP alone as "my agent survives deletion of its Docker workspace" — that is a *workspace* durability question (M3/M6, Coder's persistent volume), not a session durability question. See Rule 7 (Section 3) and Section 2.2.
@@ -1115,6 +1118,8 @@ repo / tools / terminal
 
 Add `scripts/configure-coder-ssh.sh` to automate the `coder config-ssh` step and `scripts/verify-agent-host.sh` / `scripts/verify-ahp-session.sh` to check the Agent Host process is reachable over the configured SSH host.
 
+**Verification note:** `coder config-ssh` and VS Code's SSH-based Agents window are each independently documented by their respective vendors (Coder and Microsoft), but no joint Coder+VS-Code-Agent-Host integration guide was found. This bridge is a composition of two independently-documented features that should work together (VS Code's remote-over-SSH path has no Coder-specific requirement beyond a working `sshd` in the workspace), not a vendor-blessed, jointly-tested integration — validate it carefully in M4's Manual E2E Test rather than assuming it's a documented, supported combination.
+
 ---
 
 ## Persist the Agent Host's Workspace
@@ -1142,13 +1147,13 @@ Do not put the repository or agent session state purely into the ephemeral conta
 
 ## Session Data Locality
 
-Apply Rule 8 (Section 3) here: set `chat.sessionSync.enabled: false` in `agent-host/settings.json` / `.vscode/settings.json` so session history stays local to the private server rather than syncing to a cloud account by default.
+Apply Rule 8 (Section 3) here: VS Code's `chat.sessionSync.enabled` defaults to `true` (syncing session data to the user's GitHub.com account) — this platform must explicitly override that default to `false` in `agent-host/settings.json` / `.vscode/settings.json` so session history stays on the private server instead.
 
 ---
 
 ## Coordinate Coder's Lifecycle with Active Agent Sessions
 
-Coder supports automatic workspace stopping/scheduling, determining activity from IDE, SSH, terminal, and similar connections. There is no confirmed guarantee that VS Code Agent Host activity alone counts toward Coder's idle detection. This means a workspace could autostop while an agent is still working in the background, with no editor attached.
+Coder's documented activity-detection list for autostop/scheduling purposes is: VS Code/JetBrains IDE sessions, web terminal, SSH sessions, and (separately) Coder's own "Tasks" feature for AI-agent working status. **A detached Agent Host process with no open IDE/SSH/terminal session is not on that list** — this platform is not using Coder Tasks, so a workspace **will** autostop while an agent works unattended unless autostop is disabled or a session (e.g. SSH) is deliberately kept open.
 
 For the first implementation:
 
@@ -1349,6 +1354,8 @@ ninja
 qemu-user or a small emulator
 ```
 
+**Caveat:** `qemu-user` (user-mode emulation, e.g. `qemu-arm`) only emulates userspace/syscalls for a cross-compiled binary running against the target's libc — it does **not** emulate MMIO, interrupts, peripherals, or a boot process. It's a good fit for "compile → run → check exit code/stdout" (what this milestone needs), but it is not a hardware simulator and should not be described as validating real embedded/peripheral behavior. For genuinely bare-metal firmware (no libc/syscalls), use `qemu-system` with a machine model instead — hence "or a small emulator" as the documented alternative.
+
 A simple example could:
 
 1. compile a C application
@@ -1529,9 +1536,11 @@ Add to the compose stack already running Coder + Coder-DB since M1:
 
 ```text
 Temporal
-Temporal-DB
+Temporal-DB (PostgreSQL, pin to a Temporal-supported major version, e.g. 13+)
 Temporal UI
 ```
+
+**Use the SQL-based visibility variant (no Elasticsearch/OpenSearch).** Temporal's own headline reference compose (`docker-compose.yml`) additionally requires Elasticsearch for its default visibility store — that is a 4th component this plan deliberately omits for lower operational overhead, using Postgres for both persistence and visibility instead (the SQL-visibility limitation — less advanced visibility search — is acceptable for this platform's scale). Use `temporalio/samples-server`'s `docker-compose-postgres.yml` as the reference (the older `temporalio/docker-compose` repo is archived; the reference examples now live under `samples-server`).
 
 Apply the same Compose Requirements as M1 (pinned versions, explicit networks, named volumes, restart policy, health checks; no `network_mode: host`).
 
@@ -1614,6 +1623,8 @@ workflow completes
 workflow state not lost
 ```
 
+**Why this is safe:** a Timer is server-side state recorded in the workflow's Event History in Temporal-DB, not something the worker process holds in memory — killing the worker during the timer has no effect on the timer firing, because the Temporal Server (not the worker) tracks it. This only holds as long as the Temporal Server itself (and its database) stays up during the worker outage.
+
 ---
 
 ## Manual E2E Test M8
@@ -1626,6 +1637,8 @@ You, as the implementing agent, must deliberately:
 4. Restart worker (`docker compose start temporal-worker`).
 5. Verify workflow resumes.
 6. Inspect Temporal UI history.
+
+**Note:** steps 2 and 3 test two different failure modes. Step 2 (worker kill/restart) proves the timer/workflow survives *worker* absence, because its state lives in Temporal-DB. Step 3 (restarting the `temporal` server component itself) is a *stronger*, separate proof — that the server process restarting doesn't lose state either, because state is durably persisted in Temporal-DB rather than in the server's memory. Do not treat these as one combined test; report on both independently.
 
 Record screenshots/logs and workflow ID in:
 
@@ -1688,7 +1701,7 @@ Before setting up any of the above paid providers, start with `opencode`'s built
 opencode run --model opencode/big-pickle "Say hello in exactly 3 words."
 ```
 
-Confirmed working with a completely clean environment (verified: no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` API-key/token variables set). This makes it the right first thing to try when validating M9's mechanics (agent sees repo context, diagnoses a seeded failure) before spending time on provider authentication — get the harness plumbing proven with `big-pickle` first, then swap in the chosen paid provider above for production use. Note this is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default.
+Confirmed working with a completely clean environment (verified: no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` API-key/token variables set). This makes it the right first thing to try when validating M9's mechanics (agent sees repo context, diagnoses a seeded failure) before spending time on provider authentication — get the harness plumbing proven with `big-pickle` first, then swap in the chosen paid provider above for production use. Note this is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default. (Note: this was confirmed via a direct manual test in this environment, not against `pi`'s or opencode's public documentation, since no authoritative public doc enumerating opencode's zero-config model catalog or pi's CLI reference was located during review — re-verify if either CLI's provider catalog changes.)
 
 ---
 
@@ -1877,17 +1890,25 @@ safe decision
 deterministic workflow
 ```
 
-`gh-aw`'s reasoning step should invoke the harness chosen in M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool.
+`gh-aw`'s reasoning step should invoke the harness chosen in M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool. `gh-aw` (`github/gh-aw`) explicitly supports GitHub Copilot, Claude Code, OpenAI Codex, Gemini, and **Pi** as engines — confirm the `pi` engine option against `gh-aw`'s current documentation when this milestone is implemented.
 
 ---
 
 ## First Agentic Workflow
 
-Create:
+`gh-aw` source files live in the **same directory as regular Actions workflows**, not a separate directory — create:
 
 ```text
-.github/agentic-workflows/investigate-failure.md
+.github/workflows/investigate-failure.md
 ```
+
+Run `gh aw compile` to generate the executable sibling artifact:
+
+```text
+.github/workflows/investigate-failure.lock.yml
+```
+
+Commit **both** the `.md` source and the generated `.lock.yml` — Actions executes the compiled `.lock.yml`, not the Markdown source directly.
 
 It should:
 
@@ -1902,6 +1923,8 @@ Do not initially let it:
 - modify infrastructure
 - control Docker host arbitrarily
 - manipulate hardware
+
+Enforce this with `gh-aw`'s documented **"safe outputs"** mechanism — a separate, permission-scoped job that applies only validated, allow-listed write operations (e.g. posting an issue comment) rather than letting the agentic step itself hold write permissions. Do not rely on the prose constraint above alone; wire it through safe outputs so it's enforced, not just requested.
 
 ---
 
@@ -2073,13 +2096,36 @@ Once OpenBao is live, rotate every credential introduced during M2–M11 under t
 
 ## OPA
 
-Implement at least three example policies:
+Implement at least three example policies. These names describe the required *behavior*, not literal Rego syntax — actual Rego source is required alongside them, evaluated via OPA's decision API (`POST /v1/data/<package>/allow` etc.), e.g.:
 
 ```text
 allow read_device
 allow run_test
 deny flash_device_without_approval
 ```
+
+Example minimal Rego backing the above (adapt to real request shape):
+
+```rego
+package lab.authz
+
+default allow := false
+
+allow if {
+    input.action == "read_device"
+}
+
+allow if {
+    input.action == "run_test"
+}
+
+allow if {
+    input.action == "flash_device"
+    input.approved == true
+}
+```
+
+The MCP lab-server (M11) queries OPA's decision endpoint before executing a privileged action and honors the `allow`/`deny` result — do not hardcode the allow/deny logic in the MCP server itself.
 
 ---
 
@@ -2159,24 +2205,26 @@ Deploy:
 
 ```text
 OpenTelemetry Collector
-Grafana OSS
+Prometheus       (REQUIRED — metrics storage backend)
+Grafana OSS      (visualization only, queries Prometheus)
 ```
 
-Optional additional local backend:
+**Correction to the original assumption:** "OpenTelemetry Collector → Grafana" alone is **not** a complete pipeline. Grafana has no built-in ingestion or storage — a Grafana "data source" is a connection to a separate storage backend (Prometheus, Loki, Tempo, etc.); the Collector receives/processes/exports telemetry but does not serve queries itself. **Prometheus (metrics) is the minimum required backend**, not optional, for the Minimum Dashboard below to show anything at all.
+
+Additional backends, add only if genuinely needed for the Manual E2E Test's cross-service timestamp correlation:
 
 ```text
-Prometheus
-Loki
-Tempo
+Loki   — if correlating log lines across services, not just metrics
+Tempo  — if correlating distributed traces across services
 ```
 
-Only add those if needed.
+Given M13's Manual E2E Test explicitly requires correlating timestamps *across* GitHub runner / Temporal worker / MCP service / lab simulation, Tempo (traces) is likely to be needed in practice, not just Prometheus — evaluate this once the pipeline is running rather than assuming metrics alone will suffice for cross-service correlation.
 
 ---
 
 ## Minimum Dashboard
 
-Display:
+Display (backed by Prometheus, at minimum):
 
 ```text
 service uptime
@@ -2231,7 +2279,7 @@ By this point the stack has state scattered across many services. This milestone
 MUST BACK UP
 platform repository
 Coder database
-Temporal database
+Temporal database (including the Visibility store, if it uses a separate backend from the Persistence store — confirm this stack uses Postgres for both before assuming one pg_dump covers everything)
 OpenBao
 important workspace state (persistent /home/coder, incl. agent memory/session state)
 
@@ -2244,20 +2292,23 @@ build caches (registry, sccache)
 temporary agent worktrees
 ```
 
-Document this classification in `backup/backup-policy.md`.
+Document this classification in `backup/backup-policy.md`, including:
+
+- **OpenBao backup mechanism:** use `bao operator raft snapshot save` (for Integrated Storage/Raft), not a raw filesystem/volume copy. Separately and securely back up the unseal keys (or the auto-unseal KMS key reference) — a restored OpenBao instance starts **sealed** and is unusable without them. `bao operator raft snapshot restore` is the corresponding restore command.
+- **Coder workspace-home persistence is a *template* property, not an automatic platform guarantee.** Coder's own docs state resources are persistent only if the template follows specific practices (pinning the home volume to an immutable resource ID such as `coder_workspace.me.id`, and `lifecycle { ignore_changes = all }`). Verify the `docker-standard`/`embedded-linux` templates actually do this — a naively-written template can silently recreate (wipe) the "persistent" volume on workspace rebuild.
 
 ---
 
 ## Validation Milestone M14
 
-1. Create workspace.
+1. Create workspace, and write a marker file with a unique, timestamped value into `/home/coder`.
 2. Create Temporal workflow.
 3. Store test secret (in OpenBao, per M12).
 4. Create agent/session data (per M4/M5).
-5. Run `make backup`.
+5. Run `make backup` (OpenBao via `bao operator raft snapshot save`; unseal keys/KMS reference backed up separately).
 6. Destroy relevant containers/volumes (the "MUST BACK UP" set only).
-7. Run `make restore-test` (or equivalent restore procedure).
-8. Verify state: workspace, workflow, secret, and agent/session data are all recovered.
+7. Run `make restore-test` (OpenBao restore via `bao operator raft snapshot restore`, then unseal).
+8. Verify state: workspace (assert the marker file exists with byte-for-byte identical content — do not treat "workspace starts" alone as sufficient evidence), workflow, secret, and agent/session data are all recovered.
 
 ---
 
@@ -2267,9 +2318,9 @@ You, as the implementing agent, must personally run the 8-step sequence above ag
 
 1. Repository/platform config restored.
 2. Coder database restored (workspace metadata intact).
-3. Temporal database restored (workflow history intact).
-4. OpenBao restored (test secret still retrievable).
-5. Persistent workspace home restored (agent memory/session state intact).
+3. Temporal database restored (workflow history intact, including Visibility store if separate).
+4. OpenBao restored via raft snapshot restore, then successfully unsealed with the backed-up unseal keys/KMS reference, test secret still retrievable.
+5. Persistent workspace home restored — verified via the exact marker-file content check from step 8 above, not just "workspace starts," since home-volume persistence depends on the Coder template being written correctly (immutable resource ID, `lifecycle { ignore_changes = all }`).
 
 Record in `backup/restore-test.md` and:
 
@@ -2666,6 +2717,8 @@ repo + persistent home survive
 ```
 
 Coder validates this — Coder explicitly separates persistent resources (the home volume) from ephemeral workspace resources (the container). Do not assume Durability Test 1 (UI/AHP) passing means Durability Test 3 (workspace) automatically passes — that conflation was the central architectural gap in the original version of this plan.
+
+**This is a template property, not an automatic platform guarantee.** Coder's persistence model only holds if the workspace template pins the home volume to an immutable resource ID (e.g. `coder_workspace.me.id`, not a mutable attribute like `.name`/`.owner`) and sets `lifecycle { ignore_changes = all }` on it — a naively-written template can silently recreate (wipe) the volume on restart while still appearing to "work." Verify this test at the file-content level, not just "workspace starts": write a marker file with a unique, timestamped value before stopping the workspace, and assert the same file exists with byte-for-byte identical content after starting it again.
 
 ---
 

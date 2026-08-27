@@ -350,7 +350,7 @@ Before setting up any of the above paid providers, start with `opencode`'s built
 opencode run --model opencode/big-pickle "Say hello in exactly 3 words."
 ```
 
-Confirmed working with a completely clean environment (no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` variables set). Use this to validate M9's mechanics (agent sees repo context, diagnoses a seeded failure) first, before spending setup time on provider authentication — then swap in the chosen paid provider above for production use. This is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default.
+Confirmed working with a completely clean environment (no `ANTHROPIC_*`, `OPENAI_*`, `COPILOT_*`, `OPENCODE_*` variables set). Use this to validate M9's mechanics (agent sees repo context, diagnoses a seeded failure) first, before spending setup time on provider authentication — then swap in the chosen paid provider above for production use. This is `opencode`-specific; `pi` still needs its own provider configured since it doesn't ship an equivalent no-auth default. (Note: this was confirmed via a direct manual test in this environment, not against `pi`'s or opencode's public documentation, since no authoritative public doc enumerating opencode's zero-config model catalog or pi's CLI reference was located during review — re-verify if either CLI's provider catalog changes.)
 
 ### Sandbox Agent CLIs with Anthropic Sandbox Runtime (srt)
 

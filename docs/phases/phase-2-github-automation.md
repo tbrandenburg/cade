@@ -48,12 +48,14 @@ This must be actively enforced, not merely stated as intent:
 - Do not enable this runner on any repository accepting external forks or contributions.
 - Configure branch protection so `runner-smoke.yml` and any workflow targeting `[self-hosted, private-lab]` can only be triggered by collaborators with write access.
 
+**Not sufficient on its own:** per GitHub's "Security hardening for GitHub Actions" guidance, *any* collaborator who can open a pull request on this private repo can compromise the runner if a workflow is triggered by `pull_request` — not just via `pull_request_target`. Restrict collaborators to fully trusted individuals and gate every self-hosted-runner workflow behind `workflow_dispatch` only.
+
 Do not use `pull_request_target` with this runner, and do not add a `pull_request` trigger sourced from fork branches to any workflow targeting `[self-hosted, private-lab]`.
 
 **Do not mount `/var/run/docker.sock` directly into the runner container.** Direct socket access is equivalent to unauthenticated root on the host. Use one of, in order of preference:
 
 1. **Rootless / isolated execution** — `sysbox-runc` or a rootless Docker daemon.
-2. **Docker-in-Docker (DinD) sidecar** — the runner gets its own isolated Docker daemon.
+2. **Docker-in-Docker (DinD) sidecar** — the runner gets its own isolated Docker daemon. Caveat: the standard `docker:dind` image commonly still needs `--privileged` on the sidecar unless paired with `sysbox-runc` (option 1) — do not assume this is automatically lower-risk than option 3.
 3. **Socket proxy** — `docker-socket-proxy` allow-listing only needed API calls, denying host-level operations.
 
 If direct socket access is still chosen for a specific milestone, record it as an explicit, time-boxed risk acceptance in `docs/security.md`.
@@ -101,18 +103,20 @@ safe decision
 deterministic workflow
 ```
 
-`gh-aw`'s reasoning step should invoke the harness chosen in Phase 1 M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool.
+`gh-aw`'s reasoning step should invoke the harness chosen in Phase 1 M9 (`opencode` or `pi`) where a local agent CLI is needed, rather than introducing a third tool. `gh-aw` (`github/gh-aw`) explicitly supports GitHub Copilot, Claude Code, OpenAI Codex, Gemini, and **Pi** as engines — confirm the `pi` engine option against current `gh-aw` docs at implementation time.
 
 ### First Agentic Workflow
 
-Create `.github/agentic-workflows/investigate-failure.md`. It should:
+`gh-aw` source files live in the **same directory as regular Actions workflows**, not a separate one — create `.github/workflows/investigate-failure.md`, then run `gh aw compile` to generate the executable `.github/workflows/investigate-failure.lock.yml` sibling. Commit both — Actions executes the compiled `.lock.yml`, not the Markdown source.
+
+It should:
 
 1. inspect a failed Actions run
 2. inspect relevant repository files
 3. describe probable root cause
 4. create a bounded output
 
-Do not initially let it: deploy, modify infrastructure, control Docker host arbitrarily, or manipulate hardware.
+Do not initially let it: deploy, modify infrastructure, control Docker host arbitrarily, or manipulate hardware. Enforce this with `gh-aw`'s documented **"safe outputs"** mechanism (a separate, permission-scoped job for validated writes) rather than relying on the prose constraint alone.
 
 ### Keep Deterministic Capabilities Separate
 

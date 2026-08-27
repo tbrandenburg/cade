@@ -22,13 +22,25 @@ Once OpenBao is live, rotate every credential introduced during Phases 1–3 und
 
 ### OPA
 
-Implement at least three example policies:
+Implement at least three example policies. These names describe required *behavior* — real Rego source is needed alongside them, evaluated via OPA's decision API:
 
 ```text
 allow read_device
 allow run_test
 deny flash_device_without_approval
 ```
+
+```rego
+package lab.authz
+
+default allow := false
+
+allow if { input.action == "read_device" }
+allow if { input.action == "run_test" }
+allow if { input.action == "flash_device"; input.approved == true }
+```
+
+The MCP lab-server (Phase 3, M11) queries this decision endpoint before executing a privileged action; do not hardcode the allow/deny logic in the MCP server itself.
 
 ### Keycloak
 
@@ -52,7 +64,7 @@ Record in `docs/milestone-reports/M12-governance.md`, including the exact policy
 
 Make executions visible across: GitHub runner, Temporal worker, MCP service, lab simulation, Agent Host sessions.
 
-Deploy: OpenTelemetry Collector, Grafana OSS. Optional additional local backend (Prometheus, Loki, Tempo) — only add those if actually needed.
+Deploy: OpenTelemetry Collector + **Prometheus (required metrics storage backend)** + Grafana OSS (visualization only — Grafana has no built-in ingestion/storage; it queries a backend). "OTel Collector → Grafana" alone is not a complete pipeline. Add Loki (logs) and/or Tempo (traces) if the Manual E2E Test's cross-service timestamp correlation needs more than metrics — likely, since it explicitly requires correlating across GitHub runner / Temporal worker / MCP service / lab simulation.
 
 ### Minimum Dashboard
 
