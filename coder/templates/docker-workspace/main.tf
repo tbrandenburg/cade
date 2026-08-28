@@ -35,7 +35,6 @@ data "coder_parameter" "github_token" {
   type         = "string"
   default      = ""
   mutable      = true
-  sensitive    = true
   order        = 1
 }
 
