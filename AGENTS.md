@@ -111,6 +111,13 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - `POST /repos/<o>/<r>/actions/runners/generate-jitconfig` needs `runner_group_id` as a JSON
   integer (`-F`, not `-f`) and a fresh `docker run --rm ... --jitconfig <config>` per job —
   `gh api repos/<o>/<r>/actions/runners --jq '.runners'` empty afterward confirms auto-deregistration.
+- Before writing "this is a private repo" into any future self-hosted-runner step, re-check
+  `gh repo view --json visibility` — `tbrandenburg/devenv-cloud` has stayed PUBLIC across
+  multiple milestones despite the plan requiring private, and assuming otherwise silently
+   disables required public-repo safeguards (e.g. `gh-aw` integrity auto-filtering).
+- `gh-aw`'s MCP Gateway/AWF sandbox requires a real Docker Unix socket (`GH_AW_DOCKER_SOCK_PATH`
+  or `/var/run/docker.sock`) — the M2 `DOCKER_HOST=tcp://runner-docker-proxy:2375` socket proxy
+  is explicitly unsupported and fails the `agent` job at runtime, not at `gh aw compile` time.
 
 ### Sandbox / security
 
