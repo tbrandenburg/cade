@@ -4,7 +4,7 @@
 
 Get secrets out of source, prove policy-enforced denials, and make execution across services observable.
 
-Milestones covered: **M12** (Governance Foundation), **M13** (Observability).
+Milestones covered: **M12** (Governance Foundation) + **M12.1** (E2E), **M13** (Observability) + **M13.1** (E2E).
 
 Depends on Phase 2 (runner) and Phase 3 (Temporal, MCP) existing, since governance/observability wrap around those execution paths.
 
@@ -67,9 +67,9 @@ Use only if identity experimentation is required. Otherwise make this service op
 
 Attempt `run_test` → expected: ALLOW. Attempt `flash_device` without approval → expected: DENY.
 
-### Manual E2E Test M12
+## M12.1 — E2E: Governance Denial Proof
 
-Intentionally try an unauthorized operation. The test only passes if the system rejects it.
+Intentionally try an unauthorized operation against the live OPA decision endpoint (not a policy-file review, not `opa test` alone). The test only passes if the system rejects it in a live run.
 
 Record in `docs/milestone-reports/M12-governance.md`, including the exact policy decision and the credential-rotation log for anything carried over from Phases 1–3.
 
@@ -97,9 +97,9 @@ Display: service uptime, Temporal activity count, MCP request count, lab API req
 
 Execute a sample build, a Temporal workflow, and an MCP request. All three must produce observable telemetry.
 
-### Manual E2E Test M13
+## M13.1 — E2E: Cross-Service Trace Correlation
 
-1. Execute a complete local test.
+1. Execute a complete local test (build + Temporal workflow + MCP request).
 2. Open Grafana.
 3. Find the execution.
 4. Correlate timestamps across services.
@@ -110,7 +110,7 @@ Record screenshots/logs in `docs/milestone-reports/M13-observability.md`.
 
 ## Phase 4 Manual E2E Testing (performed by you, the agent)
 
-You, as the agent, must personally execute every Manual E2E Test in this phase (M12, M13) end-to-end. For M12, attempt the unauthorized operation yourself and confirm OPA actually rejects it — do not accept a policy file review as a substitute for a live denial. For M13, run a real execution yourself and locate it in Grafana by correlating timestamps across services. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M12-governance.md` and `M13-observability.md` before considering Phase 4 complete.
+You, as the agent, must personally execute every E2E step in this phase (M12.1, M13.1) end-to-end. For M12.1, attempt the unauthorized operation yourself and confirm OPA actually rejects it — do not accept a policy file review or `opa test` alone as a substitute for a live denial. For M13.1, run a real execution yourself and locate it in Grafana by correlating timestamps across services. Capture command output, exit codes, and timestamps per the evidence standard (`docs/INITIAL.md` Section 3, Rule 2), and record results in `docs/milestone-reports/M12-governance.md` and `M13-observability.md` before considering Phase 4 complete.
 
 ---
 
