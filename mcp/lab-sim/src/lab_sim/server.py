@@ -31,8 +31,10 @@ import contextlib
 import logging
 
 from mcp.server.mcpserver import Context, MCPServer
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from lab_sim import devices
@@ -43,6 +45,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lab_sim.server")
 
 mcp = MCPServer("devenv-cloud-lab-sim")
+
+# M13 Observability: request-level metrics for the "MCP request count" /
+# "lab API request count" panels (docs/plan/plan.md, M13 Minimum
+# Dashboard). Scraped by Prometheus at GET /metrics - that path is exempt
+# from BearerAuthMiddleware below since it is only reachable from the
+# internal `platform-workspaces` network (same posture as the service's
+# other unauthenticated failure mode, /v2/ style probes).
+HTTP_REQUESTS = Counter(
+    "lab_sim_requests_total", "Total HTTP requests received by lab-sim", ["path"]
+)
+TOOL_CALLS = Counter(
+    "lab_sim_tool_calls_total", "Total lab-sim MCP tool invocations", ["tool"]
+)
 
 
 def _authenticated_caller(ctx: Context) -> str:
@@ -60,6 +75,7 @@ def _authenticated_caller(ctx: Context) -> str:
 def list_devices() -> list[dict[str, str]]:
     """List simulated devices and their current status. Does not require
     ownership of any reservation (read-only fleet inventory)."""
+    TOOL_CALLS.labels(tool="list_devices").inc()
     return devices.SIMULATOR.list_devices()
 
 
@@ -68,6 +84,7 @@ def reserve_device(device_id: str, ctx: Context) -> dict[str, str]:
     """Reserve an available simulated device. Returns a reservation_id bound
     server-side to the authenticated caller; only that caller may use it in
     subsequent flash_device/run_test/get_logs/release_device calls."""
+    TOOL_CALLS.labels(tool="reserve_device").inc()
     caller_id = _authenticated_caller(ctx)
     reservation_id = devices.SIMULATOR.reserve_device(device_id, caller_id)
     logger.info("reserve_device: caller=%s device=%s reservation=%s", caller_id, device_id, reservation_id)
@@ -81,6 +98,7 @@ def flash_device(reservation_id: str, ctx: Context, approved: bool = False) -> s
     `lab.authz` policy for `flash_device` - denied unless `approved=True`
     (human/workflow sign-off), per the M12 governance policy. Raises
     `PolicyDenied` (surfaced as a tool error) otherwise."""
+    TOOL_CALLS.labels(tool="flash_device").inc()
     caller_id = _authenticated_caller(ctx)
     check_allowed("flash_device", approved=approved)
     result = devices.SIMULATOR.flash_device(reservation_id, caller_id)
@@ -95,6 +113,7 @@ def run_test(reservation_id: str, ctx: Context) -> dict[str, str]:
     decision from OPA's `lab.authz` policy for `run_test` (always allowed
     per the current policy, but the decision is still queried live, never
     hardcoded)."""
+    TOOL_CALLS.labels(tool="run_test").inc()
     caller_id = _authenticated_caller(ctx)
     check_allowed("run_test")
     result = devices.SIMULATOR.run_test(reservation_id, caller_id)
@@ -106,6 +125,7 @@ def run_test(reservation_id: str, ctx: Context) -> dict[str, str]:
 def get_logs(reservation_id: str, ctx: Context) -> list[str]:
     """Retrieve the log lines recorded for `reservation_id`. Requires the
     caller to own the reservation."""
+    TOOL_CALLS.labels(tool="get_logs").inc()
     caller_id = _authenticated_caller(ctx)
     logs = devices.SIMULATOR.get_logs(reservation_id, caller_id)
     logger.info("get_logs: caller=%s reservation=%s lines=%d", caller_id, reservation_id, len(logs))
@@ -116,6 +136,7 @@ def get_logs(reservation_id: str, ctx: Context) -> list[str]:
 def release_device(reservation_id: str, ctx: Context) -> str:
     """Release a reserved device back to `available`. Requires the caller to
     own `reservation_id`."""
+    TOOL_CALLS.labels(tool="release_device").inc()
     caller_id = _authenticated_caller(ctx)
     result = devices.SIMULATOR.release_device(reservation_id, caller_id)
     logger.info("release_device: caller=%s reservation=%s", caller_id, reservation_id)
@@ -125,13 +146,24 @@ def release_device(reservation_id: str, ctx: Context) -> str:
 class BearerAuthMiddleware:
     """ASGI middleware: reject any HTTP request without a recognized
     `Authorization: Bearer <token>` header before it reaches the MCP session
-    layer. Non-HTTP scopes (e.g. lifespan) pass through unchanged."""
+    layer. Non-HTTP scopes (e.g. lifespan) pass through unchanged.
+
+    `/metrics` (M13 Observability) is exempt from the bearer check - it is
+    a Prometheus scrape target, not an MCP tool endpoint, and this service
+    is already unreachable from outside `platform-workspaces`/localhost
+    (see compose.yaml's 127.0.0.1-only port binding), so exposing scrape-
+    only counters here does not weaken the "no open, unauthenticated MCP
+    port" posture the bearer check exists for."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        HTTP_REQUESTS.labels(path=scope.get("path", "")).inc()
+        if scope.get("path") == "/metrics":
             await self.app(scope, receive, send)
             return
         raw_headers = dict(scope.get("headers", []))
@@ -146,17 +178,25 @@ class BearerAuthMiddleware:
 def build_app() -> Starlette:
     """Mount the MCP streamable-http app at `/mcp`. `BearerAuthMiddleware`
     wraps the whole ASGI app (below, not just this Mount) so the 401
-    short-circuit happens before Starlette's own routing runs."""
-    from starlette.routing import Mount
+    short-circuit happens before Starlette's own routing runs. `/metrics`
+    (M13 Observability) is a plain Prometheus text-exposition endpoint,
+    not part of the MCP protocol surface."""
+    from starlette.routing import Mount, Route
 
     mcp_app = mcp.streamable_http_app(streamable_http_path="/", json_response=True)
+
+    async def metrics(_request: Request) -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: Starlette):
         async with mcp.session_manager.run():
             yield
 
-    return Starlette(routes=[Mount("/mcp", app=mcp_app)], lifespan=lifespan)
+    return Starlette(
+        routes=[Route("/metrics", metrics), Mount("/mcp", app=mcp_app)],
+        lifespan=lifespan,
+    )
 
 
 app = BearerAuthMiddleware(build_app())

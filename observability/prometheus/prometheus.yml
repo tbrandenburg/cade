@@ -1,0 +1,50 @@
+# M13 Observability: Prometheus scrape configuration.
+#
+# Never published to the host/public network (Prometheus's own security
+# docs open with an explicit warning against this) — reachable only from
+# `grafana` and `otel-collector` on the internal `platform-control` network
+# (see compose.yaml, no `ports:` entry for the `prometheus` service).
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Metrics relayed via OTLP from temporal-worker (Temporal SDK runtime
+  # metrics: temporal_workflow_completed_total, temporal_workflow_failed_total,
+  # temporal_activity_task_received_total, etc.) and any other OTLP-speaking
+  # service, exposed by the collector's `prometheus` exporter.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Temporal server's own built-in Prometheus endpoint (PROMETHEUS_ENDPOINT
+  # env var on the `temporal` service, compose.yaml) — frontend/history/
+  # matching/worker service_requests counters, task queue metrics, etc.
+  - job_name: temporal-server
+    static_configs:
+      - targets: ["temporal:9090"]
+
+  # temporal-worker's own built-in Prometheus endpoint (METRICS_BIND_ADDRESS
+  # env var, compose.yaml) — Temporal SDK Runtime metrics
+  # (temporal_workflow_completed_total, temporal_workflow_failed_total,
+  # temporal_activity_task_received_total) backing the "Temporal activity
+  # count" / "workflow failures" panels. Native endpoint, not routed
+  # through otel-collector — see temporal/src/demo/config.py for why.
+  - job_name: temporal-worker
+    static_configs:
+      - targets: ["temporal-worker:9091"]
+
+  # lab-sim's own /metrics endpoint (M11 MCP/HTTP Lab Simulator) — request
+  # count for the "MCP request count" / "lab API request count" panels.
+  - job_name: lab-sim
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["lab-sim:8300"]
+
+  # cAdvisor: per-container uptime/running-state for every service in the
+  # stack (GitHub runner during a job, Temporal worker, MCP/lab-sim, Agent
+  # Host/coder) — backs the "service uptime" panel without requiring
+  # bespoke instrumentation in every service.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]

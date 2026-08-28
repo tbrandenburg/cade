@@ -19,3 +19,22 @@ TEMPORAL_NAMESPACE = os.environ.get("TEMPORAL_NAMESPACE", "default")
 # does not error — the workflow just silently never gets picked up. Define
 # it once here and import it in both the starter and the worker.
 TASK_QUEUE = os.environ.get("DEMO_TASK_QUEUE", "demo-durable-workflow")
+
+# M13 Observability: bind address for the Temporal SDK Runtime's built-in
+# Prometheus metrics HTTP endpoint (temporal_workflow_completed,
+# temporal_workflow_failed, temporal_activity_task_received, etc.).
+# Empty string disables telemetry export entirely — used by
+# `demo/starter.py`, which does not need a Runtime, and by any standalone
+# test run without the observability stack up.
+#
+# A native Prometheus endpoint (scraped directly by `prometheus`, same
+# pattern already used for the Temporal *server*'s own metrics via
+# PROMETHEUS_ENDPOINT in compose.yaml) is used here instead of routing
+# through otel-collector's OTLP receiver: the collector's
+# `prometheusexporter` was observed to drop every one of these metrics
+# ("duplicate label names in constant and variable labels") even with
+# `resource_to_telemetry_conversion` disabled - a collision between the
+# Temporal SDK's own per-metric attributes, not a resource-attribute
+# promotion artifact (see AGENTS.md).
+METRICS_BIND_ADDRESS = os.environ.get("METRICS_BIND_ADDRESS", "")
+

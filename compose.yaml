@@ -199,6 +199,15 @@ services:
       # this value.
       TEMPORAL_ADDRESS: 127.0.0.1:7233
       TEMPORAL_CLI_ADDRESS: 127.0.0.1:7233
+      # M13 Observability: `auto-setup`'s config template (see
+      # config_template.yaml's PROMETHEUS_ENDPOINT branch) wires this
+      # straight into the server's frontend/history/matching/worker
+      # `metrics.prometheus.listenAddress` - no separate collector hop
+      # needed for the server's own service_requests/task-queue counters.
+      # 0.0.0.0 here is the app's own listener (matching the existing
+      # BIND_ON_IP pattern above), not a published host port - only
+      # `prometheus` (this compose network) ever reaches it.
+      PROMETHEUS_ENDPOINT: "0.0.0.0:9090"
       # `temporalio/auto-setup`'s entrypoint binds the frontend/history/
       # matching/worker gRPC services to BIND_ON_IP (defaulting to this
       # container's own hostname-resolved IP if unset) — TEMPORAL_ADDRESS
@@ -279,6 +288,13 @@ services:
       TEMPORAL_NAMESPACE: default
       DEMO_TASK_QUEUE: demo-durable-workflow
       DEMO_STATE_PATH: /var/lib/demo-worker/idempotency.json
+      # M13 Observability: native Prometheus metrics endpoint for this
+      # worker's Temporal SDK Runtime (workflow/activity counters) - see
+      # demo/config.py for why this bypasses otel-collector's OTLP path.
+      # 0.0.0.0 here is the SDK's own listener (matching the `temporal`
+      # service's PROMETHEUS_ENDPOINT pattern above), not a published host
+      # port - only `prometheus` (this compose network) ever reaches it.
+      METRICS_BIND_ADDRESS: "0.0.0.0:9091"
     volumes:
       - temporal_worker_state:/var/lib/demo-worker
     networks:
@@ -438,6 +454,123 @@ services:
     networks:
       - platform-control
 
+  # otel-collector: Milestone M13. Single ingestion point for metrics from
+  # temporal-worker (OTLP) and the Temporal server's own /metrics scrape
+  # target (below) - Prometheus (not this collector) is the required
+  # metrics storage backend per the plan; the collector only relays.
+  # Receivers are bound to this container's own compose hostname, not
+  # 0.0.0.0 (OpenTelemetry's security docs name unrestricted-interface
+  # binding a tracked DoS risk, CWE-1327) - see
+  # observability/otel-collector/config.yaml. No host port published; only
+  # `temporal-worker`/`prometheus` on `platform-control` ever reach it.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+    networks:
+      - platform-control
+
+  # prometheus: Milestone M13. Required metrics storage backend (Grafana
+  # has no built-in ingestion/storage of its own - it only queries a
+  # backend). NEVER published to the host/public network - Prometheus's
+  # own security docs open with an explicit warning against this; reachable
+  # only from `grafana`/`otel-collector` on `platform-control`.
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - platform-control
+      - platform-workspaces
+    depends_on:
+      - otel-collector
+
+  # loki: Milestone M13. Log storage backend - added (per the plan's
+  # "Loki (logs) and/or Tempo (traces)" guidance) because the Manual E2E
+  # Test's cross-service timestamp correlation needs per-request log
+  # lines, not just aggregate metrics. Not published to the host -
+  # reachable only from `promtail` (writes) and `grafana` (queries).
+  loki:
+    image: grafana/loki:3.5.9
+    container_name: loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - platform-control
+
+  # promtail: Milestone M13. Ships every compose-managed container's
+  # stdout/stderr to Loki (GitHub runner during a job, Temporal
+  # worker/server, MCP lab-sim, Coder/Agent Host) so a single execution can
+  # be found and timestamp-correlated across services in Grafana. Read-only
+  # access to the host's Docker socket for container discovery only - no
+  # exec/build/network privileges (same "minimum privilege" posture as
+  # `runner-docker-proxy` above, just via a different mechanism since
+  # promtail talks to the socket directly rather than through a proxy).
+  promtail:
+    image: grafana/promtail:3.5.9
+    container_name: promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yaml"]
+    volumes:
+      - ./observability/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - platform-control
+    depends_on:
+      - loki
+
+  # cadvisor: Milestone M13. Per-container uptime/running-state for every
+  # service in the stack - backs the "service uptime" Minimum Dashboard
+  # panel without requiring bespoke instrumentation in every service (the
+  # GitHub runner in particular is ephemeral/JIT and has no app-level
+  # metrics endpoint of its own). Not published to the host - scraped only
+  # by `prometheus` on `platform-control`.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    container_name: cadvisor
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - platform-control
+
+  # grafana: Milestone M13. Visualization only - queries Prometheus (metrics)
+  # and Loki (logs) provisioned as datasources; the Minimum Dashboard is
+  # provisioned from version-controlled JSON
+  # (observability/grafana/provisioning/dashboards/files/phase4.json), not
+  # click-ops, per Grafana's own dashboard-as-code guidance. This is the one
+  # observability service intentionally published to the host, since it is
+  # the human-facing UI the Manual E2E Test (M13.1) is run against.
+  grafana:
+    image: grafana/grafana-oss:12.1.0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - platform-control
+    depends_on:
+      - prometheus
+      - loki
+
 networks:
   platform-control:
     name: platform-control
@@ -451,3 +584,6 @@ volumes:
   temporal_db_data:
   temporal_worker_state:
   openbao_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:

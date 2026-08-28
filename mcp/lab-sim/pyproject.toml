@@ -3,7 +3,7 @@ name = "lab-sim"
 version = "0.1.0"
 description = "M11 MCP/HTTP Service 2 - Lab Simulator (simulated ECU devices, bearer-token authenticated streamable-http transport)"
 requires-python = ">=3.11"
-dependencies = ["mcp>=2.1.1,<3", "uvicorn>=0.34,<1", "httpx>=0.28,<1"]
+dependencies = ["mcp>=2.1.1,<3", "uvicorn>=0.34,<1", "httpx>=0.28,<1", "prometheus-client>=0.21,<1"]
 
 [tool.uv]
 package = false

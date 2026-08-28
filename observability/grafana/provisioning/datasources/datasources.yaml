@@ -1,0 +1,21 @@
+# M13 Observability: Grafana datasource provisioning (dashboard-as-code —
+# per Grafana's own best-practices doc, not click-ops). Both backends are
+# internal-only compose services; Grafana is the only consumer that needs
+# to reach them.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

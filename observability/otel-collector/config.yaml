@@ -1,0 +1,56 @@
+# M13 Observability: OpenTelemetry Collector configuration.
+#
+# Receivers are bound to this container's own compose service hostname
+# ("otel-collector"), NOT 0.0.0.0 — OpenTelemetry's security best-practices
+# doc names unrestricted-interface binding a tracked DoS risk (CWE-1327).
+# Binding to the service hostname still resolves to this container's own
+# network interface on `platform-control`, so every other compose service
+# on that network (temporal-worker, lab-sim, mcp) can still reach it via
+# Docker DNS — only the *pattern* of binding to all interfaces is avoided,
+# not reachability from sibling containers. No host port is published.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: otel-collector:4317
+      http:
+        endpoint: otel-collector:4318
+
+processors:
+  # Mandatory per the plan: this collector relays telemetry from five
+  # services at once (GitHub runner, Temporal worker, MCP service, lab
+  # simulation, Agent Host sessions) — without a memory_limiter a burst
+  # could OOM the collector.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+    spike_limit_mib: 50
+  batch:
+    timeout: 5s
+
+exporters:
+  # Prometheus is the required metrics storage backend (plan, M13) — the
+  # collector exposes an internal-only scrape endpoint that `prometheus`
+  # (this compose stack) pulls from; nothing is exported directly to
+  # Grafana, which has no built-in ingestion/storage of its own.
+  #
+  # resource_to_telemetry_conversion is left DISABLED (the exporter's
+  # default): enabling it promotes every OTel resource attribute onto each
+  # metric's own label set, and Temporal SDK metrics already carry a
+  # `service_name` attribute (and, once relabeled, collide with
+  # Prometheus's own `job` label) — enabling it causes the exporter to
+  # silently drop every colliding metric with "duplicate label names in
+  # constant and variable labels" (observed with temporal_worker_task_
+  # slots_used, temporal_long_request, etc. — see AGENTS.md).
+  prometheus:
+    endpoint: otel-collector:8889
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+  telemetry:
+    logs:
+      level: info

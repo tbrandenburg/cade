@@ -1,0 +1,14 @@
+# M13 Observability: Grafana dashboard provider — loads the version-
+# controlled JSON in observability/grafana/dashboards/ instead of an ad
+# hoc UI-created dashboard.
+apiVersion: 1
+
+providers:
+  - name: phase4
+    orgId: 1
+    folder: "Phase 4 — Observability"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/files
