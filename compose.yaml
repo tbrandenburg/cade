@@ -146,6 +146,147 @@ services:
       retries: 5
       start_period: 10s
 
+  # temporal-db: Milestone M8. PostgreSQL persistence + SQL-based visibility
+  # for Temporal (no Elasticsearch/OpenSearch dependency), per
+  # `temporalio/docker-compose`'s reference `.env` (POSTGRESQL_VERSION=16 —
+  # the Temporal-supported major version pinned upstream at the time this
+  # was written).
+  temporal-db:
+    image: postgres:16.10-alpine
+    container_name: temporal-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_PG_PASSWORD:-temporal}
+      POSTGRES_DB: ${TEMPORAL_PG_DB:-temporal}
+    volumes:
+      - temporal_db_data:/var/lib/postgresql/data
+    networks:
+      - platform-control
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${TEMPORAL_PG_USER:-temporal} -d ${TEMPORAL_PG_DB:-temporal}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # temporal: Milestone M8. `auto-setup` runs schema setup + the server in
+  # one image (fine for this single-node local stack); SQL-based visibility
+  # via the same Postgres instance (DYNAMIC_CONFIG... left at server
+  # defaults, which already default to SQL visibility when ES env vars are
+  # absent) — no Elasticsearch/OpenSearch service, per the plan.
+  temporal:
+    image: temporalio/auto-setup:${TEMPORAL_VERSION:-1.29.7}
+    container_name: temporal
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${TEMPORAL_PG_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_PG_PASSWORD:-temporal}
+      POSTGRES_SEEDS: temporal-db
+      # NOTE: this container's OWN entrypoint (auto-setup.sh's
+      # `temporal operator cluster health` namespace-registration step,
+      # and the healthcheck below) uses TEMPORAL_ADDRESS/TEMPORAL_CLI_ADDRESS
+      # as the `temporal` CLI's own --address default — set to 127.0.0.1
+      # for that internal use. Other compose services (temporal-ui,
+      # temporal-worker) have their OWN TEMPORAL_ADDRESS=temporal:7233 set
+      # independently in their own service blocks and are unaffected by
+      # this value.
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
+      TEMPORAL_CLI_ADDRESS: 127.0.0.1:7233
+      # `temporalio/auto-setup`'s entrypoint binds the frontend/history/
+      # matching/worker gRPC services to BIND_ON_IP (defaulting to this
+      # container's own hostname-resolved IP if unset) — TEMPORAL_ADDRESS
+      # alone does NOT control the bind address, only the address the
+      # `temporal` CLI itself defaults to. Set to 0.0.0.0 explicitly so the
+      # server listens on every interface — reachable both as
+      # "temporal:7233" (other compose services, via Docker DNS) and as
+      # 127.0.0.1:7233 (this container's own CLI invocations/healthcheck).
+      BIND_ON_IP: 0.0.0.0
+    ports:
+      - "${TEMPORAL_GRPC_PORT:-7233}:7233"
+    networks:
+      - platform-control
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    healthcheck:
+      # `temporalio/auto-setup` binds its frontend gRPC service to the
+      # *host part* of TEMPORAL_ADDRESS (confirmed via `netstat` inside the
+      # running container). Set it to 0.0.0.0 so the server listens on
+      # every interface — reachable both as "temporal:7233" (other compose
+      # services, resolved via Docker DNS to this container's
+      # platform-control IP) and as 127.0.0.1:7233 for this healthcheck.
+      # Using the bare service hostname here was observed to hang for the
+      # full gRPC dial timeout (~8s) even though the server was already
+      # healthy and reachable by IP — a DNS-resolution quirk specific to
+      # the `temporal` CLI's gRPC resolver in this environment, not a
+      # reflection of actual server health.
+      test:
+        [
+          "CMD",
+          "temporal",
+          "--address",
+          "127.0.0.1:7233",
+          "operator",
+          "namespace",
+          "describe",
+          "default",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # temporal-ui: Milestone M8. Web UI for inspecting workflow/Event History.
+  temporal-ui:
+    image: temporalio/ui:${TEMPORAL_UI_VERSION:-2.53.3}
+    container_name: temporal-ui
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: "http://localhost:${TEMPORAL_UI_PORT:-8088}"
+    ports:
+      - "${TEMPORAL_UI_PORT:-8088}:8080"
+    networks:
+      - platform-control
+    depends_on:
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # temporal-worker: Milestone M8. Runs the demo durable workflow's Worker
+  # (`temporal/src/demo/worker.py`) — `demo-durable-workflow` task queue,
+  # shared with the starter via `temporal/src/demo/config.py`. Idempotency
+  # state persisted to a named volume so it survives container
+  # kill/recreate, not just in-process retries.
+  temporal-worker:
+    image: devenv-cloud/temporal-worker:latest
+    container_name: temporal-worker
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      DEMO_TASK_QUEUE: demo-durable-workflow
+      DEMO_STATE_PATH: /var/lib/demo-worker/idempotency.json
+    volumes:
+      - temporal_worker_state:/var/lib/demo-worker
+    networks:
+      - platform-control
+    depends_on:
+      temporal:
+        condition: service_healthy
+
 networks:
   platform-control:
     name: platform-control
@@ -156,3 +297,5 @@ volumes:
   coder_db_data:
   coder_home:
   registry_data:
+  temporal_db_data:
+  temporal_worker_state:

@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -71,4 +71,16 @@ runner-build:
 ## runner-run: Request a JIT config and run one ephemeral self-hosted runner (Milestone M2).
 runner-run:
 	@bash scripts/runner-jit-start.sh
+
+## temporal-worker-build: Build the M8 demo durable-workflow worker image.
+temporal-worker-build:
+	@docker buildx build -f temporal/Dockerfile -t devenv-cloud/temporal-worker:latest --load temporal
+
+## temporal-demo-start: Start one execution of the M8 demo durable workflow.
+temporal-demo-start:
+	@docker run --rm --network platform-control \
+		-e TEMPORAL_ADDRESS=temporal:7233 \
+		-e DEMO_TASK_QUEUE=demo-durable-workflow \
+		--entrypoint python \
+		devenv-cloud/temporal-worker:latest -m demo.starter
 

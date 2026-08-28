@@ -1,0 +1,65 @@
+"""Temporal worker entrypoint for the M8 durable-orchestration demo.
+
+Graceful shutdown, not a bare process kill, on the happy path: installs
+SIGINT/SIGTERM handlers that cancel the running worker task rather than
+exiting immediately, matching the official worker best-practices doc's
+"Manage scale-down safely" guidance. The *deliberate* hard-kill
+(`docker kill`) used to prove durability in the Manual E2E Test is a
+separate, intentional test path, not the normal stop path.
+"""
+
+import asyncio
+import logging
+import signal
+from datetime import timedelta
+
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from demo.activities import prepare_build, verify_build
+from demo.config import TASK_QUEUE, TEMPORAL_ADDRESS, TEMPORAL_NAMESPACE
+from demo.workflows import DemoDurableWorkflow
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("demo.worker")
+
+
+async def run_worker() -> None:
+    client = await Client.connect(TEMPORAL_ADDRESS, namespace=TEMPORAL_NAMESPACE)
+    worker = Worker(
+        client,
+        task_queue=TASK_QUEUE,
+        workflows=[DemoDurableWorkflow],
+        activities=[prepare_build, verify_build],
+        graceful_shutdown_timeout=timedelta(seconds=5),
+    )
+
+    logger.info(
+        "worker starting: address=%s namespace=%s task_queue=%s",
+        TEMPORAL_ADDRESS,
+        TEMPORAL_NAMESPACE,
+        TASK_QUEUE,
+    )
+
+    loop = asyncio.get_running_loop()
+    run_task = asyncio.ensure_future(worker.run())
+
+    def _request_shutdown() -> None:
+        logger.info("shutdown signal received, cancelling worker run loop")
+        run_task.cancel()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _request_shutdown)
+
+    try:
+        await run_task
+    except asyncio.CancelledError:
+        logger.info("worker stopped")
+
+
+def main() -> None:
+    asyncio.run(run_worker())
+
+
+if __name__ == "__main__":
+    main()

@@ -6,6 +6,7 @@ node_modules/
 .terraform.lock.hcl
 __pycache__/
 *.pyc
+.venv/
 .playwright-mcp/
 examples/embedded-sim/build/
 examples/embedded-sim/build-target/

@@ -88,6 +88,13 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 
 ### Coder / Terraform / Docker
 
+- `temporalio/auto-setup`'s frontend/history/matching/worker gRPC services bind to
+  `BIND_ON_IP` (defaults to the container's own resolved IP, not 127.0.0.1) — `TEMPORAL_ADDRESS`
+  only sets the `temporal` CLI's default target, not the bind address; set `BIND_ON_IP=0.0.0.0`
+  explicitly for a healthcheck/other-service dual-reachable server, and never invoke the
+  `temporal` CLI against the bare service hostname from inside that same container (its gRPC
+  DNS resolver hangs ~8s there even though other containers/SDKs resolve/connect instantly) —
+  use `127.0.0.1:7233` for any `temporal` CLI call made from within the server's own container.
 - `coder` CLI may be off `PATH` — check `/tmp/coderbin/bin/coder`. Server runs as the
   `coder` Docker container.
 - Pass every `coder_parameter` explicitly via `--parameter` on `coder create --yes` (even

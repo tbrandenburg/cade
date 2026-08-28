@@ -122,3 +122,39 @@ Milestone M1 (trimmed) acceptance criteria are met: `coder` and `coder-db`
 both report `healthy` via `make status`, and a full `make down && make up`
 cycle preserves persistent data (verified via the stable `deployment_id`
 sourced from the `coder_db_data` volume).
+
+## M8 addition — Temporal added to the stack
+
+- **Timestamp (UTC):** 2026-08-28T18:32Z
+
+`compose.yaml` gained four services for Milestone M8 (see
+`docs/milestone-reports/M8-temporal.md` for full detail):
+`temporal-db` (`postgres:16.10-alpine`), `temporal`
+(`temporalio/auto-setup:1.29.7`, SQL-based persistence + visibility, no
+Elasticsearch), `temporal-ui` (`temporalio/ui:2.53.3`), and
+`temporal-worker` (`devenv-cloud/temporal-worker:latest`, this milestone's
+demo Worker). All attached to `platform-control` only.
+
+```
+$ make status
+NAME                  ...  STATUS
+coder                 ...  Up ... (healthy)
+coder-db              ...  Up ... (healthy)
+registry              ...  Up ... (healthy)
+runner-docker-proxy   ...  Up ...
+runner-health         ...  Up ... (healthy)
+temporal              ...  Up ... (healthy)
+temporal-db           ...  Up ... (healthy)
+temporal-ui           ...  Up ... (healthy)
+temporal-worker       ...  Up ...
+```
+
+`make down && make up` re-verified with Temporal in the mix: named volumes
+`coder_db_data`, `coder_home`, `temporal_db_data`, `temporal_worker_state`,
+`registry_data` all survived `down` (`docker volume ls` before/after);
+after `up`, `curl -sf http://localhost:7080/healthz` → `OK` (Coder) and
+`temporal workflow show -w demo-durable-workflow-8f6f06dc` still returned
+its pre-`down` `COMPLETED` result with all 3 prior workflow executions
+retained via `workflow list` — both Coder's and Temporal's persistent data
+confirmed intact across the cycle.
+
