@@ -1,0 +1,11 @@
+git version 2.43.0
+Python 3.12.3
+v20.20.2
+gh version 2.98.0 (2026-08-20)
+Docker version 29.7.2, build a7dcaa6
+/usr/bin/tmux
+/usr/local/bin/opencode
+/usr/bin/pi
+/usr/bin/srt
+/usr/bin/bwrap
+/usr/bin/socat

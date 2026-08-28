@@ -1,0 +1,99 @@
+parsing flags ([create admin/demo-e2e --template docker-standard --yes -p github_token=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 -p agent_capable=true]) for "coder create": unknown shorthand flag: 'p' in -p
+No preset applied.
+Planning workspace...
+=== ✔ Queued [0ms]
+==> ⧗ Running
+==> ⧗ Running
+=== ✔ Running [29ms]
+==> ⧗ Setting up
+=== ✔ Setting up [286ms]
+==> ⧗ Initializing Terraform Directory
+=== ✔ Initializing Terraform Directory [8918ms]
+==> ⧗ Detecting persistent resources
+=== ✔ Detecting persistent resources [7247ms]
+==> ⧗ Cleaning Up
+=== ✔ Cleaning Up [14ms]
+┌────────────────────────────────────────────────────┐
+│ Workspace Preview                                  │
+├────────────────────────────────────────────────────┤
+│ RESOURCE                    ACCESS                 │
+├────────────────────────────────────────────────────┤
+│ docker_container.workspace                         │
+│ └─ main (linux, amd64)      coder ssh demo-e2e     │
+├────────────────────────────────────────────────────┤
+│ docker_volume.home_volume                          │
+└────────────────────────────────────────────────────┘
+=== ✔ Queued [0ms]
+==> ⧗ Running
+==> ⧗ Running
+=== ✔ Running [81ms]
+==> ⧗ Setting up
+=== ✔ Setting up [225ms]
+==> ⧗ Initializing Terraform Directory
+2026-08-28 17:50:32.322+02:00 Initializing modules...
+2026-08-28 17:50:32.333+02:00 Initializing provider plugins found in the configuration...
+2026-08-28 17:50:32.333+02:00 Finding matching versions for provider: coder/coder, version_constraint: ">= 2.5.0"
+2026-08-28 17:50:32.597+02:00 kreuzwerker/docker: Finding latest version...
+2026-08-28 17:50:33.152+02:00 Installing provider version: coder/coder v2.18.0...
+2026-08-28 17:50:34.524+02:00 Installed provider version: coder/coder v2.18.0 (signed by a HashiCorp partnerkey_id: 93C75807601AA0EC)
+2026-08-28 17:50:34.935+02:00 Installing provider version: kreuzwerker/docker v4.5.0...
+2026-08-28 17:50:38.879+02:00 Installed provider version: kreuzwerker/docker v4.5.0 (self-signedkey_id: 0DCE698927DAF8EC)
+2026-08-28 17:50:38.879+02:00 Partner and community providers are signed by their developers.
+If you'd like to know more about provider signing, you can read about it here:
+https://developer.hashicorp.com/terraform/cli/plugins/signing
+2026-08-28 17:50:38.880+02:00 Initializing the backend...
+2026-08-28 17:50:38.880+02:00 Terraform has created a lock file .terraform.lock.hcl to record the provider
+selections it made above. Include this file in your version control repository
+so that Terraform can guarantee to make the same selections by default when
+you run "terraform init" in the future.
+2026-08-28 17:50:38.883+02:00 Terraform has been successfully initialized!
+2026-08-28 17:50:38.883+02:00 You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+=== ✔ Initializing Terraform Directory [6711ms]
+==> ⧗ Planning Infrastructure
+2026-08-28 17:50:41.000+02:00 data.coder_workspace_owner.me: Refreshing...
+2026-08-28 17:50:41.004+02:00 data.coder_parameter.github_token: Refreshing...
+2026-08-28 17:50:41.004+02:00 data.coder_parameter.agent_capable: Refreshing...
+2026-08-28 17:50:41.005+02:00 data.coder_provisioner.me: Refreshing...
+2026-08-28 17:50:41.014+02:00 data.coder_workspace_owner.me: Refresh complete after 0s [id=acd4d842-ddef-46ca-8167-7970fa162b61]
+2026-08-28 17:50:41.015+02:00 data.coder_provisioner.me: Refresh complete after 0s [id=d07c0c5c-052e-40bd-b740-34c199f043e9]
+2026-08-28 17:50:41.017+02:00 data.coder_parameter.agent_capable: Refresh complete after 0s [id=bb6bf916-8f96-44af-ac06-01b8d425b328]
+2026-08-28 17:50:41.017+02:00 data.coder_workspace.me: Refreshing...
+2026-08-28 17:50:41.020+02:00 data.coder_parameter.github_token: Refresh complete after 0s [id=fcfc1618-48f0-4a5b-a049-4f8b87322265]
+2026-08-28 17:50:41.021+02:00 data.coder_workspace.me: Refresh complete after 0s [id=25b6ebca-5e45-40e0-96f7-9635cca1053b]
+2026-08-28 17:50:41.101+02:00 coder_agent.main: Plan to create
+2026-08-28 17:50:41.102+02:00 docker_volume.home_volume: Plan to create
+2026-08-28 17:50:41.102+02:00 module.code-server[0].coder_app.code-server: Plan to create
+2026-08-28 17:50:41.102+02:00 module.code-server[0].coder_script.code-server: Plan to create
+2026-08-28 17:50:41.103+02:00 docker_container.workspace[0]: Plan to create
+2026-08-28 17:50:41.103+02:00 Plan: 5 to add, 0 to change, 0 to destroy.
+=== ✔ Planning Infrastructure [3799ms]
+==> ⧗ Starting workspace
+2026-08-28 17:50:42.963+02:00 Terraform 1.15.5
+2026-08-28 17:50:44.556+02:00 coder_agent.main: Plan to create
+2026-08-28 17:50:44.556+02:00 docker_volume.home_volume: Plan to create
+2026-08-28 17:50:44.556+02:00 module.code-server[0].coder_app.code-server: Plan to create
+2026-08-28 17:50:44.557+02:00 module.code-server[0].coder_script.code-server: Plan to create
+2026-08-28 17:50:44.557+02:00 docker_container.workspace[0]: Plan to create
+2026-08-28 17:50:44.768+02:00 docker_volume.home_volume: Creating...
+2026-08-28 17:50:44.769+02:00 coder_agent.main: Creating...
+2026-08-28 17:50:44.787+02:00 coder_agent.main: Creation complete after 0s [id=a3348df0-2e29-466c-a6e3-5fe95a97492a]
+2026-08-28 17:50:44.802+02:00 module.code-server[0].coder_app.code-server: Creating...
+2026-08-28 17:50:44.810+02:00 docker_volume.home_volume: Creation complete after 0s [id=coder-25b6ebca-5e45-40e0-96f7-9635cca1053b-home]
+2026-08-28 17:50:44.814+02:00 module.code-server[0].coder_script.code-server: Creating...
+2026-08-28 17:50:44.817+02:00 module.code-server[0].coder_app.code-server: Creation complete after 0s [id=46ad48d1-008e-4aaf-b2f9-09643ca1cc27]
+2026-08-28 17:50:44.826+02:00 module.code-server[0].coder_script.code-server: Creation complete after 0s [id=2ebf6d32-311e-421a-823f-4490f5674360]
+2026-08-28 17:50:44.860+02:00 docker_container.workspace[0]: Creating...
+2026-08-28 17:50:45.276+02:00 docker_container.workspace[0]: Creation complete after 0s [id=b50fde30127cc3a628b82c9e2e36b15a427476019016d02b4dd2ca15ae9fa66f]
+2026-08-28 17:50:45.294+02:00 Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
+2026-08-28 17:50:45.294+02:00 Outputs: 0
+=== ✔ Starting workspace [7598ms]
+==> ⧗ Cleaning Up
+=== ✔ Cleaning Up [90ms]
+
+The demo-e2e workspace has been created at Aug 28 17:50:50!

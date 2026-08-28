@@ -1,0 +1,4 @@
+ERROR: could not discover the Agent Host's listening port on coder.demo-e2e.
+Pass it explicitly: scripts/verify-ahp-session.sh coder.demo-e2e <remote-port> [connection-token]
+(run 'ssh coder.demo-e2e ps -eo args= | grep "agent host"' to find it manually)
+exit=1

@@ -6,3 +6,4 @@ node_modules/
 .terraform.lock.hcl
 __pycache__/
 *.pyc
+.playwright-mcp/

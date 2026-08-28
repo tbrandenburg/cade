@@ -1,0 +1,14 @@
+Creating agent worktree 'session-001' on coder.demo-e2e...
+Preparing worktree (new branch 'agent/session-001')
+HEAD is now at da9fc5d phase-6: split Tailscale/wide-area access out of Phase 1 M15 into optional Phase 6 (M16)
+Created worktree for session 'session-001':
+  path:   /home/coder/worktrees/session-001
+  branch: agent/session-001
+  base:   main
+Creating agent worktree 'session-002' on coder.demo-e2e...
+Preparing worktree (new branch 'agent/session-002')
+HEAD is now at da9fc5d phase-6: split Tailscale/wide-area access out of Phase 1 M15 into optional Phase 6 (M16)
+Created worktree for session 'session-002':
+  path:   /home/coder/worktrees/session-002
+  branch: agent/session-002
+  base:   main

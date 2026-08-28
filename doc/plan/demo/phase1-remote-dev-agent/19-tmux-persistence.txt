@@ -1,0 +1,3 @@
+agent-session-demo: 1 windows (created Fri Aug 28 15:54:05 2026)
+pid before disconnect: 854
+pid after reconnect: 854

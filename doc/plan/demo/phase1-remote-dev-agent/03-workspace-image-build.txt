@@ -1,0 +1,39 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 3.55kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/ubuntu:24.04
+#2 DONE 1.5s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/7] FROM docker.io/library/ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+#4 DONE 0.0s
+
+#5 [stage-0 2/7] RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates     && rm -rf /var/lib/apt/lists/*
+#5 CACHED
+
+#6 [stage-0 3/7] RUN --mount=type=secret,id=cacert     if [ -s /run/secrets/cacert ]; then       cp /run/secrets/cacert /usr/local/share/ca-certificates/corporate-ca.crt       && update-ca-certificates;     fi
+#6 CACHED
+
+#7 [stage-0 4/7] RUN apt-get update     && apt-get install -y --no-install-recommends       git       curl       ca-certificates       gnupg       build-essential       python3       python3-pip       python3-venv       sudo       openssh-client       openssh-server     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash -     && apt-get install -y --no-install-recommends nodejs     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg       -o /usr/share/keyrings/githubcli-archive-keyring.gpg     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"       > /etc/apt/sources.list.d/github-cli.list     && apt-get update     && apt-get install -y --no-install-recommends gh     && curl -fsSL https://get.docker.com | sh     && apt-get install -y --no-install-recommends       bubblewrap       socat       ripgrep       tmux     && rm -rf /var/lib/apt/lists/*
+#7 CACHED
+
+#8 [stage-0 5/7] RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent     && curl -fsSL https://opencode.ai/install | bash     && mv /root/.opencode/bin/opencode /usr/local/bin/opencode     && rm -rf /root/.opencode
+#8 CACHED
+
+#9 [stage-0 6/7] RUN if getent group 1000 > /dev/null; then       groupmod -n coder "$(getent group 1000 | cut -d: -f1)";     else       groupadd --gid 1000 coder;     fi     && if getent passwd 1000 > /dev/null; then       userdel -r "$(getent passwd 1000 | cut -d: -f1)" 2>/dev/null || true;     fi     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash coder     && usermod -aG docker coder     && echo "coder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/coder     && chmod 0440 /etc/sudoers.d/coder
+#9 CACHED
+
+#10 [stage-0 7/7] WORKDIR /home/coder
+#10 CACHED
+
+#11 exporting to image
+#11 exporting layers done
+#11 writing image sha256:93fff80e030697c623901b1435745f649ecdca60d4b157396a78ac58667a0699 done
+#11 naming to docker.io/devenv-cloud/coder-workspace:latest done
+#11 DONE 0.0s

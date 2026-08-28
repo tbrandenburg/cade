@@ -1,0 +1,20 @@
+== devenv-cloud host doctor (M0) ==
+
+[PASS] Linux host detected (Linux)
+[PASS] Architecture is x86-64 (x86_64)
+[PASS] Docker CLI available (Docker version 29.7.2, build a7dcaa6)
+[PASS] Docker daemon is reachable
+[PASS] Docker Compose plugin available (Docker Compose version v5.5.0)
+[PASS] Git available (git version 2.43.0)
+[PASS] curl available (curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3 brotli/1.1.0 zstd/1.5.5 libidn2/2.3.7 libpsl/0.21.2 (+libidn2/2.3.7) libssh/0.10.6/openssl/zlib nghttp2/1.59.0 librtmp/2.3 OpenLDAP/2.6.10)
+[PASS] jq available (jq-1.7)
+[FAIL] Disk space: only 57 GB free (< 100 GB required)
+[PASS] Outbound HTTPS connectivity to github.com
+[PASS] Outbound HTTPS connectivity to update.code.visualstudio.com
+curl: (22) The requested URL returned error: 404
+[PASS] Outbound HTTPS connectivity to vscode.download.prss.microsoft.com (HTTP 404)
+[FAIL] Port 7080 is already in use
+
+== Summary: 11 passed, 2 failed ==
+make: *** [Makefile:14: doctor] Error 1
+exit=2

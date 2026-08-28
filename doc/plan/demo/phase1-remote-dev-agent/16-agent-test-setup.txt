@@ -1,0 +1,55 @@
+Creating agent worktree 'agent-test' on coder.demo-e2e...
+Preparing worktree (new branch 'agent/agent-test')
+HEAD is now at da9fc5d phase-6: split Tailscale/wide-area access out of Phase 1 M15 into optional Phase 6 (M16)
+Created worktree for session 'agent-test':
+  path:   /home/coder/worktrees/agent-test
+  branch: agent/agent-test
+  base:   main
+diff --git a/examples/hello-service/hello.py b/examples/hello-service/hello.py
+index d2b8de9..1ebe6d8 100644
+--- a/examples/hello-service/hello.py
++++ b/examples/hello-service/hello.py
+@@ -9,7 +9,7 @@ def greeting(name: str = "world") -> str:
+     """Return a friendly greeting for `name`."""
+     if not name:
+         raise ValueError("name must not be empty")
+-    return f"Hello, {name}!"
++    return f"Hello {name}"
+ 
+ 
+ def main() -> None:
+make: Entering directory '/home/coder/worktrees/agent-test/examples/hello-service'
+test_default_greeting (test_hello.GreetingTest.test_default_greeting) ... FAIL
+test_empty_name_raises (test_hello.GreetingTest.test_empty_name_raises) ... ok
+test_named_greeting (test_hello.GreetingTest.test_named_greeting) ... FAIL
+
+======================================================================
+FAIL: test_default_greeting (test_hello.GreetingTest.test_default_greeting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/coder/worktrees/agent-test/examples/hello-service/test_hello.py", line 8, in test_default_greeting
+    self.assertEqual(greeting(), "Hello, world!")
+AssertionError: 'Hello world' != 'Hello, world!'
+- Hello world
++ Hello, world!
+?      +      +
+
+
+======================================================================
+FAIL: test_named_greeting (test_hello.GreetingTest.test_named_greeting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/coder/worktrees/agent-test/examples/hello-service/test_hello.py", line 11, in test_named_greeting
+    self.assertEqual(greeting("Coder"), "Hello, Coder!")
+AssertionError: 'Hello Coder' != 'Hello, Coder!'
+- Hello Coder
++ Hello, Coder!
+?      +      +
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.003s
+
+FAILED (failures=2)
+make: Leaving directory '/home/coder/worktrees/agent-test/examples/hello-service'
+make: *** [Makefile:14: test] Error 1

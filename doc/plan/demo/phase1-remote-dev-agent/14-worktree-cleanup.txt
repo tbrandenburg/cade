@@ -1,0 +1,27 @@
+Cleaning up agent worktree 'session-001' on coder.demo-e2e...
+fatal: '/home/coder/worktrees/session-001' contains modified or untracked files, use --force to delete it
+Cleaning up agent worktree 'session-002' on coder.demo-e2e...
+fatal: '/home/coder/worktrees/session-002' contains modified or untracked files, use --force to delete it
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.vscode/
+
+nothing added to commit but untracked files present (use "git add" to track)
+session-001
+session-002
+Cleaning up agent worktree 'session-001' on coder.demo-e2e...
+Removed worktree /home/coder/worktrees/session-001.
+Deleted branch agent/session-001 (was da9fc5d).
+Main checkout at /home/coder/project unaffected:
+## main...origin/main
+Cleaning up agent worktree 'session-002' on coder.demo-e2e...
+Removed worktree /home/coder/worktrees/session-002.
+Deleted branch agent/session-002 (was da9fc5d).
+Main checkout at /home/coder/project unaffected:
+## main...origin/main
+?? .vscode/
+---worktree list---
+/home/coder/project  da9fc5d [main]

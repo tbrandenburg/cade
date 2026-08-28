@@ -1,0 +1,4 @@
+Regenerating SSH config for Coder workspaces...
+No changes to make.
+Done. Workspaces are reachable as: ssh coder.<workspace-name>
+exit=0

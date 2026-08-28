@@ -1,0 +1,13 @@
+make: Entering directory '/home/coder/project/examples/hello-service'
+build: OK
+make: Leaving directory '/home/coder/project/examples/hello-service'
+make: Entering directory '/home/coder/project/examples/hello-service'
+test_default_greeting (test_hello.GreetingTest.test_default_greeting) ... ok
+test_empty_name_raises (test_hello.GreetingTest.test_empty_name_raises) ... ok
+test_named_greeting (test_hello.GreetingTest.test_named_greeting) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+make: Leaving directory '/home/coder/project/examples/hello-service'

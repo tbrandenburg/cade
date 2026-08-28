@@ -1,0 +1,56 @@
+[0m
+> build · big-pickle
+[0m
+[0m→ [0mRead examples/hello-service
+[0m
+[0m$ [0mmake -C examples/hello-service test 2>&1
+make: Entering directory '/home/coder/worktrees/agent-test/examples/hello-service'
+test_default_greeting (test_hello.GreetingTest.test_default_greeting) ... FAIL
+test_empty_name_raises (test_hello.GreetingTest.test_empty_name_raises) ... ok
+test_named_greeting (test_hello.GreetingTest.test_named_greeting) ... FAIL
+
+======================================================================
+FAIL: test_default_greeting (test_hello.GreetingTest.test_default_greeting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/coder/worktrees/agent-test/examples/hello-service/test_hello.py", line 8, in test_default_greeting
+    self.assertEqual(greeting(), "Hello, world!")
+AssertionError: 'Hello world' != 'Hello, world!'
+- Hello world
++ Hello, world!
+?      +      +
+
+
+======================================================================
+FAIL: test_named_greeting (test_hello.GreetingTest.test_named_greeting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/coder/worktrees/agent-test/examples/hello-service/test_hello.py", line 11, in test_named_greeting
+    self.assertEqual(greeting("Coder"), "Hello, Coder!")
+AssertionError: 'Hello Coder' != 'Hello, Coder!'
+- Hello Coder
++ Hello, Coder!
+?      +      +
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.002s
+
+FAILED (failures=2)
+make: *** [Makefile:14: test] Error 1
+make: Leaving directory '/home/coder/worktrees/agent-test/examples/hello-service'
+[0m
+[0m→ [0mRead examples/hello-service/hello.py
+[0m→ [0mRead examples/hello-service/test_hello.py
+**Root cause:** Format mismatch between `greeting()` and the tests. `hello.py:12` returns `f"Hello {name}"` (no comma, no trailing `!`), while `test_hello.py:8,11` expects `"Hello, world!"` and `"Hello, Coder!"` (comma + exclamation mark).
+
+**Affected file:** `examples/hello-service/hello.py:12`
+
+**Recommended fix:** Change the return value in `hello.py` from:
+```python
+return f"Hello {name}"
+```
+to:
+```python
+return f"Hello, {name}!"
+```

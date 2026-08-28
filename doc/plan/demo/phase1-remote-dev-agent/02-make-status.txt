@@ -1,0 +1,3 @@
+NAME       IMAGE                         COMMAND                  SERVICE    CREATED          STATUS                    PORTS
+coder      ghcr.io/coder/coder:v2.36.3   "/opt/coder server"      coder      35 minutes ago   Up 35 minutes (healthy)   0.0.0.0:7080->7080/tcp, [::]:7080->7080/tcp
+coder-db   postgres:17.6-alpine          "docker-entrypoint.s…"   coder-db   35 minutes ago   Up 35 minutes (healthy)   5432/tcp

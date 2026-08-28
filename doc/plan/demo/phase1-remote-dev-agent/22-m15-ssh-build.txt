@@ -1,0 +1,11 @@
+=== M15: SSH connect via coder config-ssh + build ===
+da9fc5d phase-6: split Tailscale/wide-area access out of Phase 1 M15 into optional Phase 6 (M16)
+--- edit source ---
+ examples/hello-service/hello.py | 1 +
+ 1 file changed, 1 insertion(+)
+--- build ---
+make: Entering directory '/home/coder/project/examples/hello-service'
+build: OK
+make: Leaving directory '/home/coder/project/examples/hello-service'
+--- revert demo edit ---
+?? .vscode/

@@ -1,0 +1,7 @@
+Checking SSH reachability of coder.demo-e2e...
+Checking for a running Agent Host process on coder.demo-e2e...
+FAIL: no Agent Host process found on coder.demo-e2e.
+This is expected if no Agents-window session has ever been started
+against this workspace yet — VS Code starts the Agent Host lazily on
+first remote connect, it is not part of the workspace startup script.
+exit=1
