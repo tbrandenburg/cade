@@ -11,3 +11,7 @@ __pycache__/
 examples/embedded-sim/build/
 examples/embedded-sim/build-target/
 cache/registry/auth/htpasswd
+governance/openbao/certs/*.crt
+governance/openbao/certs/*.key
+governance/openbao/data/
+governance/openbao/unseal/

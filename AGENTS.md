@@ -127,6 +127,10 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - `gh-aw`'s MCP Gateway/AWF sandbox requires a real Docker Unix socket (`GH_AW_DOCKER_SOCK_PATH`
   or `/var/run/docker.sock`) — the M2 `DOCKER_HOST=tcp://runner-docker-proxy:2375` socket proxy
   is explicitly unsupported and fails the `agent` job at runtime, not at `gh aw compile` time.
+- Before closing any governance/OPA/OpenBao step, run `git ls-files <dir> | wc -l` on every
+  directory it claims to have created — `governance/` was entirely untracked (0 files) while
+  its milestone report and `scripts/verify-governance.sh` both passed locally, masking that a
+  fresh clone of `origin/main` had none of the actual policy/config being validated.
 - A `docker_volume` Terraform resource with `lifecycle { ignore_changes = all }` still gets
   destroyed by `coder delete` (`ignore_changes` only suppresses `apply`-time diffs, not
   `destroy`) — for a volume meant to survive workspace delete/recreate, reference it by a
@@ -142,6 +146,15 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - A Makefile target-line filter of "no leading whitespace + contains `:`" also matches variable
   assignments (`NAME := ...`, `NAME ?= ...`); exclude those explicitly, and remember a
   long-running `type: local` MCP process caches the old parse until respawned.
+- `openbao/openbao`'s named-volume `storage "file"` path is root-owned by default (the
+  entrypoint only auto-chowns bind-mounted paths) — `bao operator init` fails `permission
+  denied` until `docker exec -u 0 <container> chown -R openbao:openbao /openbao/data` runs once.
+- `openbao`'s container runs as uid=100 but gid=1000; a bind-mounted TLS key tightened to `600`
+  fails `permission denied` on listener startup — use `640` (group-read) instead of `600`.
+- `openbao` does not auto-unseal across a container restart/recreate — it comes back up
+  sealed (all reads 503) until `scripts/openbao-init.sh` is rerun against the existing
+  `governance/openbao/unseal/init.json`; do not assume a previously-verified root-token
+  revocation still holds without re-checking seal status first.
 
 ### Sandbox / security
 

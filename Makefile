@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -83,4 +83,12 @@ temporal-demo-start:
 		-e DEMO_TASK_QUEUE=demo-durable-workflow \
 		--entrypoint python \
 		devenv-cloud/temporal-worker:latest -m demo.starter
+
+## governance-bootstrap: Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token (Milestone M12).
+governance-bootstrap:
+	@bash scripts/openbao-init.sh
+
+## governance-verify: Run opa test plus a live OPA/MCP ALLOW-run_test / DENY-flash_device round trip (Milestone M12).
+governance-verify:
+	@bash scripts/verify-governance.sh
 

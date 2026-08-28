@@ -16,6 +16,13 @@ design:
    call presenting a different caller (the "State Handle Hijacking"
    guidance) - the reservation ID by itself is never sufficient
    authorization.
+
+Milestone M12 (Governance Foundation) adds a third layer for the two
+privileged actions (`flash_device`, `run_test`): both query OPA's live
+decision API (`lab_sim.policy.check_allowed`) before touching device state.
+The allow/deny logic itself lives entirely in `governance/opa/policy/
+lab_authz.rego`, not here - this module never encodes the `approved==true`
+requirement for `flash_device` directly, it only forwards the decision.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from lab_sim import devices
 from lab_sim.auth import caller_for_authorization_header
+from lab_sim.policy import check_allowed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lab_sim.server")
@@ -67,20 +75,28 @@ def reserve_device(device_id: str, ctx: Context) -> dict[str, str]:
 
 
 @mcp.tool()
-def flash_device(reservation_id: str, ctx: Context) -> str:
+def flash_device(reservation_id: str, ctx: Context, approved: bool = False) -> str:
     """Flash the reserved device with a simulated firmware image. Requires
-    the caller to own `reservation_id`."""
+    the caller to own `reservation_id` AND a live ALLOW decision from OPA's
+    `lab.authz` policy for `flash_device` - denied unless `approved=True`
+    (human/workflow sign-off), per the M12 governance policy. Raises
+    `PolicyDenied` (surfaced as a tool error) otherwise."""
     caller_id = _authenticated_caller(ctx)
+    check_allowed("flash_device", approved=approved)
     result = devices.SIMULATOR.flash_device(reservation_id, caller_id)
-    logger.info("flash_device: caller=%s reservation=%s", caller_id, reservation_id)
+    logger.info("flash_device: caller=%s reservation=%s approved=%s", caller_id, reservation_id, approved)
     return result
 
 
 @mcp.tool()
 def run_test(reservation_id: str, ctx: Context) -> dict[str, str]:
     """Run the approved simulated test operation against the reserved
-    device. Requires the caller to own `reservation_id`."""
+    device. Requires the caller to own `reservation_id` AND a live ALLOW
+    decision from OPA's `lab.authz` policy for `run_test` (always allowed
+    per the current policy, but the decision is still queried live, never
+    hardcoded)."""
     caller_id = _authenticated_caller(ctx)
+    check_allowed("run_test")
     result = devices.SIMULATOR.run_test(reservation_id, caller_id)
     logger.info("run_test: caller=%s reservation=%s result=%s", caller_id, reservation_id, result)
     return result
