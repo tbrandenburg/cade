@@ -113,9 +113,10 @@ Instructions:
 9. After ALL actions and ALL validation and E2E checks pass, print "IMPLEMENTATION DONE: $STEP_FILE".
 10. Lessons learned: if during this step you encountered a non-obvious pitfall, a surprising
     behaviour, or a constraint that future implementers must know to avoid repeating the same
-    mistake, update AGENTS.md surgically — append only a concise bullet under the most
-    relevant existing section (e.g. "Key Pitfalls"). Do NOT rewrite, reformat, or restructure
-    any other part of AGENTS.md.
+    mistake, update AGENTS.md surgically — append only ONE concise, imperative bullet (max
+    2 lines, no date/step-number prefix, no narrative) under the most relevant existing
+    section (e.g. "Key Pitfalls"). Do NOT rewrite, reformat, or restructure any other part of
+    AGENTS.md.
 11. If you reach a point where you cannot continue without human input (missing credentials,
    hardware required, ambiguous requirements, unresolvable conflict, etc.) do NOT guess.
    Instead print exactly this line (no leading spaces) followed by a plain-text explanation
@@ -168,9 +169,10 @@ Instructions:
    e. Print "GAP CREATED: <gap-number>-<gap-slug>.md — <one-line reason>" for each gap file created.
 8. Lessons learned: if during this review you identified a non-obvious pitfall, a surprising
    behaviour, or a constraint that future implementers must know to avoid repeating the same
-   mistake, update AGENTS.md surgically — append only a concise bullet under the most
-   relevant existing section (e.g. "Key Pitfalls"). Do NOT rewrite, reformat, or restructure
-   any other part of AGENTS.md.
+   mistake, update AGENTS.md surgically — append only ONE concise, imperative bullet (max
+   2 lines, no date/step-number prefix, no narrative) under the most relevant existing
+   section (e.g. "Key Pitfalls"). Do NOT rewrite, reformat, or restructure any other part of
+   AGENTS.md.
 9. After all checks, print exactly one of the following status lines (no leading spaces),
    then stop:
    - If the step is complete, all validation and E2E checks pass, AND no gaps were raised:
