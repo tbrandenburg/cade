@@ -38,6 +38,38 @@ data "coder_parameter" "github_token" {
   order        = 1
 }
 
+# M4 (VS Code Agent Host + AHP): workspaces intended to run a long-lived
+# Agent Host session need to survive longer than the default idle-autostop
+# window, since Coder's autostop/scheduling is driven by IDE/SSH/terminal
+# activity and there is no confirmed guarantee that Agent Host activity
+# alone counts toward idle detection (a workspace could autostop while an
+# agent is still working with no editor attached). This parameter only
+# widens/disables the autostop window at workspace-create time (below) —
+# it is a documented interim workaround, not a real workspace lease. See
+# docs/milestone-reports/M4-agent-host.md "Known limitation".
+data "coder_parameter" "agent_capable" {
+  name         = "agent_capable"
+  display_name = "Agent-capable (disable aggressive autostop)"
+  description  = "Set true for workspaces expected to run long Agent Host sessions unattended. Human-only workspaces should leave this false and keep the default autostop."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 2
+}
+
+locals {
+  # M4: JSON-RPC/Agent Host security-baseline settings. Kept in sync by hand
+  # with the human-readable copy at repository root, `agent-host/settings.json`
+  # — Coder template push only uploads this template directory, not the
+  # repository root (same limitation already noted for the Dockerfile in
+  # `workspace_image`'s description above), so it cannot be read in via
+  # `file("../../agent-host/settings.json")`.
+  agent_host_settings = {
+    "chat.agent.sandbox.enabled" = true
+    "chat.sessionSync.enabled"   = false
+  }
+}
+
 resource "coder_agent" "main" {
   arch = data.coder_provisioner.me.arch
   os   = "linux"
@@ -61,6 +93,27 @@ ASKPASS
     fi
 
     echo 'cd ${local.workspace_dir}' >> ~/.bashrc
+
+    # M4 (VS Code Agent Host + AHP): apply the sandbox/session-locality
+    # settings the Agent Host and VS Code Remote read from
+    # `.vscode/settings.json` in the opened folder. Only write it the first
+    # time so a developer's own edits to these settings later are not
+    # clobbered on every workspace start.
+    if [ ! -f "${local.workspace_dir}/.vscode/settings.json" ]; then
+      mkdir -p "${local.workspace_dir}/.vscode"
+      cat > "${local.workspace_dir}/.vscode/settings.json" <<'VSCODE_SETTINGS'
+    ${jsonencode(local.agent_host_settings)}
+    VSCODE_SETTINGS
+    fi
+
+    # M4: best-effort autostop relaxation for agent-capable workspaces. The
+    # Coder CLI is not guaranteed to be present/authenticated for the
+    # workspace's own token inside every image, so this is deliberately
+    # non-fatal (`|| true`) and documented as a known limitation in
+    # docs/milestone-reports/M4-agent-host.md rather than relied upon.
+    if [ "${data.coder_parameter.agent_capable.value}" = "true" ] && command -v coder >/dev/null 2>&1; then
+      coder schedule stop "$(hostname)" --disable-ttl || true
+    fi
   EOT
 
   env = {
