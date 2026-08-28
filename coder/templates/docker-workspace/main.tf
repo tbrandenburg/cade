@@ -23,6 +23,22 @@ data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
+# Optional token for cloning `repo_url` when it is not publicly readable.
+# Left empty, `git clone` behaves exactly as before (anonymous HTTPS clone).
+# When set, the startup script clones non-interactively via GIT_ASKPASS
+# instead of the repo_url itself, so the token never ends up embedded in
+# .git/config or in `git remote -v` output.
+resource "coder_parameter" "github_token" {
+  name         = "github_token"
+  display_name = "GitHub Token"
+  description  = "Optional token to clone `repo_url` when it is not publicly readable. Leave empty for public repos."
+  type         = "string"
+  default      = ""
+  mutable      = true
+  sensitive    = true
+  order        = 1
+}
+
 resource "coder_agent" "main" {
   arch = data.coder_provisioner.me.arch
   os   = "linux"
@@ -33,6 +49,15 @@ resource "coder_agent" "main" {
     set -e
 
     if [ ! -d "${local.workspace_dir}/.git" ]; then
+      if [ -n "$GITHUB_TOKEN" ]; then
+        cat > /tmp/git-askpass.sh <<'ASKPASS'
+#!/bin/sh
+echo "$GITHUB_TOKEN"
+ASKPASS
+        chmod +x /tmp/git-askpass.sh
+        export GIT_ASKPASS=/tmp/git-askpass.sh
+        export GIT_TERMINAL_PROMPT=0
+      fi
       git clone "${local.repo_url}" "${local.workspace_dir}"
     fi
 
@@ -44,6 +69,7 @@ resource "coder_agent" "main" {
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
+    GITHUB_TOKEN        = coder_parameter.github_token.value
   }
 
   metadata {
