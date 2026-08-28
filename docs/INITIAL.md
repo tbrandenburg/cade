@@ -545,6 +545,7 @@ It must verify:
 - jq available
 - enough disk space
 - outbound HTTPS connectivity to GitHub
+- outbound HTTPS connectivity to `update.code.visualstudio.com` and `vscode.download.prss.microsoft.com` (required by M4: VS Code's Agents window auto-installs a CLI binary plus a ~223 MB server bundle containing the Copilot harness on first remote connect — verified in the independent [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC; without this, M4's remote session simply never starts, with no GitHub-connectivity-shaped error to point at the real cause)
 - ports required by the stack are available
 
 Example expected behavior:
@@ -1144,6 +1145,8 @@ repo / tools / terminal
 
 Add `scripts/configure-coder-ssh.sh` to automate the `coder config-ssh` step and `scripts/verify-agent-host.sh` / `scripts/verify-ahp-session.sh` to check the Agent Host process is reachable over the configured SSH host.
 
+**Make `verify-ahp-session.sh` a real protocol check, not just a port/process check.** AHP is JSON-RPC over WebSocket on a plain HTTP-Upgrade endpoint (confirmed in the [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC, `docs/POC.md` step 7, without any VS Code GUI involved): a bare `curl` to the Agent Host port hangs (it isn't a normal HTTP server), but a `curl`/WebSocket client sending `Connection: Upgrade` gets `HTTP/1.1 101 Switching Protocols`, and a JSON-RPC `initialize` request with `params: {"protocolVersions":["1.0.0"]}` returns a real handshake response (`protocolVersion`, `serverSeq`, `defaultDirectory`, etc.). Script this handshake (curl + a small WebSocket client, e.g. Node's built-in `WebSocket`) instead of only checking that a process/port is listening — it's the difference between "something is listening" and "AHP actually answers."
+
 **Verification note:** `coder config-ssh` and VS Code's SSH-based Agents window are each independently documented by their respective vendors (Coder and Microsoft), but no joint Coder+VS-Code-Agent-Host integration guide was found. This bridge is a composition of two independently-documented features that should work together (VS Code's remote-over-SSH path has no Coder-specific requirement beyond a working `sshd` in the workspace), not a vendor-blessed, jointly-tested integration — validate it carefully in M4's Manual E2E Test rather than assuming it's a documented, supported combination.
 
 ---
@@ -1164,8 +1167,14 @@ Coder workspace container       ephemeral
     ├── .cache/
     ├── .copilot/
     ├── .claude/
+    ├── .vscode/cli/servers/Stable-<commit>/   # downloaded server bundle; contains the
+    │                                          # Copilot harness itself (@github/copilot-linux-x64)
+    ├── .vscode-server/cli/                     # supervisor log (agent-host-stable.log)
+    ├── .vscode-server/data/                    # agent-host user-data-dir, logs/<timestamp>/
     └── agent/session state
 ```
+
+**Verified paths (not a guess):** the two directories worth persisting are `~/.vscode` and `~/.vscode-server` as a pair — confirmed against a live Agent Host process tree in the independent [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC (`docs/POC.md`, steps 7 and 12). An earlier draft of this plan guessed a single `~/.vscode-cli` path, which does not exist; do not use it. Note also that the Copilot harness binary lives *inside* the `.vscode/cli/servers/.../server/node_modules/` tree, not in a separate `.copilot`-style directory — `.copilot`/`.claude` above are the CLI-tool config/credential dirs (M9), a different thing entirely.
 
 Do not put the repository or agent session state purely into the ephemeral container filesystem — only the persistent volume survives a workspace container replace.
 
@@ -1734,7 +1743,36 @@ opencode   (OpenCode CLI, v1.18.21)
 pi         (Pi CLI, v0.84.2)
 ```
 
-Install both into the agent workspace — this is not optional, since both are the supported harnesses for this platform. Test the Agent Test below with each. The harness software itself should remain replaceable at the interface level (each just needs to see repository context and call the same MCP/API surface later phases expose), and each should run through the AHP session plane established in M4/M5 rather than as a bare terminal process disconnected from that infrastructure.
+Install both into the agent workspace — this is not optional, since both are the supported harnesses for this platform. Test the Agent Test below with each. The harness software itself should remain replaceable at the interface level (each just needs to see repository context and call the same MCP/API surface later phases expose).
+
+**Known gap: `opencode`/`pi` do not run through AHP.** VS Code's Agent Host currently only bundles adapters for Copilot, Claude, and (experimental) Codex — `agent-host-protocol`'s only server implementation is VS Code's own, with no extension point for third-party CLIs to register as a host-side adapter. `opencode` and `pi` therefore run as plain terminal processes inside the workspace (wrapped by `srt`), not inside the Agent Host, so M4's AHP durability proof (session survives closing/reopening the editor) does not transfer to them. Re-verify against `code.visualstudio.com/docs/agents/run/agent-harnesses` at implementation time in case VS Code adds third-party AHP adapters later.
+
+### Session Continuity Without AHP: `tmux`/`screen`
+
+Give `opencode`/`pi` an equivalent property directly on the Coder workspace instead: a detached multiplexer session that keeps running whether or not a client (VS Code, SSH terminal) is attached, backed by the same persistent home volume as M4/M5.
+
+```bash
+# start (or reattach to) a named session for a given agent worktree
+tmux new-session -A -s agent-session-001 -c ~/project/worktree/session-001
+
+# inside it, run the wrapped harness as usual
+opencode   # or: pi
+```
+
+- Name sessions after the worktree (M5's `1 agent session = 1 worktree` rule), e.g. `agent-session-001`, so `tmux ls` maps 1:1 to `worktree/session-NNN`.
+- Install `tmux` in `coder/Dockerfile` alongside M9's `bubblewrap`/`socat`/`ripgrep`.
+- Persist `~/.tmux` config (if any) under the M4 persistent home volume, not the ephemeral container filesystem.
+- This proves **process continuity** (the agent keeps running, reconnect later) — not AHP's multi-client sync, remote handoff, or VS Code Agents-window session list. Don't conflate the two: it's a Coder-workspace property (M3/M4's volume + a live SSH host), same category as workspace durability, not a new instance of session-plane durability.
+- Add `scripts/verify-agent-tmux-session.sh` (reattach after disconnect, confirm the wrapped harness process is still the same PID) alongside M4's `verify-ahp-session.sh`.
+
+### Optional: Copilot as a Third, AHP-Native Harness
+
+If a later requirement needs AHP's specific UX for `opencode`/`pi`-class interactive sessions (e.g. a non-technical reviewer watching/steering from the VS Code Agents window without SSH access, or cross-device handoff via M15's dev-tunnel bridge), add VS Code's built-in **Copilot** harness as a third, optional option rather than replacing `opencode`/`pi`:
+
+- Copilot is the only harness (besides experimental Codex) that plugs directly into the Agent Host process, so it's the only one of the three that actually inherits M4's proven AHP durability out of the box — no `tmux` workaround needed.
+- Credentials are close to free here: GitHub Copilot is already the recommended Backend Model Provider below, so the same GitHub auth context covers both the model backend and the Copilot harness.
+- Keep `opencode`/`pi` as the standardized, automatable harnesses for the Agent Test below and M10's `gh-aw` (which needs a CLI engine, not VS Code's Agent Host) — Copilot-the-harness is additive for interactive AHP use cases, not a dependency of those milestones.
+- Do not add it speculatively. Treat this as backlog until a concrete use case names the AHP-specific capability it needs; adding a third harness means a third credential store and a third `denyRead`/`srtAllowedDomains` entry to validate everywhere `~/.copilot` is already handled below.
 
 ## Backend Model Provider
 

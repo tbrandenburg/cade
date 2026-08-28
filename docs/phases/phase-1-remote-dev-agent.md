@@ -22,7 +22,7 @@ Read these before touching the corresponding milestone — each is the official 
 |---|---|---|
 | M1 | Docker Compose | https://docs.docker.com/compose/how-tos/production/, https://docs.docker.com/build/building/best-practices/ |
 | M3 | Coder | https://coder.com/docs/tutorials/best-practices/security-best-practices |
-| M4 | VS Code Agent Host | https://code.visualstudio.com/docs/agents/best-practices, https://code.visualstudio.com/docs/agents/run/security, https://code.visualstudio.com/docs/agents/run/remote-agent-sessions |
+| M4 | VS Code Agent Host | https://code.visualstudio.com/docs/agents/best-practices, https://code.visualstudio.com/docs/agents/run/security, https://code.visualstudio.com/docs/agents/run/remote-agent-sessions (supplementary, independent verification: [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) `docs/POC.md` — hands-on AHP protocol handshake, verified persistent-volume paths, Folder-vs-Worktree isolation behavior) |
 | M9 | Anthropic Sandbox Runtime (`srt`) | https://github.com/anthropic-experimental/sandbox-runtime (README), https://docs.claude.com/en/docs/claude-code/sandboxing |
 | M15 | Tailscale | https://tailscale.com/kb/1018/acls, https://tailscale.com/kb/1223/tailscale-ssh |
 
@@ -66,6 +66,7 @@ Create `scripts/doctor.sh`. It must verify:
 - jq available
 - enough disk space
 - outbound HTTPS connectivity to GitHub
+- outbound HTTPS connectivity to `update.code.visualstudio.com` and `vscode.download.prss.microsoft.com` (required by M4: VS Code's Agents window auto-installs a CLI binary + ~223 MB server bundle containing the Copilot harness on first remote connect — verified in the independent [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC; without it, M4 fails with no GitHub-connectivity-shaped error to explain why)
 - ports required by the stack are available
 
 ### Validation Milestone M0
@@ -155,6 +156,19 @@ Install at minimum: `git`, `curl`, `build-essential`, `python`, `node` (or anoth
 
 M9 later adds `bubblewrap`, `socat`, and `ripgrep` to this image to support sandboxing the agent CLIs with `srt` (Anthropic Sandbox Runtime).
 
+**Optional corporate/TLS-intercepting-proxy CA bundle** — if the build host sits behind a MITM proxy (e.g. Netskope, or another corporate root CA), plain `apt-get`/`curl`/`npm` calls inside `coder/Dockerfile` fail with `SELF_SIGNED_CERT_IN_CHAIN`. Follow the pattern from [`pixel-agents-adt`](https://github.com/tbrandenburg/pixel-agents-adt)'s `Dockerfile`/`Makefile`/`AGENTS.md`: accept the bundle as a [BuildKit secret](https://docs.docker.com/build/building/secrets/) (`docker build --secret id=cacert,src=<path>`, never a build arg or `COPY`, so it never lands in image layers), install it into the OS trust store, and also set `NODE_EXTRA_CA_CERTS` since `npm`/Node ignore the OS store by default:
+
+```dockerfile
+RUN --mount=type=secret,id=cacert \
+    if [ -s /run/secrets/cacert ]; then \
+      cp /run/secrets/cacert /usr/local/share/ca-certificates/corporate-ca.crt \
+      && update-ca-certificates; \
+    fi
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+```
+
+Expose it as an optional `Makefile` variable (`CACERT ?=`), e.g. `make build CACERT=/path/to/ca-bundle.pem`, so the default `make build`/`docker build` on unrestricted networks stays a no-op.
+
 ### Example Application
 
 Create `examples/hello-service/`, supporting `make build`, `make test`, `make run` inside the workspace. The test suite may be tiny — the purpose is proving the environment contract.
@@ -221,6 +235,8 @@ VS Code Agents window → AHP over SSH → coder.<workspace-name> → VS Code Ag
 
 Add `scripts/configure-coder-ssh.sh` to automate `coder config-ssh`, and `scripts/verify-agent-host.sh` / `scripts/verify-ahp-session.sh` to check the Agent Host process is reachable over the configured SSH host.
 
+**Make `verify-ahp-session.sh` check the actual AHP protocol, not just a listening port.** AHP is JSON-RPC over WebSocket on a plain HTTP-Upgrade endpoint — confirmed hands-on in the independent [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC (`docs/POC.md` step 7) with nothing but `curl` and a ~20-line Node WebSocket client, no VS Code GUI involved: a bare `curl` hangs (not a normal HTTP server), a WebSocket-upgrade `curl` gets `HTTP/1.1 101 Switching Protocols`, and an `initialize` JSON-RPC call with `params: {"protocolVersions":["1.0.0"]}` returns a real handshake (`protocolVersion`, `serverSeq`, `defaultDirectory`, etc.). Script that handshake instead of only checking the process/port — it actually proves AHP answers, not just that something is listening.
+
 ### Persist the Agent Host's Workspace
 
 The persistent home volume from M3 must explicitly include Agent Host state, not just the repo:
@@ -237,8 +253,14 @@ Coder workspace container       ephemeral
     ├── .cache/
     ├── .copilot/
     ├── .claude/
+    ├── .vscode/cli/servers/Stable-<commit>/   # downloaded server bundle; the Copilot
+    │                                          # harness itself lives inside this tree
+    ├── .vscode-server/cli/                     # supervisor log
+    ├── .vscode-server/data/                    # agent-host user-data-dir, logs/
     └── agent/session state
 ```
+
+**Verified paths** — confirmed against a live Agent Host process tree in the [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC: the two directories worth persisting are `~/.vscode` and `~/.vscode-server` as a pair, not a single `~/.vscode-cli` guess (which does not exist). `.copilot`/`.claude` remain separate — those are CLI-tool credential/config dirs (M9), distinct from the Agent Host's own downloaded server bundle.
 
 Do not put the repository or agent session state purely into the ephemeral container filesystem.
 
@@ -309,6 +331,8 @@ Coder workspace
 
 Simple rule for the first implementation: **1 agent session = 1 worktree**. Add `scripts/create-agent-worktree.sh` and `scripts/cleanup-agent-worktree.sh`. Document the policy in `sessions/worktree-policy.md`.
 
+**Do not conflate this with VS Code's own "Isolation: Worktree" session mode.** This milestone's worktree policy is plain `git worktree` plumbing, independent of whichever VS Code session-isolation setting is picked. The two are easy to confuse because they share the word "worktree": per the [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) POC (`docs/POC.md` step 8), VS Code's own Folder-isolation sessions let you choose an approval/permission level (Default vs Bypass Approvals), while its Worktree-isolation sessions are locked to Bypass Approvals only. If M9 or M15 ever pick VS Code's native Worktree isolation instead of (or alongside) M5's `git worktree` scripts, document that choice explicitly and note the Bypass-Approvals implication in `sessions/worktree-policy.md` rather than assuming Folder-isolation's approval prompts still apply.
+
 ### Validation Milestone M5
 
 1. Start two agent sessions.
@@ -340,7 +364,36 @@ opencode   (OpenCode CLI, v1.18.21)
 pi         (Pi CLI, v0.84.2)
 ```
 
-Install both into the agent workspace — not optional, since both are the supported harnesses for this platform. Each should run through the AHP session plane established in M4/M5 rather than as a bare terminal process disconnected from that infrastructure.
+Install both into the agent workspace — not optional, since both are the supported harnesses for this platform.
+
+**Known gap: `opencode`/`pi` do not run through AHP.** M4's Agent Host/AHP durability (session survives closing/reopening the editor window) is only proven for VS Code's own built-in harnesses — Copilot, Claude, and (experimental) Codex are the only agent implementations that plug into the Agent Host process; `agent-host-protocol`'s only server implementation is VS Code's, with no extension point for third-party CLIs. Neither `opencode` nor `pi` is an AHP adapter, so they run as plain terminal processes inside the workspace (wrapped by `srt`), not inside the Agent Host. Do not report M9 as inheriting M4's AHP persistence proof — it doesn't. Re-verify against `code.visualstudio.com/docs/agents/run/agent-harnesses` before assuming this has changed.
+
+### Session Continuity Without AHP: `tmux`/`screen`
+
+Since `opencode`/`pi` can't get durability from AHP, give them an equivalent property directly on the Coder workspace: a detached multiplexer session that keeps running whether or not a client (VS Code, SSH terminal) is attached, backed by the same persistent home volume as M4/M5.
+
+```bash
+# start (or reattach to) a named session for a given agent worktree
+tmux new-session -A -s agent-session-001 -c ~/project/worktree/session-001
+
+# inside it, run the wrapped harness as usual
+opencode   # or: pi
+```
+
+- Name sessions after the worktree (M5's `1 agent session = 1 worktree` rule), e.g. `agent-session-001`, so `tmux ls` maps 1:1 to `worktree/session-NNN`.
+- Install `tmux` in `coder/Dockerfile` alongside M9's `bubblewrap`/`socat`/`ripgrep`.
+- Persist `~/.tmux` config (if any) under the M4 persistent home volume, not the ephemeral container filesystem.
+- This proves **process continuity** (the agent keeps running, reconnect later, no separate durability claim needed) — not AHP's multi-client sync, remote handoff, or VS Code Agents-window session list. Don't conflate the two: `tmux` continuity is a Coder-workspace property (M3/M4's volume + a live SSH host), same category as workspace durability, not a new instance of session-plane durability.
+- Add `scripts/verify-agent-tmux-session.sh` (reattach after disconnect, confirm the wrapped harness process is still the same PID) alongside M4's `verify-ahp-session.sh`, and cover it in M9's Manual E2E Test below.
+
+### Optional: Copilot as a Third, AHP-Native Harness
+
+If a later requirement needs AHP's specific UX for `opencode`/`pi`-class interactive sessions (e.g. a non-technical reviewer watching/steering from the VS Code Agents window without SSH access, or cross-device handoff via M15's dev-tunnel bridge), add VS Code's built-in **Copilot** harness as a third, optional option rather than replacing `opencode`/`pi`:
+
+- Copilot is the only harness (besides experimental Codex) that plugs directly into the Agent Host process, so it's the only one of the three that actually inherits M4's proven AHP durability out of the box — no `tmux` workaround needed.
+- Credentials are close to free here: GitHub Copilot is already the recommended **Backend Model Provider** below, so the same GitHub auth context covers both the model backend and the Copilot harness.
+- Keep `opencode`/`pi` as the standardized, automatable harnesses for M9's Agent Test and M10's `gh-aw` (which needs a CLI engine, not VS Code's Agent Host) — Copilot-the-harness is additive for interactive AHP use cases, not a dependency of those milestones.
+- Do not add it speculatively. Treat this as backlog until a concrete use case names the AHP-specific capability it needs; adding a third harness means a third credential store and a third `denyRead`/`srtAllowedDomains` entry to validate in every M9 test (see "`denyRead` must include the agent's own credential stores" below `~/.copilot`).
 
 ### Backend Model Provider
 

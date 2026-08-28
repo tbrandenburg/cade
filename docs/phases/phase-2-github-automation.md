@@ -36,7 +36,7 @@ local Docker / APIs
 
 ### Runner Requirements
 
-Build the runner image in `runner/Dockerfile`. Do not depend on an opaque third-party runner image. Pin the base OS image by digest (this is the highest-security-sensitivity image in the plan) and document a rebuild/patch cadence in `docs/operations.md`; keep the final image minimal (no unnecessary build-time-only packages). The runner container should:
+Build the runner image in `runner/Dockerfile`. Do not depend on an opaque third-party runner image. Pin the base OS image by digest (this is the highest-security-sensitivity image in the plan) and document a rebuild/patch cadence in `docs/operations.md`; keep the final image minimal (no unnecessary build-time-only packages). If the build host sits behind a corporate/TLS-intercepting proxy, apply the same optional `CACERT`/BuildKit-secret pattern documented in Phase 1's M3 (`coder/Dockerfile`) rather than inventing a second mechanism. The runner container should:
 
 - download a pinned GitHub Actions Runner version
 - persist runner configuration in a named volume

@@ -42,7 +42,7 @@ Create `embedded-linux` as a Docker workspace containing the full toolchain. Do 
 
 ### Toolchain Provenance
 
-The buildchain should not just be "latest ubuntu + random apt installs." Use a `Dockerfile` with a pinned base, pinned tool versions, and a recorded image digest — pushed to the local OCI registry introduced in M7. This gives a workspace a reproducible identity: repo revision + Dev Container revision + toolchain image digest.
+The buildchain should not just be "latest ubuntu + random apt installs." Use a `Dockerfile` with a pinned base, pinned tool versions, and a recorded image digest — pushed to the local OCI registry introduced in M7. This gives a workspace a reproducible identity: repo revision + Dev Container revision + toolchain image digest. If the build host sits behind a corporate/TLS-intercepting proxy, apply the same optional `CACERT`/BuildKit-secret pattern documented in Phase 1's M3 rather than inventing a second mechanism.
 
 ### Validation Milestone M6
 
