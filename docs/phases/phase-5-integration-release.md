@@ -235,7 +235,7 @@ The implementation is complete only if all of the following are true:
 - [ ] Important execution events are observable via Prometheus (not exposed publicly) and a version-controlled Grafana dashboard.
 - [ ] A full backup has been created and successfully restored, verified against every "MUST BACK UP" category (M14).
 - [ ] End-to-end flow begins in GitHub and returns a result to GitHub.
-- [ ] Interactive access does not require public exposure of the server, and uses an explicit least-privilege Tailscale ACL rather than the allow-all default.
+- [ ] Interactive access does not require public exposure of the server (Phase 1, M15: Coder dashboard/code-server/VS Code Remote-SSH reachable on the local network). Wide-area access via Tailscale (Phase 6, M16, with an explicit least-privilege ACL rather than the allow-all default) is optional and **not required** for the `0.1.0` release.
 - [ ] All milestone reports (across all five phases) are committed.
 
 ---

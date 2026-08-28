@@ -4,11 +4,11 @@
 
 Deliver a self-contained, demoable outcome with no dependency on GitHub automation, Temporal, or governance:
 
-> From a laptop anywhere (mobile hotspot test), connect via Tailscale → AHP over SSH → VS Code Agent Host, into a Docker workspace with the repository auto-cloned, and have a working coding agent that can read repository context and diagnose a known failing test — with the session surviving closing and reopening the editor.
+> Connect via AHP over SSH / browser, from the local network → VS Code Agent Host, into a Docker workspace with the repository auto-cloned, and have a working coding agent that can read repository context and diagnose a known failing test — with the session surviving closing and reopening the editor.
 
-Milestones covered: **M0** (Host Preparation), **M1 — trimmed** (Compose Foundation: Coder only), **M3** (Coder Development Workspace), **M4** (VS Code Agent Host + AHP), **M5** (Agent Session Persistence & Worktrees), **M9** (LLM/Agent Harness Integration), **M15** (Remote Access / Browser Handoff).
+Milestones covered: **M0** (Host Preparation), **M1 — trimmed** (Compose Foundation: Coder only), **M3** (Coder Development Workspace), **M4** (VS Code Agent Host + AHP), **M5** (Agent Session Persistence & Worktrees), **M9** (LLM/Agent Harness Integration), **M15** (Local Network / Browser Access).
 
-Temporal/Temporal-DB are explicitly **deferred to Phase 3 (M8)** — nothing in Phase 1 needs durable orchestration, and skipping it here reduces RAM/disk footprint for an initial PoC.
+Temporal/Temporal-DB are explicitly **deferred to Phase 3 (M8)** — nothing in Phase 1 needs durable orchestration, and skipping it here reduces RAM/disk footprint for an initial PoC. Wide-area remote access (Tailscale) is likewise deferred, to the optional Phase 6 — see `docs/phases/phase-6-remote-network-access.md`.
 
 **Why M4/M5 sit between M3 and M9:** the original plan jumped straight from "Coder workspace" to "LLM/agent harness," treating VS Code purely as an editor. That skipped an entire architectural layer — the Session Plane (AHP / VS Code Agent Host), which owns agent sessions independently of the workspace container or the UI client attached to it. M4 and M5 prove that layer on its own, before M9 puts an actual LLM behind it. See `docs/INITIAL.md` Section 2.2 (Three Durability Levels) and Rule 7 (Section 3) for why this distinction matters.
 
@@ -24,7 +24,6 @@ Read these before touching the corresponding milestone — each is the official 
 | M3 | Coder | https://coder.com/docs/tutorials/best-practices/security-best-practices |
 | M4 | VS Code Agent Host | https://code.visualstudio.com/docs/agents/best-practices, https://code.visualstudio.com/docs/agents/run/security, https://code.visualstudio.com/docs/agents/run/remote-agent-sessions (supplementary, independent verification: [`ahp-sandbox`](https://github.com/tbrandenburg/ahp-sandbox) `docs/POC.md` — hands-on AHP protocol handshake, verified persistent-volume paths, Folder-vs-Worktree isolation behavior) |
 | M9 | Anthropic Sandbox Runtime (`srt`) | https://github.com/anthropic-experimental/sandbox-runtime (README), https://docs.claude.com/en/docs/claude-code/sandboxing |
-| M15 | Tailscale | https://tailscale.com/kb/1018/acls, https://tailscale.com/kb/1223/tailscale-ssh |
 
 ---
 
@@ -388,7 +387,7 @@ opencode   # or: pi
 
 ### Optional: Copilot as a Third, AHP-Native Harness
 
-If a later requirement needs AHP's specific UX for `opencode`/`pi`-class interactive sessions (e.g. a non-technical reviewer watching/steering from the VS Code Agents window without SSH access, or cross-device handoff via M15's dev-tunnel bridge), add VS Code's built-in **Copilot** harness as a third, optional option rather than replacing `opencode`/`pi`:
+If a later requirement needs AHP's specific UX for `opencode`/`pi`-class interactive sessions (e.g. a non-technical reviewer watching/steering from the VS Code Agents window without SSH access, or cross-device handoff via Phase 6's dev-tunnel bridge), add VS Code's built-in **Copilot** harness as a third, optional option rather than replacing `opencode`/`pi`:
 
 - Copilot is the only harness (besides experimental Codex) that plugs directly into the Agent Host process, so it's the only one of the three that actually inherits M4's proven AHP durability out of the box — no `tmux` workaround needed.
 - Credentials are close to free here: GitHub Copilot is already the recommended **Backend Model Provider** below, so the same GitHub auth context covers both the model backend and the Copilot harness.
@@ -507,51 +506,38 @@ Record in `docs/milestone-reports/M9-agent.md`.
 
 ---
 
-## M15 — Remote Access / Browser Handoff
+## M15 — Local Network / Browser Access
 
 ### Objective
 
-Automation already works without inbound access once the GitHub runner exists (Phase 2), but Phase 1's deliverable is specifically the *interactive* remote path — pulled forward here because without it the workspace is only reachable on the local LAN, not "remote." This builds on the AHP-over-SSH bridge established in M4.
+Prove the workspace is reachable and usable from a client other than "localhost on the server itself" — over the local network, without opening any public port. This builds on the AHP-over-SSH bridge established in M4 and the code-server module already wired into the Coder template (M3): the Coder dashboard and the workspace's browser-based VS Code (code-server) are reachable from any device on the same network as the Coder server, and `coder config-ssh` bridges the same workspace to a normal SSH host for VS Code Desktop's Remote-SSH/Agents flows.
 
-Recommended: **Tailscale Personal**. Do not publicly expose Coder.
-
-**Configure an explicit least-privilege ACL — Tailscale's default is allow-all.** Without an `acls` section in the tailnet policy file, every device on the tailnet can reach every other device, which contradicts Rule 6. Write an ACL restricting access to the private server's Coder/SSH ports to only the devices/users that need it, and consider enabling device approval given M15's own "unfamiliar network" test scenario.
+Wide-area access from a genuinely different network (e.g. a laptop on a mobile hotspot, via Tailscale) is **out of scope for this milestone** — see the optional `docs/phases/phase-6-remote-network-access.md` (M16), which has no dependents and can be done independently, whenever a real second network is available to test from.
 
 Target:
 
 ```text
-Laptop → Tailscale → private server → Coder → workspace
+Another device on the same network → Coder dashboard / code-server (browser) → workspace
+Another device on the same network → coder config-ssh → VS Code Desktop → workspace
 ```
 
 ### Validation Milestone M15
 
-From a network outside the server LAN:
+1. From a device other than the Coder server itself (or, at minimum, over `http://<server-ip>:7080` rather than `localhost`), open the Coder dashboard.
+2. Open the workspace's **code-server** app — confirm the repository is visible and editable in-browser.
+3. From that same device, run `coder config-ssh` and connect via VS Code Desktop's Remote-SSH to `coder.<workspace-name>`.
+4. Edit source, run a build (`make -C examples/hello-service build`).
 
-1. Connect through Tailscale.
-2. Open Coder.
-3. Connect VS Code.
-4. Edit source.
-5. Run build.
-
-No public port forwarding should be required.
+No public port forwarding or external service should be required — only reachability on the local network.
 
 ### Manual E2E Test M15
 
-Use a mobile hotspot rather than the server's normal LAN. Confirm `VS Code → private Coder workspace` works.
+From a second device on the same LAN as the Coder server (not the server's own `localhost`): open the Coder dashboard, open code-server in the browser, confirm the repo/editor work; then connect VS Code Desktop over `coder config-ssh` and confirm the same.
 
-Record in `docs/milestone-reports/M15-remote.md`.
-
-### Optional: Browser Agent Handoff Test
-
-VS Code supports accessing remote Agent Host sessions from the browser through a dev tunnel — a stronger proof than SSH-based remote access alone, since it shows the *control surface itself* (not just the network path) is replaceable:
-
-```text
-VS Code desktop → start session → close desktop → browser Agents window → same remote host → same session
-```
-
-Mark this **optional** for the initial implementation (dev-tunnel auth adds another connectivity mechanism). Record results, if attempted, in `docs/milestone-reports/M15-remote.md` under a "Browser Handoff (optional)" subsection.
+Record in `docs/milestone-reports/M15-local-access.md`.
 
 ---
+
 
 ## Phase 1 Manual E2E Testing (performed by you, the agent)
 
@@ -570,9 +556,9 @@ You, as the agent, must personally execute every Manual E2E Test in this phase (
 
 Before Phase 1 is considered done, you, as the agent, must:
 
-1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, AHP/Agent Host bridge via `coder config-ssh`, worktree layout, Tailscale access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
+1. **Update project docs** — create or update `docs/architecture.md` and `docs/operations.md` to reflect what actually got built (Coder + Coder-DB compose topology, `docker-standard` workspace contents, AHP/Agent Host bridge via `coder config-ssh`, worktree layout, local network/browser access path), not just what was planned. Fix any drift between `docs/INITIAL.md` / this phase file and the real implementation.
 2. **Update `AGENTS.md`** at the repo root with:
-   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Tailscale ACL quirks, Coder template gotchas, AHP/SSH connection quirks, autostop-vs-agent-session conflicts observed, `srt` nested-sandbox quirks on the host kernel).
+   - **Guidelines** — any new binding rule discovered while building Phase 1 (e.g. workspace image sizing, Coder template gotchas, AHP/SSH connection quirks, autostop-vs-agent-session conflicts observed, `srt` nested-sandbox quirks on the host kernel).
    - **Agent Instructions** — concrete, current instructions for operating this repo with `opencode` and `pi`: how to open a workspace, how to bridge it via `coder config-ssh`, how each CLI authenticates, how to create/clean up a worktree, how to update `~/.srt-settings.json` allowlists when a new legitimate domain/path is needed, any flags or config needed to ground the agent in repo context.
    - **Lessons Learned** — a dated entry (`## Phase 1 — <date>`) describing what broke, what surprised you, and what to avoid next time. Do not overwrite prior entries; append.
 
@@ -591,7 +577,7 @@ Do not skip this step even if nothing "went wrong" — record confirmations as w
 - [ ] Both `opencode` and `pi` are installed in the workspace and each has successfully diagnosed the seeded failing test, grounded in repo context, without manual copy-paste.
 - [ ] `chat.agent.sandbox.enabled` is set in `agent-host/settings.json` (VS Code's own agent sandbox baseline, independent of `srt`).
 - [ ] Both `opencode` and `pi` run wrapped in `srt` (Anthropic Sandbox Runtime), with a confirmed denied file read (`~/.ssh/id_rsa`), a confirmed denied network destination, and confirmed cross-credential isolation (`~/.claude`/`~/.copilot`), while remaining functional against their allowlisted endpoints.
-- [ ] VS Code connects to the workspace over Tailscale from outside the server's LAN (mobile hotspot test), with an explicit least-privilege ACL in place (not Tailscale's allow-all default).
-- [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M4-agent-host.md`, `M5-sessions.md`, `M9-agent.md`, `M15-remote.md` are all committed with command-level evidence.
+- [ ] The workspace's Coder dashboard and browser-based code-server are reachable from another device on the local network (not just the server's own `localhost`), and VS Code Desktop connects over `coder config-ssh` from that same device. Wide-area access (Tailscale, from outside the LAN) is optional and deferred to Phase 6 — not required for Phase 1 completion.
+- [ ] `docs/milestone-reports/M0-host.md`, `M1-compose.md`, `M3-coder.md`, `M4-agent-host.md`, `M5-sessions.md`, `M9-agent.md`, `M15-local-access.md` are all committed with command-level evidence.
 - [ ] `docs/architecture.md` and `docs/operations.md` reflect the actual Phase 1 implementation.
 - [ ] `AGENTS.md` has updated Guidelines, Agent Instructions, and a dated Phase 1 Lessons Learned entry.

@@ -18,8 +18,10 @@ orchestration, and governance/observability, running entirely on one Linux
 server with no inbound Internet exposure and no paid cloud infrastructure.
 `docs/INITIAL.md` is the authoritative implementation plan;
 `docs/ARCHITECTURE.md` is a condensed C4-model summary of it;
-`docs/phases/` splits it into 5 deliverable phases, each with its own
-milestones and required milestone report under `docs/milestone-reports/`.
+`docs/phases/` splits it into 5 sequential deliverable phases plus an
+optional, order-independent Phase 6 (wide-area/Tailscale remote access —
+deferred until a real second network exists to test from), each with its
+own milestones and required milestone report under `docs/milestone-reports/`.
 See the top-level `README.md` for a quickstart and current project status.
 
 Two directories look similar but are not: `docs/` is the human-facing project
