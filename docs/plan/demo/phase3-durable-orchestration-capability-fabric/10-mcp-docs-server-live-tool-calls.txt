@@ -1,0 +1,19 @@
+Evidence: MCP docs-server (stdio transport) queried live via this agent
+session's connected MCP tools (devenv-docs_get_architecture,
+devenv-docs_search_docs), proving the M11 Service 1 acceptance criterion:
+"agent should be able to answer questions using the appropriate tool
+services" without shelling out.
+
+Tool: devenv-docs_get_architecture()
+-> returned docs/ARCHITECTURE.md in full (C4 Context/Container/Component
+   diagrams, Three Durability Levels table) -- confirms stdio MCP tool call
+   succeeded and returned real repository documentation.
+
+Tool: devenv-docs_search_docs(query="Temporal")
+-> returned 15 matches across docs/ARCHITECTURE.md and docs/INITIAL.md with
+   file path + line number + matching line text for each hit, e.g.:
+   docs/ARCHITECTURE.md:59  Container(temporal, "Temporal OSS", ...)
+   docs/INITIAL.md:105      "All three must be tested independently..."
+
+Both tool calls returned real content read from this repository's Markdown
+docs at query time -- no mocking, no stubbing.

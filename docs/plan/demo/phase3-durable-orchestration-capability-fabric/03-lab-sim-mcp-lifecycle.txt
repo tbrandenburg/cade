@@ -1,0 +1,52 @@
+== list_devices ==
+list_devices({}) -> {
+  "device": "ecu-demo-01",
+  "kind": "engine-control-unit",
+  "status": "reserved"
+}{
+  "device": "ecu-demo-02",
+  "kind": "engine-control-unit",
+  "status": "available"
+}{
+  "device": "bms-demo-01",
+  "kind": "battery-management-system",
+  "status": "available"
+}
+== reserve_device ==
+reserve_device({'device_id': 'ecu-demo-02'}) -> {
+  "reservation_id": "cd5742de8dc504a0",
+  "device": "ecu-demo-02"
+}
+== flash_device ==
+flash_device({'reservation_id': 'cd5742de8dc504a0'}) -> flashed ecu-demo-02 with simulated firmware image
+== run_test ==
+run_test({'reservation_id': 'cd5742de8dc504a0'}) -> {
+  "device": "ecu-demo-02",
+  "result": "pass"
+}
+== get_logs ==
+get_logs({'reservation_id': 'cd5742de8dc504a0'}) -> [2026-08-28T19:13:41Z] reserved by agent-a[2026-08-28T19:13:41Z] flashed ecu-demo-02 with simulated firmware image[2026-08-28T19:13:41Z] ran simulated test suite on ecu-demo-02: result=pass
+== release_device ==
+release_device({'reservation_id': 'cd5742de8dc504a0'}) -> released ecu-demo-02
+== list_devices (after release) ==
+list_devices({}) -> {
+  "device": "ecu-demo-01",
+  "kind": "engine-control-unit",
+  "status": "reserved"
+}{
+  "device": "ecu-demo-02",
+  "kind": "engine-control-unit",
+  "status": "available"
+}{
+  "device": "bms-demo-01",
+  "kind": "battery-management-system",
+  "status": "available"
+}
+
+== state-handle-hijack attempt: agent-b re-reserves + agent-a tries stale ID ==
+reserve_device({'device_id': 'ecu-demo-02'}) -> {
+  "reservation_id": "2225ffb5c8ad9853",
+  "device": "ecu-demo-02"
+}
+EXPECTED REJECTION (isError=True): Error executing tool get_logs
+release_device({'reservation_id': '2225ffb5c8ad9853'}) -> released ecu-demo-02

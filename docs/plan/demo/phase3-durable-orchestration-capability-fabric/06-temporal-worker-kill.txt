@@ -1,0 +1,9 @@
+== workflow status right after start ==
+
+== killing temporal-worker container (SIGKILL) mid-timer ==
+Fri Aug 28 07:14:16 PM UTC 2026
+temporal-worker
+== worker container status after kill ==
+temporal-worker: Exited (137) 5 seconds ago
+
+== workflow status while worker is DOWN (timer is server-side) ==

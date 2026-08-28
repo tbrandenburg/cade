@@ -1,0 +1,53 @@
+rm -rf build build-target
+cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=sccache
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /workspace/examples/embedded-sim/build
+cmake --build build
+[1/6] Building C object CMakeFiles/firmware.dir/src/checksum.c.o
+[2/6] Building C object CMakeFiles/firmware.dir/src/main.c.o
+[3/6] Building C object CMakeFiles/test_checksum.dir/tests/test_checksum.c.o
+[4/6] Building C object CMakeFiles/test_checksum.dir/src/checksum.c.o
+[5/6] Linking C executable firmware
+[6/6] Linking C executable test_checksum
+cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=sccache
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /workspace/examples/embedded-sim/build
+cmake --build build
+ninja: no work to do.
+ctest --test-dir build --output-on-failure
+Internal ctest changing into directory: /workspace/examples/embedded-sim/build
+Test project /workspace/examples/embedded-sim/build
+    Start 1: checksum_test
+1/1 Test #1: checksum_test ....................   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.01 sec
+cmake -S . -B build-target -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-toolchain.cmake -DCMAKE_C_COMPILER_LAUNCHER=sccache
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/aarch64-linux-gnu-gcc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /workspace/examples/embedded-sim/build-target
+cmake --build build-target
+[1/6] Building C object CMakeFiles/firmware.dir/src/main.c.o
+[2/6] Building C object CMakeFiles/firmware.dir/src/checksum.c.o
+[3/6] Building C object CMakeFiles/test_checksum.dir/src/checksum.c.o
+[4/6] Building C object CMakeFiles/test_checksum.dir/tests/test_checksum.c.o
+[5/6] Linking C executable firmware
+[6/6] Linking C executable test_checksum
+qemu-aarch64 -L /usr/aarch64-linux-gnu build-target/firmware
+embedded-sim firmware: sensor frame checksum = 0xfa90
+embedded-sim firmware: self-check OK

@@ -1,0 +1,11 @@
+NAME                  IMAGE                                  COMMAND                  SERVICE               CREATED          STATUS                    PORTS
+coder                 ghcr.io/coder/coder:v2.36.3            "/opt/coder server"      coder                 43 minutes ago   Up 43 minutes (healthy)   0.0.0.0:7080->7080/tcp, [::]:7080->7080/tcp
+coder-db              postgres:17.6-alpine                   "docker-entrypoint.s…"   coder-db              43 minutes ago   Up 43 minutes (healthy)   5432/tcp
+lab-sim               devenv-cloud/lab-sim:latest            "python -m lab_sim.s…"   lab-sim               18 minutes ago   Up 18 minutes (healthy)   127.0.0.1:8300->8300/tcp
+registry              registry:3.1.1                         "/entrypoint.sh /etc…"   registry              43 minutes ago   Up 43 minutes (healthy)   5000/tcp
+runner-docker-proxy   tecnativa/docker-socket-proxy:v0.5.0   "docker-entrypoint.s…"   runner-docker-proxy   43 minutes ago   Up 43 minutes             2375/tcp
+runner-health         nginx:1.27-alpine                      "/docker-entrypoint.…"   runner-health         43 minutes ago   Up 43 minutes (healthy)   80/tcp
+temporal              temporalio/auto-setup:1.29.7           "/etc/temporal/entry…"   temporal              43 minutes ago   Up 38 minutes (healthy)   6933-6935/tcp, 6939/tcp, 7234-7235/tcp, 7239/tcp, 0.0.0.0:7233->7233/tcp, [::]:7233->7233/tcp
+temporal-db           postgres:16.10-alpine                  "docker-entrypoint.s…"   temporal-db           43 minutes ago   Up 43 minutes (healthy)   5432/tcp
+temporal-ui           temporalio/ui:2.53.3                   "./start-ui-server.sh"   temporal-ui           43 minutes ago   Up 43 minutes (healthy)   0.0.0.0:8088->8080/tcp, [::]:8088->8080/tcp
+temporal-worker       devenv-cloud/temporal-worker:latest    "python -m demo.work…"   temporal-worker       43 minutes ago   Up 8 seconds              

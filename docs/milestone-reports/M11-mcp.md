@@ -166,3 +166,49 @@ lab-sim   devenv-cloud/lab-sim:latest   lab-sim   Up (healthy)
 - The `docs-server` stdio process is spawned by the harness itself
   (`opencode.jsonc`'s `type: local`); it has no independent container or
   health check by design (stdio has no listening socket to probe).
+
+## Addendum: fix for `get_build_instructions()` Makefile target-parsing bug (Step 00402)
+
+Independent re-running of `get_build_instructions()` after the initial M11
+delivery found that its Makefile parser matched *any* unindented line
+containing `:` — including variable assignments (`SHELL := /bin/bash`,
+`COMPOSE := docker compose`), which were then emitted as fake `make SHELL`
+/ `make COMPOSE` "targets". Fixed in
+`mcp/docs-server/src/docs_server/server.py` by excluding lines matching
+`NAME := ...` / `NAME ?= ...` (and other assignment operators) before the
+first `:`.
+
+Regression check (`scripts/verify-docs-server-makefile-targets.sh`), run
+directly against the fixed `get_build_instructions()`:
+
+```
+$ scripts/verify-docs-server-makefile-targets.sh
+## Makefile targets
+...
+---
+
+# Makefile targets
+
+- `make doctor`
+- `make up`
+- `make down`
+- `make status`
+- `make logs`
+- `make coder-workspace-build`
+- `make embedded-workspace-build`
+- `make runner-build`
+- `make runner-run`
+- `make temporal-worker-build`
+- `make temporal-demo-start`
+PASS: no variable-assignment lines parsed as Makefile targets
+```
+
+No `SHELL` or `COMPOSE` entries remain in the parsed `# Makefile targets`
+section; `make doctor` (a real target) is still present, confirming the fix
+excludes assignments without dropping genuine targets.
+
+Note: a long-running `devenv-docs` MCP process attached to an existing
+harness session (e.g. an already-open `opencode` session from before this
+fix) will keep serving the old, buggy parse until that stdio process is
+restarted — the fix takes effect on the *next* process spawn, consistent
+with `type: local` MCP servers being started once per session.

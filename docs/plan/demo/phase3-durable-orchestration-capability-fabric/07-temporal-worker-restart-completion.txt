@@ -1,0 +1,69 @@
+== restarting worker container ==
+ Container temporal-db Waiting 
+ Container temporal-db Healthy 
+ Container temporal Waiting 
+ Container temporal Healthy 
+ Container temporal-worker Starting 
+ Container temporal-worker Started 
+temporal-worker: Up 3 seconds
+
+== waiting for workflow to complete (timer ~30s total) ==
+poll 1: status=WORKFLOW_EXECUTION_STATUS_COMPLETED
+
+== final describe ==
+Execution Info:
+  WorkflowId            demo-durable-workflow-31299d7a
+  RunId                 01a049cb-2788-73e3-8092-50f75b4c18c4
+  Type                  DemoDurableWorkflow
+  Namespace             default
+  TaskQueue             demo-durable-workflow
+  AssignedBuildId        
+  StartTime             31 seconds ago
+  CloseTime             now
+  ExecutionTime         31 seconds ago
+  SearchAttributes      map[BuildIds:metadata:{key:"encoding"  value:"json/plain"}  metadata:{key:"type"  value:"KeywordList"}  data:"[\"unversioned\",\"unversioned:7a3d21672ce7ec33619cdc4d402995f2\"]"]
+  StateTransitionCount  14
+  HistoryLength         22
+  HistorySize           2489
+  RootWorkflowId        demo-durable-workflow-31299d7a
+  RootRunId             01a049cb-2788-73e3-8092-50f75b4c18c4
+Extended Execution Info:
+  CancelRequested    false
+  OriginalStartTime  31 seconds ago
+
+Results:
+  RunTime         31.05s
+  Status          COMPLETED
+  Result          "prepared:demo-e4783441 -\u003e verified:prepared:demo-e4783441"
+  ResultEncoding  json/plain
+
+== workflow result ==
+Progress:
+  ID           Time                     Type           
+    1  2026-08-28T19:14:05Z  WorkflowExecutionStarted  
+    2  2026-08-28T19:14:05Z  WorkflowTaskScheduled     
+    3  2026-08-28T19:14:05Z  WorkflowTaskStarted       
+    4  2026-08-28T19:14:05Z  WorkflowTaskCompleted     
+    5  2026-08-28T19:14:05Z  ActivityTaskScheduled     
+    6  2026-08-28T19:14:05Z  ActivityTaskStarted       
+    7  2026-08-28T19:14:05Z  ActivityTaskCompleted     
+    8  2026-08-28T19:14:05Z  WorkflowTaskScheduled     
+    9  2026-08-28T19:14:05Z  WorkflowTaskStarted       
+   10  2026-08-28T19:14:05Z  WorkflowTaskCompleted     
+   11  2026-08-28T19:14:05Z  TimerStarted              
+   12  2026-08-28T19:14:35Z  TimerFired                
+   13  2026-08-28T19:14:35Z  WorkflowTaskScheduled     
+   14  2026-08-28T19:14:36Z  WorkflowTaskStarted       
+   15  2026-08-28T19:14:36Z  WorkflowTaskCompleted     
+   16  2026-08-28T19:14:36Z  ActivityTaskScheduled     
+   17  2026-08-28T19:14:36Z  ActivityTaskStarted       
+   18  2026-08-28T19:14:36Z  ActivityTaskCompleted     
+   19  2026-08-28T19:14:36Z  WorkflowTaskScheduled     
+   20  2026-08-28T19:14:36Z  WorkflowTaskStarted       
+   21  2026-08-28T19:14:36Z  WorkflowTaskCompleted     
+   22  2026-08-28T19:14:36Z  WorkflowExecutionCompleted
+
+Results:
+  Status          COMPLETED
+  Result          "prepared:demo-e4783441 -\u003e verified:prepared:demo-e4783441"
+  ResultEncoding  json/plain

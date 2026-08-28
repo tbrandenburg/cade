@@ -10,6 +10,7 @@ lookup service to be network-reachable at all.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -99,6 +100,7 @@ def get_build_instructions() -> str:
             and not line.startswith(("\t", " ", "#"))
             and ":" in line
             and not line.startswith(".")
+            and not re.match(r"^[^:]*[:?+!]?=", line)
         ]
         sections.append("# Makefile targets\n\n" + "\n".join(f"- `make {t}`" for t in targets))
     return "\n\n---\n\n".join(sections)

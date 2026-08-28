@@ -1,0 +1,4 @@
+== no Authorization header ==
+HTTP 401
+== wrong token ==
+HTTP 401

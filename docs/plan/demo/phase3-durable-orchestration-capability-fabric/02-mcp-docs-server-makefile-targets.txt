@@ -1,0 +1,56 @@
+## Makefile targets
+
+| Target | Milestone | Purpose |
+|---|---|---|
+| `make doctor` | M0 | Verify host OS/arch/tooling/disk/ports meet baseline requirements. |
+| `make up` | M1 | Start the platform stack (Postgres + Coder) in the background. |
+| `make down` | — | Stop and remove the platform stack's containers. |
+| `make status` | — | Show status/health of the platform stack's containers. |
+| `make logs` | — | Follow logs of the platform stack's containers. |
+| `make coder-workspace-build` | M3 | Build the `docker-workspace` image workspaces run. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile` — the Terraform template clones the *remote* repo, so an unpushed local change would silently not match what gets built/deployed. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+
+`examples/hello-service/Makefile` additionally provides `build`/`test`/
+`run`/`clean` — a minimal toolchain smoke test proving a freshly provisioned
+workspace can build and test Python code unmodified.
+
+## Project status
+
+Delivered so far (with committed evidence and milestone reports under
+[`docs/milestone-reports/`](docs/milestone-reports/)):
+
+- **M0 — Host Preparation**: `make doctor` baseline checks. ✅
+- **M1 — Compose Foundation**: Postgres + Coder control plane via `make up`. ✅
+- **M3 — Coder Development Workspace**: workspace image + Terraform template, persistent home volume, private-repo clone support. ✅
+- **M5 — Agent Session Persistence & Worktrees**: one agent session = one git worktree, survives workspace stop/start. ✅
+- **M9 — Agent/Harness Integration**: OpenCode/Pi running under Anthropic's Sandbox Runtime (`srt`) inside a detached tmux session, process-durable independent of any attached client. ✅
+- **M4 — VS Code Agent Host (AHP), infrastructure**: workspace clone (repo is public, no credential needed), sandbox/session-locality settings, SSH bridging (`scripts/configure-coder-ssh.sh`), and both verification scripts all confirmed working end-to-end. ✅ (see `docs/milestone-reports/M4-agent-host.md`)
+
+In progress / requires a human:
+
+- **M4 — VS Code Agent Host (AHP), live session persistence**: proving a session survives closing/reopening VS Code's Agents window requires a real VS Code Desktop GUI client connecting over SSH — this cannot be driven from a headless/CLI-only environment. See `docs/milestone-reports/M4-agent-host.md` for exactly which steps remain and how to complete them.
+- **M2, M6–M8, M10–M15, Final Milestone**: not yet started; see [`docs/phases/`](docs/phases/README.md) for the full phase/milestone breakdown across GitHub automation, durable orchestration (Temporal), and governance/observability.
+
+Read [`AGENTS.md`](AGENTS.md) before doing any further work in this repo — it
+records binding pitfalls and a review checklist for verifying "done" claims.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+
+---
+
+# Makefile targets
+
+- `make doctor`
+- `make up`
+- `make down`
+- `make status`
+- `make logs`
+- `make coder-workspace-build`
+- `make embedded-workspace-build`
+- `make runner-build`
+- `make runner-run`
+- `make temporal-worker-build`
+- `make temporal-demo-start`
+PASS: no variable-assignment lines parsed as Makefile targets

@@ -139,6 +139,9 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   `httpx2.AsyncClient` (a vendored fork, `pip install httpx` alone won't satisfy it) — check
   `inspect.signature(streamable_http_client)` for the exact type before wiring a test/adversarial
   MCP client against a `streamable-http` service in this repo.
+- A Makefile target-line filter of "no leading whitespace + contains `:`" also matches variable
+  assignments (`NAME := ...`, `NAME ?= ...`); exclude those explicitly, and remember a
+  long-running `type: local` MCP process caches the old parse until respawned.
 
 ### Sandbox / security
 
