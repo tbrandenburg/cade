@@ -10,13 +10,60 @@ Instructions and accumulated knowledge for any AI agent (human or automated) wor
 - Keep entries dated and attributed to a phase/milestone so history stays traceable.
 - Prefer appending to "Lessons Learned" over rewriting history; only edit "Guidelines" when a rule changes.
 
+## Purpose of this repository
+
+devenv-cloud is a Docker-first, single-repository private developer platform:
+remote development, agent-assisted coding, GitHub automation, durable
+orchestration, and governance/observability, running entirely on one Linux
+server with no inbound Internet exposure and no paid cloud infrastructure.
+`docs/INITIAL.md` is the authoritative implementation plan;
+`docs/ARCHITECTURE.md` is a condensed C4-model summary of it;
+`docs/phases/` splits it into 5 deliverable phases, each with its own
+milestones and required milestone report under `docs/milestone-reports/`.
+See the top-level `README.md` for a quickstart and current project status.
+
+Two directories look similar but are not: `docs/` is the human-facing project
+plan/documentation (source of truth); `doc/plan/` is this repo's own
+internal, plan-driven build-process state (used by `scripts/factory.sh`, the
+OpenCode-based orchestrator that has been driving this project's own
+implementation step-by-step) — do not confuse the two when looking for
+context.
+
 ## Guidelines
 
 _(Populated incrementally as phases complete. Each phase adds concrete, binding guidance discovered during its implementation — not restated theory from `docs/INITIAL.md`.)_
 
 ## Agent Instructions
 
-_(Concrete, current instructions for whichever CLI harness — `opencode` or `pi` — is operating in this repo: how to invoke platform commands, what not to touch, where secrets live, how to run validations.)_
+### How to use the Makefile
+
+All platform lifecycle operations are exposed as `make` targets at the repo
+root (see `Makefile`); run them from the repo root, not from subdirectories:
+
+| Command | Milestone | What it does |
+|---|---|---|
+| `make doctor` | M0 | Verifies the host (OS, arch, tooling, disk space, outbound connectivity, port availability) meets baseline requirements before anything else is attempted. Run this first on any new host. |
+| `make up` | M1 | Starts the platform control plane (Postgres + Coder) via `docker compose up -d`. Requires `.env` (copy from `.env.example` first). |
+| `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`) — data persists across `down`/`up`. |
+| `make status` | — | `docker compose ps` — check container health before assuming the stack is up. |
+| `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
+| `make coder-workspace-build` | M3 | Builds and tags the `devenv-cloud/coder-workspace:latest` image that Coder workspaces run. **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
+
+`examples/hello-service/Makefile` has its own `build`/`test`/`run`/`clean`
+targets — a toolchain smoke test, not part of the platform itself; used to
+prove a freshly provisioned Coder workspace can build/test Python code
+unmodified.
+
+There is no single top-level "build everything"/"test everything" target —
+each milestone/phase introduces its own validation script(s) under
+`scripts/`, invoked directly (e.g. `bash scripts/verify-ahp-session.sh`), not
+wrapped in `make` yet. Check `docs/phases/*.md` and the relevant
+`docs/milestone-reports/*.md` for the exact validation commands a given
+milestone expects before claiming it passes.
+
+_(Further concrete instructions for whichever CLI harness — `opencode` or
+`pi` — is operating in this repo belong here as they're discovered: what not
+to touch, where secrets live, how to run validations.)_
 
 ## Lessons Learned
 
