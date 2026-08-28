@@ -111,10 +111,11 @@ Delivered so far (with committed evidence and milestone reports under
 - **M3 — Coder Development Workspace**: workspace image + Terraform template, persistent home volume, private-repo clone support. ✅
 - **M5 — Agent Session Persistence & Worktrees**: one agent session = one git worktree, survives workspace stop/start. ✅
 - **M9 — Agent/Harness Integration**: OpenCode/Pi running under Anthropic's Sandbox Runtime (`srt`) inside a detached tmux session, process-durable independent of any attached client. ✅
+- **M4 — VS Code Agent Host (AHP), infrastructure**: workspace clone (repo is public, no credential needed), sandbox/session-locality settings, SSH bridging (`scripts/configure-coder-ssh.sh`), and both verification scripts all confirmed working end-to-end. ✅ (see `docs/milestone-reports/M4-agent-host.md`)
 
-In progress / blocked:
+In progress / requires a human:
 
-- **M4 — VS Code Agent Host (AHP)**: implementation and verification scripts exist (`scripts/verify-agent-host.sh`, `scripts/verify-ahp-session.sh`), but the milestone report and a successful end-to-end run are blocked on a non-interactive `github_token` credential for private-repo workspace creation — see `doc/plan/steps/closed/00405-escalate-m4-report-systemic-failure.md` for the exact blocker and required human action.
+- **M4 — VS Code Agent Host (AHP), live session persistence**: proving a session survives closing/reopening VS Code's Agents window requires a real VS Code Desktop GUI client connecting over SSH — this cannot be driven from a headless/CLI-only environment. See `docs/milestone-reports/M4-agent-host.md` for exactly which steps remain and how to complete them.
 - **M2, M6–M8, M10–M15, Final Milestone**: not yet started; see [`docs/phases/`](docs/phases/README.md) for the full phase/milestone breakdown across GitHub automation, durable orchestration (Temporal), and governance/observability.
 
 Read [`AGENTS.md`](AGENTS.md) before doing any further work in this repo — it

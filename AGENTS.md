@@ -69,6 +69,22 @@ to touch, where secrets live, how to run validations.)_
 
 _(Actionable, still-relevant lessons only — technical pitfalls and review checklist items. Historical blow-by-blow of who-missed-what has been pruned; see git history of this file if needed.)_
 
+### Don't assume a stated blocker is still real — re-check it
+
+`doc/plan/steps/closed/00401`–`00405` spent five iterations chasing a
+"private repo needs a `github_token` credential" blocker for M4 workspace
+creation. Re-verified 2026-08-28: `tbrandenburg/devenv-cloud` is and was a
+**public** repository (`gh api repos/tbrandenburg/devenv-cloud --jq
+'.private, .visibility'` → `false`, `public`) — cloning never needed a
+token. The actual gap was simply that no prior session had completed
+"create workspace → run verification scripts → write the report" and
+committed it (see `docs/milestone-reports/M4-agent-host.md`, finally written
+once this was checked directly instead of re-trusting the stale blocker
+description). Lesson: re-verify a documented blocker's premise (e.g. "is
+this repo actually private?") with one direct command before repeating a
+prior session's remediation plan — a stale/incorrect blocker description
+can waste many iterations if taken on faith.
+
 ### Review checklist (recurring failure mode: undelivered/uncommitted artifacts)
 
 A step/milestone report claiming completion is not evidence by itself. Before trusting any
