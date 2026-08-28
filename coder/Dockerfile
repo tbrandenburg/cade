@@ -3,9 +3,9 @@
 # Contents: git, curl, build-essential, Python, Node.js, GitHub CLI, Docker
 # CLI, and a project-specific non-root user ("coder").
 #
-# M9 later adds bubblewrap, socat, and ripgrep to this same image to support
-# sandboxing agent CLIs with `srt` (Anthropic Sandbox Runtime) — do not
-# duplicate that work here.
+# M9 adds bubblewrap, socat, ripgrep, and tmux, plus the `opencode`/`pi`
+# agent CLIs and Anthropic's Sandbox Runtime (`srt`), to support the
+# Agent/Harness Plane (LLM/agent harness integration).
 FROM ubuntu:24.04
 
 ARG USERNAME=coder
@@ -52,7 +52,22 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && curl -fsSL https://get.docker.com | sh \
+    && apt-get install -y --no-install-recommends \
+      bubblewrap \
+      socat \
+      ripgrep \
+      tmux \
     && rm -rf /var/lib/apt/lists/*
+
+# M9: Agent/Harness Plane CLIs — `opencode` and `pi`, the two supported
+# harnesses for this platform (Rule: install both, not optional), plus
+# Anthropic's Sandbox Runtime (`srt`) to wrap them in an OS-level sandbox.
+# Installed system-wide (not per-user) so both are on PATH for the
+# non-root `coder` user created below.
+RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent \
+    && curl -fsSL https://opencode.ai/install | bash \
+    && mv /root/.opencode/bin/opencode /usr/local/bin/opencode \
+    && rm -rf /root/.opencode
 
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \

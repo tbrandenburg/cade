@@ -102,8 +102,8 @@ ASKPASS
     if [ ! -f "${local.workspace_dir}/.vscode/settings.json" ]; then
       mkdir -p "${local.workspace_dir}/.vscode"
       cat > "${local.workspace_dir}/.vscode/settings.json" <<'VSCODE_SETTINGS'
-    ${jsonencode(local.agent_host_settings)}
-    VSCODE_SETTINGS
+${jsonencode(local.agent_host_settings)}
+VSCODE_SETTINGS
     fi
 
     # M4: best-effort autostop relaxation for agent-capable workspaces. The
@@ -113,6 +113,25 @@ ASKPASS
     # docs/milestone-reports/M4-agent-host.md rather than relied upon.
     if [ "${data.coder_parameter.agent_capable.value}" = "true" ] && command -v coder >/dev/null 2>&1; then
       coder schedule stop "$(hostname)" --disable-ttl || true
+    fi
+
+    # M9 (Agent/Harness Plane): copy/symlink the versioned `srt`
+    # (Anthropic Sandbox Runtime) settings template into the persistent
+    # home volume on first boot only, so a developer's own later edits to
+    # ~/.srt-settings.json are not clobbered on every workspace start (same
+    # pattern as .vscode/settings.json above).
+    if [ ! -f ~/.srt-settings.json ] && [ -f "${local.workspace_dir}/agent-host/srt-settings.json" ]; then
+      cp "${local.workspace_dir}/agent-host/srt-settings.json" ~/.srt-settings.json
+    fi
+
+    # M9: wrap the `opencode`/`pi` agent harnesses in `srt` by default, and
+    # persist tmux config (if any) on the same home volume rather than the
+    # ephemeral container filesystem.
+    if ! grep -q "alias opencode=" ~/.bashrc 2>/dev/null; then
+      cat >> ~/.bashrc <<'BASHRC_ALIASES'
+alias opencode='srt opencode --'
+alias pi='srt pi --'
+BASHRC_ALIASES
     fi
   EOT
 
