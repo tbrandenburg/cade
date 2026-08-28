@@ -1,0 +1,92 @@
+smoke	Set up job	﻿2026-08-28T16:56:00.7476799Z Current runner version: '2.337.0'
+smoke	Set up job	2026-08-28T16:56:00.7495697Z Runner name: 'private-lab-1787936141'
+smoke	Set up job	2026-08-28T16:56:00.7499012Z Runner group name: 'Default'
+smoke	Set up job	2026-08-28T16:56:00.7501330Z Machine name: '54d30027a43d'
+smoke	Set up job	2026-08-28T16:56:00.7509184Z ##[group]GITHUB_TOKEN Permissions
+smoke	Set up job	2026-08-28T16:56:00.7516050Z Contents: read
+smoke	Set up job	2026-08-28T16:56:00.7517616Z Metadata: read
+smoke	Set up job	2026-08-28T16:56:00.7519309Z ##[endgroup]
+smoke	Set up job	2026-08-28T16:56:00.7524752Z Secret source: Actions
+smoke	Set up job	2026-08-28T16:56:00.7528031Z Prepare workflow directory
+smoke	Set up job	2026-08-28T16:56:00.8404731Z Prepare all required actions
+smoke	Set up job	2026-08-28T16:56:00.8661279Z Complete job name: smoke
+smoke	Print hostname	﻿2026-08-28T16:56:01.0199773Z ##[group]Run hostname
+smoke	Print hostname	2026-08-28T16:56:01.0201158Z [36;1mhostname[0m
+smoke	Print hostname	2026-08-28T16:56:01.0268237Z shell: /usr/bin/bash -e {0}
+smoke	Print hostname	2026-08-28T16:56:01.0270124Z ##[endgroup]
+smoke	Print hostname	2026-08-28T16:56:01.0802156Z 54d30027a43d
+smoke	Print Docker version (via docker-socket-proxy)	﻿2026-08-28T16:56:01.1066201Z ##[group]Run docker version
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.1067509Z [36;1mdocker version[0m
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.1090757Z shell: /usr/bin/bash -e {0}
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.1091998Z env:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.1093079Z   DOCKER_HOST: tcp://runner-docker-proxy:2375
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.1094406Z ##[endgroup]
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3796254Z Client:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3797301Z  Version:           29.1.3
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3798684Z  API version:       1.52
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3799867Z  Go version:        go1.24.4
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3801063Z  Git commit:        29.1.3-0ubuntu3~24.04.2
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3802460Z  Built:             Wed Apr 29 16:41:06 2026
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3803755Z  OS/Arch:           linux/amd64
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3804902Z  Context:           default
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3805807Z 
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3806363Z Server: Docker Engine - Community
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3807563Z  Engine:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3808531Z   Version:          29.7.2
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3809740Z   API version:      1.55 (minimum version 1.40)
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3811229Z   Go version:       go1.26.5
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3812360Z   Git commit:       6a43e3d
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3813587Z   Built:            Wed Aug  5 18:28:53 2026
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3814898Z   OS/Arch:          linux/amd64
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3826831Z   Experimental:     false
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3827950Z  containerd:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3828932Z   Version:          v2.3.3
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3830250Z   GitCommit:        aad11006b869517fcd3009450b6f82da282e1a9b
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3831892Z  runc:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3832894Z   Version:          1.4.3
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3834390Z   GitCommit:        v1.4.3-0-gbb14dabe
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3835808Z  docker-init:
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3836850Z   Version:          0.19.0
+smoke	Print Docker version (via docker-socket-proxy)	2026-08-28T16:56:01.3837992Z   GitCommit:        de40ad0
+smoke	Run an ephemeral test container	﻿2026-08-28T16:56:01.3956383Z ##[group]Run docker run --rm hello-world
+smoke	Run an ephemeral test container	2026-08-28T16:56:01.3957856Z [36;1mdocker run --rm hello-world[0m
+smoke	Run an ephemeral test container	2026-08-28T16:56:01.3981049Z shell: /usr/bin/bash -e {0}
+smoke	Run an ephemeral test container	2026-08-28T16:56:01.3982155Z env:
+smoke	Run an ephemeral test container	2026-08-28T16:56:01.3983172Z   DOCKER_HOST: tcp://runner-docker-proxy:2375
+smoke	Run an ephemeral test container	2026-08-28T16:56:01.3984455Z ##[endgroup]
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0366795Z 
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0816562Z Hello from Docker!
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0818523Z This message shows that your installation appears to be working correctly.
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0820051Z 
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0820904Z To generate this message, Docker took the following steps:
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0822875Z  1. The Docker client contacted the Docker daemon.
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0825046Z  2. The Docker daemon pulled the "hello-world" image from the Docker Hub.
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0827686Z     (amd64)
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0829431Z  3. The Docker daemon created a new container from that image which runs the
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0831842Z     executable that produces the output you are currently reading.
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0834473Z  4. The Docker daemon streamed that output to the Docker client, which sent it
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0836812Z     to your terminal.
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0837674Z 
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0838716Z To try something more ambitious, you can run an Ubuntu container with:
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0841865Z  $ docker run -it ubuntu bash
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0842940Z 
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0843891Z Share images, automate workflows, and more with a free Docker ID:
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0846112Z  https://hub.docker.com/
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0847026Z 
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0847724Z For more examples and ideas, visit:
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0849320Z  https://docs.docker.com/get-started/
+smoke	Run an ephemeral test container	2026-08-28T16:56:02.0850327Z 
+smoke	Call the local-only health endpoint	﻿2026-08-28T16:56:02.2674954Z ##[group]Run curl -fsS http://runner-health/ | head -c 200
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.2677412Z [36;1mcurl -fsS http://runner-health/ | head -c 200[0m
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.2786433Z shell: /usr/bin/bash -e {0}
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.2789155Z ##[endgroup]
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3534191Z <!DOCTYPE html>
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3537751Z <html>
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3540358Z <head>
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3544453Z <title>Welcome to nginx!</title>
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3546706Z <style>
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3548554Z html { color-scheme: light dark; }
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3550223Z body { width: 35em; margin: 0 auto;
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3552152Z font-family: Tahoma, Verdana, Arial, sans-serif; }
+smoke	Call the local-only health endpoint	2026-08-28T16:56:02.3553963Z </style
+smoke	Complete job	﻿2026-08-28T16:56:02.3752631Z Cleaning up orphan processes

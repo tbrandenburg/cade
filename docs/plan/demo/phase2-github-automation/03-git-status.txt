@@ -1,0 +1,3 @@
+?? docs/plan/demo/phase2-github-automation/
+?? docs/plan/plan.md
+?? docs/plan/steps/closed/

@@ -1,0 +1,13 @@
+Requesting JIT config for repo=tbrandenburg/devenv-cloud name=private-lab-1787936141 ...
+Starting ephemeral runner container 'private-lab-1787936141' ...
+
+√ Connected to GitHub
+
+Current runner version: '2.337.0'
+2026-08-28 16:55:47Z: Listening for Jobs
+2026-08-28 16:55:59Z: Running job: smoke
+2026-08-28 16:56:09Z: Job smoke completed with result: Succeeded
+√ Removed .credentials
+√ Removed .runner
+Runner listener exit with 0 return code, stop the service, no retry needed.
+Exiting runner...
