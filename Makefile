@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build runner-build runner-run
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -46,6 +46,16 @@ coder-workspace-build:
 	else \
 		docker buildx build -f coder/Dockerfile \
 			-t devenv-cloud/coder-workspace:latest --load coder; \
+	fi
+
+## embedded-workspace-build: Build the embedded-linux workspace image (Milestone M6).
+embedded-workspace-build: coder-workspace-build
+	@if [ -n "$(CACERT)" ]; then \
+		docker buildx build -f coder/embedded-linux/Dockerfile --secret id=cacert,src=$(CACERT) \
+			-t devenv-cloud/embedded-linux-workspace:latest --load coder/embedded-linux; \
+	else \
+		docker buildx build -f coder/embedded-linux/Dockerfile \
+			-t devenv-cloud/embedded-linux-workspace:latest --load coder/embedded-linux; \
 	fi
 
 ## runner-build: Build the self-hosted GitHub Actions runner image (Milestone M2).

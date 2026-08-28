@@ -7,3 +7,5 @@ node_modules/
 __pycache__/
 *.pyc
 .playwright-mcp/
+examples/embedded-sim/build/
+examples/embedded-sim/build-target/
