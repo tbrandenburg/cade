@@ -108,6 +108,9 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   of `groupadd --gid 1000 coder`.
 - `RUN --mount=type=secret,id=cacert` run once without the secret gets BuildKit-cached as a
   no-op — rebuild with `--no-cache` once the secret is available; "no error" ≠ secret used.
+- `POST /repos/<o>/<r>/actions/runners/generate-jitconfig` needs `runner_group_id` as a JSON
+  integer (`-F`, not `-f`) and a fresh `docker run --rm ... --jitconfig <config>` per job —
+  `gh api repos/<o>/<r>/actions/runners --jq '.runners'` empty afterward confirms auto-deregistration.
 
 ### Sandbox / security
 
