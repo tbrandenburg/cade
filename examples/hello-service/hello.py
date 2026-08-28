@@ -9,7 +9,7 @@ def greeting(name: str = "world") -> str:
     """Return a friendly greeting for `name`."""
     if not name:
         raise ValueError("name must not be empty")
-    return f"Hi, {name}!"
+    return f"Hello, {name}!"
 
 
 def main() -> None:
