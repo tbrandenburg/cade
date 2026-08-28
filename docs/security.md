@@ -182,3 +182,95 @@ the Docker-socket blocker above, the `pi` engine has no model backend to call
 in a live run. Adding one of these secrets is a repository-owner action (an
 external credential), not something this step can create.
 
+
+## M12 — Governance Foundation
+
+**Timestamp (UTC):** 2026-08-28T19:46:20Z
+
+### OpenBao — secrets store
+
+- `compose.yaml`'s `openbao` service (`openbao/openbao:2.6.2`), config at
+  `governance/openbao/config/openbao.hcl`, file storage backend (single
+  node, no HA requirement for this local stack). Bound to
+  `127.0.0.1:${OPENBAO_PORT:-8200}` only, same posture as `lab-sim`/`opa`.
+- **TLS is mandatory on the listener** — `scripts/openbao-gen-cert.sh`
+  generates a self-signed cert/key pair into `governance/openbao/certs/`
+  (gitignored, regenerated per host, never committed) if one doesn't
+  already exist. Plain HTTP is not offered.
+- **Bootstrap procedure** (`scripts/openbao-init.sh`, idempotent):
+  1. `bao operator init` (5 key shares, threshold 3) if not already
+     initialized; unseal with 3 of the 5 shares.
+  2. Enable the `kv-v2` secrets engine at `secret/`.
+  3. Write a freshly generated (never previously used) random value for
+     every Phase 1–3 credential into `secret/devenv-cloud/*` (see rotation
+     log below) — the old `.env` values are discarded, not reused.
+  4. Enable the `approle` auth method and a least-privilege
+     `devenv-cloud-read` policy (`secret/data/devenv-cloud/*`, read-only)
+     for non-root access going forward.
+  5. **Revoke the initial root token.** Verified live: a `bao kv get`
+     issued with the revoked root token returns `403 permission denied`.
+- **Key file permissions:** `scripts/openbao-gen-cert.sh` originally
+  `chmod 644`d both the cert and the private key; the private key has
+  since been tightened to `640` (owner read/write, group read only, no
+  world access) — `644` on a private key is world-readable and undermines
+  the same TLS threat model the listener exists to close. `640` (not
+  `600`) is required rather than owner-only because the container runs as
+  a different uid but a matching gid, and needs group-read to load the key
+  through the read-only bind mount. Applied to the on-disk key
+  (`governance/openbao/certs/openbao.key`) and verified the `openbao`
+  container still serves TLS correctly after a restart.
+- **Unseal key shares:** written once, by the bootstrap script, to
+  `governance/openbao/unseal/init.json` — this path is in `.gitignore` and
+  MUST be moved to an out-of-band store (password manager / physical safe)
+  and deleted from disk immediately after bootstrap. This location is not
+  covered by an automated backup yet; it must be added explicitly to
+  Milestone M14's backup plan (a future milestone) before this stack is
+  used beyond local/demo purposes.
+- **Credential rotation log** (Phase 1–3 credentials, rotated under the
+  interim secret-handling rule, `docs/INITIAL.md` Section 3 Rule 3 — new
+  values live only in OpenBao's `secret/devenv-cloud/*`, never printed or
+  written to a file by the bootstrap script):
+  | Credential | Introduced | Rotated to |
+  |---|---|---|
+  | `CODER_PG_PASSWORD` (coder-db) | M1 | `secret/devenv-cloud/coder-db` |
+  | `TEMPORAL_PG_PASSWORD` (temporal-db) | M8 | `secret/devenv-cloud/temporal-db` |
+  | `LAB_SIM_TOKENS` (agent-a, agent-b) | M11 | `secret/devenv-cloud/lab-sim` |
+
+  Applying the rotated values to the live services (updating `.env` and
+  restarting the affected containers) is an operator action performed
+  after reading the new values out of OpenBao — intentionally not
+  automated by the bootstrap script, so a credential is never written back
+  to a plaintext `.env` file by tooling.
+
+### OPA — policy decisions for the M11 lab-sim MCP server
+
+- `compose.yaml`'s `opa` service (`openpolicyagent/opa:1.9.0`), serving
+  `governance/opa/policy/lab_authz.rego` (package `lab.authz`) via its
+  decision API. Bound to `127.0.0.1:${OPA_PORT:-8181}` plus reachable from
+  `platform-workspaces` as `http://opa:8181`. No `healthcheck` is defined —
+  the upstream image is distroless (no shell/wget/curl to run one with,
+  confirmed via `docker exec`); `lab-sim` depends on `service_started`
+  only, which is sufficient since OPA serves in well under a second.
+- Policy behavior (pinned by `governance/opa/policy/lab_authz_test.rego`,
+  `opa test` — 6/6 passing):
+  - `allow read_device`
+  - `allow run_test`
+  - `flash_device` allowed only when `input.approved == true`
+- `mcp/lab-sim/src/lab_sim/policy.py` queries
+  `POST /v1/data/lab/authz/allow` live before `run_test`/`flash_device`
+  execute (`server.py`) — the allow/deny logic is never hardcoded in the
+  MCP server; a transport failure fails closed (denied), not open.
+- **Live validation** (`scripts/verify-governance.sh`, not just `opa test`):
+  a real MCP tool-call round trip through the running `lab-sim` container
+  confirmed `run_test` → ALLOW and `flash_device` (no `approved` argument)
+  → DENY, then `flash_device` with `approved=true` → ALLOW, exactly per the
+  Milestone M12 validation requirement.
+
+### Keycloak — optional, disabled by default
+
+`compose.yaml`'s `keycloak` service is gated behind
+`docker compose --profile governance up` — absent from the default
+`make up` (`docker compose up -d`) stack. Uses `start` (not `start-dev`,
+which Keycloak's own docs call out as unsafe for anything beyond a quick
+demo) and requires `KEYCLOAK_ADMIN_PASSWORD` to be set in `.env` before it
+will boot (no hardcoded default password).
