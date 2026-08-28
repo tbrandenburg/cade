@@ -71,10 +71,15 @@ $EDITOR .env
 make up
 make status   # or: make logs
 
-# 4. Build the Coder workspace image (Docker workspaces run this image)
+# 4. First login (one-time): open http://localhost:7080 in a browser.
+#    Coder's first-run setup wizard has you create the initial admin
+#    account there (email + password, not a username) — or from the CLI:
+coder login http://localhost:7080
+
+# 5. Build the Coder workspace image (Docker workspaces run this image)
 make coder-workspace-build
 
-# 5. Push the Terraform template and create a workspace via the Coder UI/CLI
+# 6. Push the Terraform template and create a workspace via the Coder UI/CLI
 #    (see coder/templates/docker-workspace/README.md)
 ```
 
