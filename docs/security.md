@@ -120,3 +120,65 @@ in the plan. The GitHub Actions Runner release tarball
 verified against a hardcoded SHA-256 checksum at build time
 (`sha256sum -c -`) before being unpacked. See `docs/operations.md` for the
 rebuild/patch cadence.
+
+## M10 — GitHub Agentic Workflows (`gh-aw`)
+
+### Reasoning boundary
+
+`.github/workflows/investigate-failure.md` (compiled to
+`investigate-failure.lock.yml` by `gh aw compile`) reasons about CI
+failures without write access:
+
+- `permissions: { contents: read, actions: read, copilot-requests: write }`
+  — no `issues: write`, `pull-requests: write`, or `contents: write` at the
+  agent-job level. The engine is `pi` (per Phase 1 M9's harness choice —
+  `opencode` is not a supported gh-aw engine, so `pi`, which M9 also
+  installed and validated, is used instead of introducing a third tool).
+- `safe-outputs.create-issue` (`max: 1`) is the **only** permitted side
+  effect. Issue creation runs in a separate, permission-scoped job that
+  only executes after gh-aw's built-in threat-detection job passes — the
+  agent job itself never holds `issues: write`.
+- `network.allowed: [defaults, github, threat-detection]` — no wildcard
+  domains; the agent cannot reach arbitrary hosts.
+- The trigger is `on.workflow_run` (not `pull_request`/`issue_comment`),
+  scoped to `workflows: ["local-capability"]` and `branches: [main]`, with
+  gh-aw's automatic repository-ID/fork checks — this is safe on this
+  PUBLIC repo per the same reasoning as M2 (`workflow_run` always uses the
+  workflow file from the default branch, not a PR head branch, so it is
+  not fork-exploitable the way `pull_request` is).
+
+### Known limitation: self-hosted runner Docker-socket-proxy incompatibility (open, not yet resolved)
+
+Live E2E validation (2026-08-28, run
+[33191530756](https://github.com/tbrandenburg/devenv-cloud/actions/runs/33191530756))
+confirmed the workflow_run trigger fires correctly and the M2 JIT runner
+picks up the `agent` job, but the job then fails:
+
+```
+! '/var/run/docker.sock' does not exist on this runner.
+X Cannot determine Docker socket group for '/var/run/docker.sock'. Set
+  GH_AW_DOCKER_SOCK_PATH and GH_AW_DOCKER_SOCK_GID to configure the socket
+  path and group explicitly.
+```
+
+`gh-aw`'s MCP Gateway/AWF sandbox requires a real Docker socket (a Unix
+socket path, or `GH_AW_DOCKER_SOCK_PATH`/`GH_AW_DOCKER_SOCK_GID` pointing to
+one) to spawn its sandbox/MCP containers. M2's runner deliberately has **no**
+socket — only a `DOCKER_HOST=tcp://runner-docker-proxy:2375` proxy — and
+`tcp://` targets are explicitly not supported for gh-aw's socket-mount
+detection (confirmed in gh-aw's self-hosted-runners docs). Bind-mounting the
+real socket into the runner (even read-only) reopens the unauthenticated-root
+risk M2 deliberately mitigated with the socket proxy, so this was **not**
+silently done as part of this step. Resolving it (e.g. a second, more
+narrowly-scoped Docker daemon dedicated to gh-aw jobs, or an updated proxy
+that exposes a real bind-mountable socket with an equivalent API allow-list)
+is left as an explicit follow-up, not a silent workaround.
+
+### Known limitation: no AI engine credentials configured (open, not yet resolved)
+
+No `COPILOT_GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` secret is
+configured on this repository (`gh secret list` returns empty), so even past
+the Docker-socket blocker above, the `pi` engine has no model backend to call
+in a live run. Adding one of these secrets is a repository-owner action (an
+external credential), not something this step can create.
+
