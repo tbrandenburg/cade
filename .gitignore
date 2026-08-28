@@ -2,3 +2,7 @@ node_modules/
 .env
 *.log
 .DS_Store
+.terraform/
+.terraform.lock.hcl
+__pycache__/
+*.pyc

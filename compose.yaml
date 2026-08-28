@@ -1,0 +1,64 @@
+services:
+  coder-db:
+    image: postgres:17.6-alpine
+    container_name: coder-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${CODER_PG_USER:-coder}
+      POSTGRES_PASSWORD: ${CODER_PG_PASSWORD:-coder}
+      POSTGRES_DB: ${CODER_PG_DB:-coder}
+    volumes:
+      - coder_db_data:/var/lib/postgresql/data
+    networks:
+      - platform-control
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${CODER_PG_USER:-coder} -d ${CODER_PG_DB:-coder}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  coder:
+    image: ghcr.io/coder/coder:${CODER_VERSION:-v2.36.3}
+    container_name: coder
+    restart: unless-stopped
+    ports:
+      - "${CODER_HTTP_PORT:-7080}:7080"
+    environment:
+      CODER_HTTP_ADDRESS: "0.0.0.0:7080"
+      CODER_PG_CONNECTION_URL: "postgresql://${CODER_PG_USER:-coder}:${CODER_PG_PASSWORD:-coder}@coder-db/${CODER_PG_DB:-coder}?sslmode=disable"
+      CODER_ACCESS_URL: "${CODER_ACCESS_URL:-http://localhost:7080}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - coder_home:/home/coder
+    # Grant write access to the host's docker.sock. Set DOCKER_GID to the
+    # gid of the "docker" group on the host, e.g.:
+    #   export DOCKER_GID=$(getent group docker | cut -d: -f3)
+    group_add:
+      - "${DOCKER_GID:-998}"
+    networks:
+      - platform-control
+      - platform-workspaces
+    depends_on:
+      coder-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  platform-control:
+    name: platform-control
+  platform-workspaces:
+    name: platform-workspaces
+
+volumes:
+  coder_db_data:
+  coder_home:
