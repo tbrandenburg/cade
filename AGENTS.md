@@ -70,3 +70,27 @@ _(Dated log, one entry per phase, of what broke, what surprised us, and what to 
   -- <path>` for every path a step claims to have created, *before* trusting any
   milestone report's command transcript, especially for steps whose validation
   depends on cloning this same repository from a remote.
+- 2026-08-28 (M3 review of step 00301): Committing/pushing previously-uncommitted
+  deliverables (action 1) does not, by itself, prove the required "re-run E2E and
+  update the milestone report" actions (2/3) were done. `git diff`/`git log --all`
+  on the report file itself is required: here `docs/milestone-reports/M3-coder.md`
+  was found byte-for-byte identical to the pre-existing stale version despite the
+  gap step explicitly requiring it be overwritten with a freshly reproduced
+  transcript. Always diff a report file against its prior committed version (or
+  its content before the gap step) to confirm it was actually rewritten, not just
+  re-saved as part of a bulk commit.
+- 2026-08-28 (M3 step 00302): The `coder_agent` template's plain, unauthenticated
+  `git clone "${repo_url}"` silently hangs/fails whenever `repo_url` is (or becomes)
+  a private GitHub repo: `git` invokes Coder's built-in external-auth flow, prints
+  "Open the following URL to authenticate with Git: http://.../external-auth/github"
+  to `/tmp/coder-startup-script.log`, and never completes non-interactively — the
+  workspace container ends up with no `/home/coder/project` at all, with no other
+  error surfaced anywhere. Diagnose this class of "empty clone" failure by reading
+  `/tmp/coder-startup-script.log` *inside* the workspace container first. Fixed here
+  by adding an optional `github_token` `coder_parameter` (a *data source* in
+  provider `coder/coder` v2.18.0, not a `resource` — and it has no `sensitive`
+  attribute) wired into `GIT_ASKPASS` only for the clone step, so the token never
+  lands in `.git/config`. Also: `docker exec` into a workspace container does not
+  inherit the `coder_agent.env` map (e.g. `GIT_AUTHOR_NAME`, `GITHUB_TOKEN`) — that
+  env is only visible to the agent's own child processes, so manual verification
+  via `docker exec` needs its own `git config user.email/user.name` to commit.
