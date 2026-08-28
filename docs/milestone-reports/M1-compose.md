@@ -2,7 +2,7 @@
 
 Evidence captured for Phase 1 / Milestone M1 (trimmed) — Coder + coder-db
 only — per the evidence standard in `docs/INITIAL.md` Section 3 Rule 2 and
-`doc/plan/plan.md`.
+`docs/plan/plan.md`.
 
 - **Timestamp (UTC):** 2026-08-28T10:53:31Z
 - **Docker:** `Docker version 29.1.3, build f52814d`

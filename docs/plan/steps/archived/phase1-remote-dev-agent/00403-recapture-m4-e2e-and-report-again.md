@@ -1,5 +1,5 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
-> Gap-fill for: doc/plan/steps/in-review/00402-recapture-m4-e2e-and-report.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
+> Gap-fill for: docs/plan/steps/in-review/00402-recapture-m4-e2e-and-report.md
 
 # Gap: second gap-fill still did not produce the M4 milestone report or a valid E2E run
 
@@ -58,7 +58,7 @@ the same actions.
    `chat.agent.sandbox.enabled: true` and `chat.sessionSync.enabled: false` (e.g. via
    `docker exec <container> cat /home/coder/.vscode/settings.json`).
 6. Attempt the Manual E2E Test (VS Code Remote / Agent Host session) from
-   `doc/plan/steps/in-review/00400-vs-code-agent-host-ahp.md`; if it cannot be driven
+   `docs/plan/steps/in-review/00400-vs-code-agent-host-ahp.md`; if it cannot be driven
    non-interactively in this environment, explicitly document what was attempted, what
    could not be automated, and why — do not fabricate a transcript.
 7. Write `docs/milestone-reports/M4-agent-host.md` with the real transcripts/output

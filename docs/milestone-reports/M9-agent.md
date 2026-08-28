@@ -2,7 +2,7 @@
 
 Evidence captured for Phase 1 / Milestone M9 (Agent/Harness Integration), per
 the evidence standard in `docs/INITIAL.md` Section 3 Rule 2 and
-`doc/plan/plan.md` (M9 section).
+`docs/plan/plan.md` (M9 section).
 
 - **Timestamp (UTC):** 2026-08-28T13:40Z
 - **Environment:** local Coder server (`ghcr.io/coder/coder:v2.36.3`),

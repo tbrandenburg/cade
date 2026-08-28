@@ -1,5 +1,5 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
-> Escalation for: doc/plan/steps/in-review/00404-complete-m4-e2e-workspace-and-report.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
+> Escalation for: docs/plan/steps/in-review/00404-complete-m4-e2e-workspace-and-report.md
 > (fifth consecutive miss on the same deliverable: 00401, 00402, 00403, 00404, and now this)
 
 # ESCALATION: `docs/milestone-reports/M4-agent-host.md` still does not exist after five attempts — requires human intervention
@@ -63,7 +63,7 @@ attempt at this specific deliverable.
    (`coder delete admin/m4-e2e-v2 --yes`) so it does not accumulate alongside future
    attempts and confuse subsequent reviewers about which container is the live one.
 4. Only after a workspace with a successful clone is confirmed, resume actions 3-8 of
-   `doc/plan/steps/in-review/00404-complete-m4-e2e-workspace-and-report.md` verbatim
+    `docs/plan/steps/in-review/00404-complete-m4-e2e-workspace-and-report.md` verbatim
    (SSH config, `verify-agent-host.sh`, `verify-ahp-session.sh`, settings.json check,
    Manual E2E Test attempt, write and commit `docs/milestone-reports/M4-agent-host.md`).
 5. If a human determines that no non-interactive credential can be provisioned in this

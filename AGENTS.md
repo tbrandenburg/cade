@@ -24,12 +24,10 @@ deferred until a real second network exists to test from), each with its
 own milestones and required milestone report under `docs/milestone-reports/`.
 See the top-level `README.md` for a quickstart and current project status.
 
-Two directories look similar but are not: `docs/` is the human-facing project
-plan/documentation (source of truth); `doc/plan/` is this repo's own
-internal, plan-driven build-process state (used by `scripts/factory.sh`, the
-OpenCode-based orchestrator that has been driving this project's own
-implementation step-by-step) — do not confuse the two when looking for
-context.
+`docs/` contains both the human-facing project plan/documentation (source of
+truth) and the internal, plan-driven build-process state used by
+`scripts/factory.sh`. Keep factory state under `docs/plan/`; do not create a
+separate `doc/` tree.
 
 ## Guidelines
 

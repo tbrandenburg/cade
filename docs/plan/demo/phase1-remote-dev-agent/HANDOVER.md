@@ -1,7 +1,7 @@
 # devenv-cloud — Phase 1 Handover: Remote Dev Environment + Agent
 
 **Evidence captured:** 2026-08-28 (all artefacts in this directory)
-**Scope:** Phase 1 milestones M0, M1 (trimmed), M3, M4, M5, M9, M15 — see `doc/plan/steps/archived/phase1-remote-dev-agent/plan.md` for the original plan.
+**Scope:** Phase 1 milestones M0, M1 (trimmed), M3, M4, M5, M9, M15 — see `docs/plan/steps/archived/phase1-remote-dev-agent/plan.md` for the original plan.
 
 ## a. Executive summary
 

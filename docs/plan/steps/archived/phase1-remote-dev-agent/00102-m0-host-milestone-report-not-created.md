@@ -1,4 +1,4 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
 
 # Gap-fill for 00101-m0-host-milestone-report
 
@@ -16,7 +16,7 @@ confirms:
   `docs/milestone-reports/` directory is empty).
 
 Step 00101 was moved to `in-review` without producing its own required
-deliverable. `doc/plan/plan.md`'s final checklist lists this report as a
+deliverable. `docs/plan/plan.md`'s final checklist lists this report as a
 required artifact for M0 completion, and `docs/INITIAL.md` Rule 2 requires an
 evidence-standard report (exact commands, full output, exit codes, timestamp)
 before M0 can be considered complete. Without this file, M0/Phase 1 is not

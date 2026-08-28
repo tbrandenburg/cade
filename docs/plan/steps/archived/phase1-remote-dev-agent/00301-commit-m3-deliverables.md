@@ -4,7 +4,7 @@
 
 ## Why this matters
 
-Reviewing `doc/plan/steps/in-review/00300-coder-development-workspace.md`, every file
+Reviewing `docs/plan/steps/in-review/00300-coder-development-workspace.md`, every file
 the step claims to have created exists **only as uncommitted working-tree changes**:
 
 ```

@@ -3,7 +3,7 @@
 # agent CLIs (Milestone M9), the equivalent of M4's AHP durability proof but
 # for harnesses that do not run through the Agent Host.
 #
-# `opencode`/`pi` are not AHP adapters (see doc/plan/steps M9 section): they
+# `opencode`/`pi` are not AHP adapters (see docs/plan/steps M9 section): they
 # run as plain terminal processes inside the Coder workspace, wrapped by
 # `srt`. Durability here means a detached `tmux` session keeps the wrapped
 # harness process running whether or not a client (SSH terminal, VS Code) is

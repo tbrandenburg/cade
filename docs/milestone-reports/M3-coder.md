@@ -2,7 +2,7 @@
 
 Evidence captured for Phase 1 / Milestone M3 (Coder Development Workspace),
 per the evidence standard in `docs/INITIAL.md` Section 3 Rule 2 and
-`doc/plan/plan.md` (M3 section).
+`docs/plan/plan.md` (M3 section).
 
 - **Timestamp (UTC):** 2026-08-28T12:14Z
 - **Re-captured by:** step `00302-recapture-m3-e2e-transcript.md`, against a

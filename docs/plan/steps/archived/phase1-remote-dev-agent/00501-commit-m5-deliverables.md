@@ -1,4 +1,4 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
 
 # Gap-fill for step 00500-agent-session-persistence-worktrees
 

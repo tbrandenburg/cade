@@ -1,4 +1,4 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
 
 # Phase 1 — Remote Dev Environment + Agent
 
@@ -55,4 +55,3 @@ Simple rule for the first implementation: **1 agent session = 1 worktree**. Add 
 6. Confirm repository memory persists: end a session, start a new one, and confirm the agent recalls prior repository-level notes without you re-explaining them.
 
 Record in `docs/milestone-reports/M5-sessions.md`.
-

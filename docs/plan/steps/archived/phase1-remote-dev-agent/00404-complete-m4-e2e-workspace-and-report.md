@@ -1,5 +1,5 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
-> Gap-fill for: doc/plan/steps/in-review/00403-recapture-m4-e2e-and-report-again.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
+> Gap-fill for: docs/plan/steps/in-review/00403-recapture-m4-e2e-and-report-again.md
 
 # Gap: template push was finally correct, but workspace creation/verification/report still never happened (fourth consecutive miss)
 
@@ -56,7 +56,7 @@ instead flag this as a systemic implementer failure requiring human intervention
    `chat.agent.sandbox.enabled: true` and `chat.sessionSync.enabled: false` via `docker
    exec <container> cat /home/coder/.vscode/settings.json`.
 5. Attempt the Manual E2E Test (VS Code Remote / Agent Host session) from
-   `doc/plan/steps/in-review/00400-vs-code-agent-host-ahp.md` (or wherever it now lives
+   `docs/plan/steps/in-review/00400-vs-code-agent-host-ahp.md` (or wherever it now lives
    after the pending file moves settle); if it cannot be driven non-interactively in this
    environment, explicitly document what was attempted, what could not be automated, and
    why — do not fabricate a transcript.

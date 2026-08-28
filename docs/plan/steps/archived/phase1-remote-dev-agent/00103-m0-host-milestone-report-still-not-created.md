@@ -1,4 +1,4 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
 
 # Gap-fill for 00102-m0-host-milestone-report-not-created
 
@@ -18,7 +18,7 @@ Step `00102-m0-host-milestone-report-not-created` was itself a gap-fill step
 
 This is the second consecutive gap-fill step (00101, then 00102) that was
 moved to `in-review`/closed without producing the one artifact it existed to
-create. `doc/plan/plan.md` line 88 states "Only merge M0 after this report
+create. `docs/plan/plan.md` line 88 states "Only merge M0 after this report
 exists" and line 595 lists `docs/milestone-reports/M0-host.md` as a required,
 committed deliverable with command-level evidence. Without this file, M0 /
 Phase 1 cannot be considered complete regardless of how many times the

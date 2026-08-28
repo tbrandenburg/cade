@@ -1,4 +1,4 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
 
 # Gap-fill for 00100-host-preparation
 
@@ -23,7 +23,7 @@ considered complete. Without this report:
 
 ## Actions
 
-1. Execute the Manual E2E Test M0 exactly as written in `doc/plan/plan.md` /
+1. Execute the Manual E2E Test M0 exactly as written in `docs/plan/plan.md` /
    `docs/INITIAL.md` Section on M0:
    - Reboot the host (or clearly document if execution happens in a
      non-rebootable sandbox/container and note this constraint explicitly in

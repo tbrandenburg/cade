@@ -49,7 +49,7 @@ devenv-cloud/
 │   ├── ARCHITECTURE.md           # condensed C4 summary of INITIAL.md
 │   ├── phases/                   # INITIAL.md split into 5 deliverable phases
 │   └── milestone-reports/        # evidence report per completed milestone
-├── doc/plan/                     # internal plan-driven build process (factory.sh state)
+├── docs/plan/                    # internal plan-driven build process (factory.sh state)
 └── AGENTS.md                     # accumulated agent-facing knowledge for this repo
 ```
 

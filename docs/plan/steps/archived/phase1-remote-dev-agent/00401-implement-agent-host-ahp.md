@@ -1,5 +1,5 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
-> Gap-fill for: doc/plan/steps/in-review/00400-vs-code-agent-host-ahp.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
+> Gap-fill for: docs/plan/steps/in-review/00400-vs-code-agent-host-ahp.md
 
 # Gap: M4 (VS Code Agent Host + AHP) has zero implementation on disk
 

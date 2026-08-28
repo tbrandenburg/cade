@@ -2,7 +2,7 @@
 
 Evidence captured for Phase 1 / Milestone M0 host readiness, per the
 evidence standard in `docs/INITIAL.md` Section 3 Rule 2 and
-`doc/plan/plan.md` line 88 / 595.
+`docs/plan/plan.md` line 88 / 595.
 
 - **Timestamp (UTC):** 2026-08-28T10:46:24Z
 
@@ -178,4 +178,4 @@ check `PASS`, consistent with the overall `0 failed` / exit `0` result.
 ## Conclusion
 
 All M0 host readiness checks pass on this host. This report satisfies the
-required deliverable referenced in `doc/plan/plan.md` line 88 and line 595.
+required deliverable referenced in `docs/plan/plan.md` line 88 and line 595.

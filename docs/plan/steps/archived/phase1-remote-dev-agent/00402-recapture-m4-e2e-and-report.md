@@ -1,5 +1,5 @@
-> Mandatory: read the overall plan in full before proceeding: doc/plan/plan.md
-> Gap-fill for: doc/plan/steps/in-review/00401-implement-agent-host-ahp.md
+> Mandatory: read the overall plan in full before proceeding: docs/plan/plan.md
+> Gap-fill for: docs/plan/steps/in-review/00401-implement-agent-host-ahp.md
 
 # Gap: M4 code/wiring exists, but the Manual E2E Test was never run and the milestone report was never written
 
@@ -44,7 +44,7 @@ to re-touch the already-verified code/wiring from commit `ea7201e`.
    output.
 3. Open a VS Code Remote / Agents-window session against the workspace (or the closest
    non-interactive equivalent available in this environment) to actually start an Agent
-   Host process, per the Manual E2E Test in `doc/plan/steps/in-review/00400-vs-code-agent-host-ahp.md`.
+   Host process, per the Manual E2E Test in `docs/plan/steps/in-review/00400-vs-code-agent-host-ahp.md`.
    If a fully interactive VS Code session cannot be driven non-interactively, document
    exactly what was attempted, what could not be automated, and why — do not fabricate
    a transcript.

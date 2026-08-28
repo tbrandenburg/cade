@@ -11,7 +11,7 @@ the evidence standard in `docs/INITIAL.md` Section 3 Rule 2.
 
 ## Why this report was missing until now
 
-Steps `00401`–`00405` (see `doc/plan/steps/closed/`) repeatedly failed to
+Steps `00401`–`00405` (see `docs/plan/steps/closed/`) repeatedly failed to
 produce this report because every workspace-creation attempt assumed
 `tbrandenburg/devenv-cloud` was a **private** repository requiring a
 `github_token` parameter, and no such credential was available

@@ -4,13 +4,13 @@
 #
 # Drives the full plan lifecycle:
 #   1. Split  — breaks a Markdown implementation plan into per-step files under
-#               doc/plan/steps/planned/.
+#               docs/plan/steps/planned/.
 #   2. Implement — runs an implement agent on each step in lexicographic order,
 #                  moving files planned/ → in-progress/ → in-review/ → closed/.
 #   3. Review   — runs a review agent after each implement pass; review-raised
 #                 gap files are queued back into planned/ for automatic pick-up.
 #   4. Demo     — after all steps are closed, runs a demo/handover agent that
-#                 writes doc/plan/demo/HANDOVER.md.
+#                 writes docs/plan/demo/HANDOVER.md.
 #
 # Usage:
 #   factory.sh [--resume] [--dry-run] [--model <model>] <plan.md>
@@ -19,6 +19,11 @@
 #   --dry-run       Simulate the full flow without running real agents.
 #   --model <name>  Pass a model identifier to opencode run --model.
 # ══════════════════════════════════════════════════════════════════════════════
+
+CALLER_DIR=$(pwd -P)
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
+REPO_ROOT=$(cd -P -- "$SCRIPT_DIR/.." && pwd -P)
+cd "$REPO_ROOT" || exit 1
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Pretty-print helpers (tput with graceful fallback for non-TTY)
@@ -70,8 +75,8 @@ Instructions:
 4. For each such section (unit 1, unit 2, …):
    a. Derive a slug from the section heading (excluding the leading unit keyword and number) in lowercase with hyphens, e.g. for "## Step 1 — Verify SDL2" the slug is "verify-sdl2".
    b. Number the sections starting at 00100, incrementing by 100 (00100, 00200, 00300, …), zero-padded to 5 digits: e.g. "00100-verify-sdl2.md", "00200-cmake-simulator-build-target.md".
-   c. Create the output directory doc/plan/steps/planned/ if it does not already exist.
-   d. Create the file doc/plan/steps/planned/<padded-index>-<slug>.md. Do NOT embed the preamble or appendix. The file content must be, word-for-word:
+   c. Create the output directory docs/plan/steps/planned/ if it does not already exist.
+   d. Create the file docs/plan/steps/planned/<padded-index>-<slug>.md. Do NOT embed the preamble or appendix. The file content must be, word-for-word:
       - First: a Markdown line "> Mandatory: read the overall plan in full before proceeding: $PLAN_FILE" followed by a blank line.
       - Then: the enclosing chapter heading line (e.g. "# Implementation") copied verbatim, if one exists, followed by a blank line.
       - Then: the full text of that section copied verbatim, including its heading, goal, all sub-sections, all code blocks, and all tables.
@@ -105,7 +110,7 @@ Instructions:
    - Do not mark the step done if any check still fails after correction attempts.
 6. Follow the coding conventions described in the step and any conventions file present in the repo root (e.g. AGENTS.md, CONTRIBUTING.md, or similar).
 7. Do NOT create, modify, or delete any file outside the scope described in the step.
-8. IMMUTABILITY RULE: Never modify or delete any file under doc/plan/steps/ regardless of its
+8. IMMUTABILITY RULE: Never modify or delete any file under docs/plan/steps/ regardless of its
    state (planned, in-progress, in-review, closed). Plan files are append-only records — only
    the factory.sh orchestrator may move them.
    Exception: Following steps are allowed to be surgically edited when a
@@ -131,13 +136,13 @@ prompt_review_step() {
   IN_REVIEW="$2"
   cat <<EOF
 closed step file: $IN_REVIEW
-Planned directory:   doc/plan/steps/planned/
+Planned directory:   docs/plan/steps/planned/
 
 Instructions:
 1. Read the closed step file at the path above.
-2. IMMUTABILITY RULE: You must NEVER modify or delete any existing file under doc/plan/steps/
+2. IMMUTABILITY RULE: You must NEVER modify or delete any existing file under docs/plan/steps/
    regardless of its state. Plan files are immutable records. The only permitted write
-   operation is creating new gap-fill files in doc/plan/steps/planned/. Violating this rule
+   operation is creating new gap-fill files in docs/plan/steps/planned/. Violating this rule
    corrupts the audit trail.
    Exception: Following steps are allowed to be surgically edited when a
    lesson learned is mission-critical to prevent a mistake in an upcoming step.
@@ -159,12 +164,12 @@ Instructions:
      this step's changes that is not a hard failure today but signals a future problem.
    Stay focused: if a problem is not traceable to what this step touched, leave it alone.
 7. Gap-step procedure (apply to both missing implementation items AND Boy Scout findings):
-   a. List all files already present in doc/plan/steps/planned/ to find the highest gap suffix already used for this step's base number.
+   a. List all files already present in docs/plan/steps/planned/ to find the highest gap suffix already used for this step's base number.
    b. Before creating any gap file, scan the full filenames and contents of all files in
-      doc/plan/steps/planned/ for a step that already covers the same topic. If a sufficiently
+      docs/plan/steps/planned/ for a step that already covers the same topic. If a sufficiently
       similar gap already exists, skip creating a duplicate and note "DUPLICATE SKIPPED: <existing-file> already covers this".
    c. Derive the next available gap number: take the base number of the current step and increment the suffix (e.g. current step 00100-…, existing gaps 00101, next is 00102).
-   d. Create the gap-fill step file at doc/plan/steps/planned/<gap-number>-<gap-slug>.md.
+   d. Create the gap-fill step file at docs/plan/steps/planned/<gap-number>-<gap-slug>.md.
       The file must contain: a brief preamble describing the gap (including WHY it matters), then the specific actions needed to fix it.
    e. Print "GAP CREATED: <gap-number>-<gap-slug>.md — <one-line reason>" for each gap file created.
 8. Lessons learned: if during this review you identified a non-obvious pitfall, a surprising
@@ -193,9 +198,9 @@ Instructions:
 2. Perform an end-to-end run without any mocking, stubbing, or skipping
    to confirm the full system works. Capture the output.
 3. Take screenshots or record terminal output as evidence of a working system.
-   Save each artefact to doc/plan/demo/<topic>/ with a descriptive name (e.g. 01-sdl2-window.png,
+   Save each artefact to docs/plan/demo/<topic>/ with a descriptive name (e.g. 01-sdl2-window.png,
    02-build-success.txt).
-4. Write a customer-facing handover document at doc/plan/demo/<topic>/HANDOVER.md containing:
+4. Write a customer-facing handover document at docs/plan/demo/<topic>/HANDOVER.md containing:
    a. Executive summary: what was built and why.
    b. What works: a plain-language list of delivered features with evidence (link the
       artefacts from step 3).
@@ -204,9 +209,9 @@ Instructions:
    d. How to test: a short list of manual test cases (action → expected result) covering
       the most important user-visible behaviours.
    e. Known limitations: anything not yet done or known to be fragile.
-4. Archive closed step files: Move all files from doc/plan/steps/closed/ to doc/plan/steps/archived/<topic>/ to keep a record of the implementation history without cluttering the workspace.
-5. Archive plan file: Move doc/plan/plan.md to doc/plan/steps/archived/<topic>/plan.md to keep a record of the original plan without cluttering the workspace.
-6. Print "DEMO READY: doc/plan/demo/<topic>/HANDOVER.md" when done.
+4. Archive closed step files: Move all files from docs/plan/steps/closed/ to docs/plan/steps/archived/<topic>/ to keep a record of the implementation history without cluttering the workspace.
+5. Archive plan file: Move docs/plan/plan.md to docs/plan/steps/archived/<topic>/plan.md to keep a record of the original plan without cluttering the workspace.
+6. Print "DEMO READY: docs/plan/demo/<topic>/HANDOVER.md" when done.
 EOF
 }
 
@@ -284,13 +289,13 @@ Instructions:
    This is the customer acceptance step - everything has to be executable and
    presentable by the end of this step.
 
-3. Write the complete plan to doc/plan/plan.md (create the directory if needed).
+3. Write the complete plan to docs/plan/plan.md (create the directory if needed).
 4. If AGENTS.md does not already exist in the repository root, create/extend it with: a PRD-level
    product description derived from the plan, max 200 lines, with these sections — Purpose,
    Goals, Non-Goals, Constraints, Architecture Decisions, Design Principles, Main Features,
    Main Use Cases — ending with an empty "## Key Pitfalls" heading for later append-only
    lessons learned. If it already exists, leave it untouched.
-5. After writing the file, print exactly: PLAN WRITTEN: doc/plan/plan.md
+5. After writing the file, print exactly: PLAN WRITTEN: docs/plan/plan.md
 
 Goal:
 PROMPT_EOF
@@ -300,7 +305,7 @@ PROMPT_EOF
 
 # Usage: factory.sh [--resume] [--dry-run] [--model <model>] [<path-to-implementation-plan.md>]
 #   --resume        Skip Step 1 (splitting) and go straight to Step 2 (implementation).
-#                   Use when doc/plan/steps/planned/ is already populated.
+#                   Use when docs/plan/steps/planned/ is already populated.
 #   --dry-run       Simulate the full flow without running agents or modifying real files.
 #                   Creates dummy step files, walks the loop, then cleans up.
 #   --model <model> Model identifier passed to opencode run --model.
@@ -324,6 +329,12 @@ while [ $# -gt 0 ]; do
     -*)              log_error "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+case "$FROM_PLAN" in
+  /*) ;;
+  "") ;;
+  *) FROM_PLAN="$CALLER_DIR/$FROM_PLAN" ;;
+esac
 
 if [ -z "$PLAN_GOAL" ] && [ -z "$FROM_PLAN" ] && [ "$RESUME" = "0" ] && [ "$DRY_RUN" = "0" ]; then
   log_error "Usage: $0 --from-scratch \"<prompt>\" | --from-plan <plan.md> | --resume | --dry-run [--model <name>]"
@@ -349,12 +360,12 @@ fi
 # removes them wherever they land. in-progress/ and in-review/ dirs are
 # created by dry_run_setup so the mv calls never fail.
 DRY_RUN_FILES="
-doc/plan/steps/planned/00100-dummy-step-one.md
-doc/plan/steps/planned/00200-dummy-step-two.md
-doc/plan/steps/planned/00300-dummy-step-three.md
-doc/plan/steps/closed/00100-dummy-step-one.md
-doc/plan/steps/closed/00200-dummy-step-two.md
-doc/plan/steps/closed/00300-dummy-step-three.md
+docs/plan/steps/planned/00100-dummy-step-one.md
+docs/plan/steps/planned/00200-dummy-step-two.md
+docs/plan/steps/planned/00300-dummy-step-three.md
+docs/plan/steps/closed/00100-dummy-step-one.md
+docs/plan/steps/closed/00200-dummy-step-two.md
+docs/plan/steps/closed/00300-dummy-step-three.md
 "
 
 dry_run_setup() {
@@ -362,8 +373,8 @@ dry_run_setup() {
     mkdir -p "$(dirname "$f")"
     printf '# dry-run\n' > "$f"
   done
-  mkdir -p doc/plan/steps/in-progress
-  mkdir -p doc/plan/steps/in-review
+  mkdir -p docs/plan/steps/in-progress
+  mkdir -p docs/plan/steps/in-review
   log_dry "Dummy files created."
 }
 
@@ -437,26 +448,26 @@ run_agent() {
 if [ -n "$PLAN_GOAL" ]; then
   log_section "Step 0 — Generate implementation plan"
   log_info "Goal: $PLAN_GOAL"
-  mkdir -p doc/plan
+  mkdir -p docs/plan
   if [ "$DRY_RUN" = "1" ]; then
     log_dry "Would run: opencode run <prompt_plan_feature>"
-    printf '# dry-run plan\n\n## Step 1 — dummy\n\n**Goal:** dry-run placeholder.\n\n### Actions\n1. Nothing.\n\n### Validation gate\n```bash\ntrue\n```\n\n### E2E check\ntrue\n' > doc/plan/plan.md
+    printf '# dry-run plan\n\n## Step 1 — dummy\n\n**Goal:** dry-run placeholder.\n\n### Actions\n1. Nothing.\n\n### Validation gate\n```bash\ntrue\n```\n\n### E2E check\ntrue\n' > docs/plan/plan.md
   else
     log_agent "Running planner agent..."
     run_agent "prompt_plan_feature" "$(prompt_plan_feature "$PLAN_GOAL")"
   fi
-  PLAN_FILE="doc/plan/plan.md"
+  PLAN_FILE="docs/plan/plan.md"
   if [ ! -f "$PLAN_FILE" ]; then
-    log_error "Planner agent did not produce doc/plan/plan.md"
+    log_error "Planner agent did not produce docs/plan/plan.md"
     exit 1
   fi
   log_ok "Plan written: $PLAN_FILE"
 fi
 
 if [ -n "$FROM_PLAN" ]; then
-  mkdir -p doc/plan
-  cp "$FROM_PLAN" doc/plan/plan.md
-  PLAN_FILE="doc/plan/plan.md"
+  mkdir -p docs/plan
+  cp "$FROM_PLAN" docs/plan/plan.md
+  PLAN_FILE="docs/plan/plan.md"
   log_ok "Plan copied to: $PLAN_FILE"
 fi
 
@@ -465,8 +476,8 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 
 if [ "$RESUME" = "0" ]; then
-  if [ -d "doc/plan/steps/planned" ] && [ -n "$(ls -A doc/plan/steps/planned 2>/dev/null)" ]; then
-    log_error "doc/plan/steps/planned is not empty. Remove or clear it before running, or use --resume."
+  if [ -d "docs/plan/steps/planned" ] && [ -n "$(ls -A docs/plan/steps/planned 2>/dev/null)" ]; then
+    log_error "docs/plan/steps/planned is not empty. Remove or clear it before running, or use --resume."
     exit 1
   fi
 
@@ -481,7 +492,7 @@ if [ "$RESUME" = "0" ]; then
     run_agent "prompt_split_plan" "$(prompt_split_plan "$PLAN_FILE")"
   fi
 else
-  log_info "--resume: skipping split, using existing files in doc/plan/steps/planned/"
+  log_info "--resume: skipping split, using existing files in docs/plan/steps/planned/"
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -489,29 +500,29 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Precondition: planned directory must exist and contain at least one file
-if [ ! -d "doc/plan/steps/planned" ] || [ -z "$(ls -A doc/plan/steps/planned 2>/dev/null)" ]; then
-  log_error "doc/plan/steps/planned is empty or missing. Run Step 1 first."
+if [ ! -d "docs/plan/steps/planned" ] || [ -z "$(ls -A docs/plan/steps/planned 2>/dev/null)" ]; then
+  log_error "docs/plan/steps/planned is empty or missing. Run Step 1 first."
   exit 1
 fi
 
-mkdir -p doc/plan/steps/in-progress
-mkdir -p doc/plan/steps/in-review
-mkdir -p doc/plan/steps/closed
+mkdir -p docs/plan/steps/in-progress
+mkdir -p docs/plan/steps/in-review
+mkdir -p docs/plan/steps/closed
 
 # The loop re-reads the planned directory on every iteration so that newly
 # injected gap-fill files (e.g. 00101-…, 00102-…) are picked up automatically.
 while true; do
   # Pick the lexicographically first remaining planned file
-  STEP_FILE="$(ls doc/plan/steps/planned/ 2>/dev/null | sort | head -1)"
+  STEP_FILE="$(ls docs/plan/steps/planned/ 2>/dev/null | sort | head -1)"
 
   if [ -z "$STEP_FILE" ]; then
     log_ok "All steps processed."
     break
   fi
 
-  PLANNED="doc/plan/steps/planned/$STEP_FILE"
-  IN_PROGRESS="doc/plan/steps/in-progress/$STEP_FILE"
-  IN_REVIEW="doc/plan/steps/in-review/$STEP_FILE"
+  PLANNED="docs/plan/steps/planned/$STEP_FILE"
+  IN_PROGRESS="docs/plan/steps/in-progress/$STEP_FILE"
+  IN_REVIEW="docs/plan/steps/in-review/$STEP_FILE"
 
   log_section "Implementing: $STEP_FILE"
 
@@ -536,7 +547,7 @@ while true; do
     printf '     echo "Continue" | opencode run -c).\n'
     printf '  2. The step file is still at: %s\n' "$IN_PROGRESS"
     printf '     Move it back to planned/ when ready:\n'
-    printf '     mv %s doc/plan/steps/planned/%s\n' "$IN_PROGRESS" "$STEP_FILE"
+    printf '     mv %s docs/plan/steps/planned/%s\n' "$IN_PROGRESS" "$STEP_FILE"
     printf '  3. Re-run: %s --resume %s\n\n' "$0" "${PLAN_FILE:-''}"
     exit 2
   fi
@@ -554,7 +565,7 @@ while true; do
     printf '  1. Resolve the issue described above.\n'
     printf '  2. The step file is still at: %s\n' "$IN_PROGRESS"
     printf '     Move it back to planned/ when ready:\n'
-    printf '     mv %s doc/plan/steps/planned/%s\n' "$IN_PROGRESS" "$STEP_FILE"
+    printf '     mv %s docs/plan/steps/planned/%s\n' "$IN_PROGRESS" "$STEP_FILE"
     printf '  3. Re-run: %s --resume %s\n\n' "$0" "${PLAN_FILE:-''}"
     exit 2
   fi
@@ -587,7 +598,7 @@ while true; do
 
   # 2e. Move to closed — gaps (if any) are already queued in planned/ as new steps
   log_step "in-review → closed"
-  mv "$IN_REVIEW" "doc/plan/steps/closed/$STEP_FILE"
+  mv "$IN_REVIEW" "docs/plan/steps/closed/$STEP_FILE"
   if echo "$REVIEW_OUTPUT" | grep -qF '<review-status>clean</review-status>'; then
     log_ok "$STEP_FILE — review clean"
   else
@@ -606,7 +617,7 @@ if [ "$DRY_RUN" = "1" ]; then
   log_dry "Would run: opencode run <prompt_demo_agent>"
 else
   log_agent "Running demo agent..."
-  run_agent "prompt_demo_agent" "$(prompt_demo_agent doc/plan/steps/closed)"
+  run_agent "prompt_demo_agent" "$(prompt_demo_agent docs/plan/steps/closed)"
 fi
 
 if [ "$DRY_RUN" = "1" ]; then
