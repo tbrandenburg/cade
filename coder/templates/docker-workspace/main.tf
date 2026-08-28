@@ -28,7 +28,7 @@ data "coder_workspace_owner" "me" {}
 # When set, the startup script clones non-interactively via GIT_ASKPASS
 # instead of the repo_url itself, so the token never ends up embedded in
 # .git/config or in `git remote -v` output.
-resource "coder_parameter" "github_token" {
+data "coder_parameter" "github_token" {
   name         = "github_token"
   display_name = "GitHub Token"
   description  = "Optional token to clone `repo_url` when it is not publicly readable. Leave empty for public repos."
@@ -69,7 +69,7 @@ ASKPASS
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
-    GITHUB_TOKEN        = coder_parameter.github_token.value
+    GITHUB_TOKEN        = data.coder_parameter.github_token.value
   }
 
   metadata {
