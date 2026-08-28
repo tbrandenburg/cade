@@ -131,10 +131,15 @@ services:
     networks:
       - platform-workspaces
     healthcheck:
+      # registry:3.1.1 has no curl (busybox wget only). wget's exit code
+      # doesn't distinguish "server responded 401" from other failures, so
+      # grep the actual status line instead of trusting the exit code — an
+      # authenticated registry returns 401 (not 200) from /v2/, and both
+      # count as healthy here.
       test:
         [
           "CMD-SHELL",
-          "code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/v2/); [ \"$$code\" = \"200\" ] || [ \"$$code\" = \"401\" ]",
+          "wget -S -O- http://localhost:5000/v2/ 2>&1 | grep -qE 'HTTP/[0-9.]+ (200|401)'",
         ]
       interval: 10s
       timeout: 5s

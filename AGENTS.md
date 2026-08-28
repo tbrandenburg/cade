@@ -120,6 +120,10 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - `gh-aw`'s MCP Gateway/AWF sandbox requires a real Docker Unix socket (`GH_AW_DOCKER_SOCK_PATH`
   or `/var/run/docker.sock`) — the M2 `DOCKER_HOST=tcp://runner-docker-proxy:2375` socket proxy
   is explicitly unsupported and fails the `agent` job at runtime, not at `gh aw compile` time.
+- A `docker_volume` Terraform resource with `lifecycle { ignore_changes = all }` still gets
+  destroyed by `coder delete` (`ignore_changes` only suppresses `apply`-time diffs, not
+  `destroy`) — for a volume meant to survive workspace delete/recreate, reference it by a
+  fixed name in `docker_container.volumes` only; never declare it as a resource at all.
 
 ### Sandbox / security
 

@@ -208,17 +208,18 @@ resource "docker_volume" "home_volume" {
   }
 }
 
-# Milestone M7: sccache compiler cache. Deliberately named without the
-# workspace ID (unlike home_volume above) so it is the *same* volume across
-# every workspace created from this template — deleting and recreating a
-# workspace (this template's Manual E2E cold/warm comparison) reuses it,
-# which is the whole point. See cache/sccache/README.md.
-resource "docker_volume" "sccache_cache" {
-  name = "devenv-cloud-sccache-cache"
-
-  lifecycle {
-    ignore_changes = all
-  }
+# Milestone M7: sccache compiler cache. Deliberately *not* a
+# `docker_volume` resource owned by this workspace's Terraform state —
+# `coder delete` destroys every resource in that state, which would take
+# this volume down with it even with `ignore_changes = all` (that only
+# ignores attribute *changes* on apply, not destroy). Referencing a fixed
+# volume name in `docker_container.volumes` below is enough: Docker
+# auto-creates it on first use (like `docker run -v name:path`) and it is
+# never a member of any single workspace's state, so it survives
+# `coder delete`/`coder create` across every workspace from this template.
+# See cache/sccache/README.md.
+locals {
+  sccache_volume_name = "devenv-cloud-sccache-cache"
 }
 
 resource "docker_container" "workspace" {
@@ -246,7 +247,7 @@ resource "docker_container" "workspace" {
   # normal second bind mount in the container's mount namespace.
   volumes {
     container_path = "/home/coder/.cache/sccache"
-    volume_name    = docker_volume.sccache_cache.name
+    volume_name    = local.sccache_volume_name
     read_only      = false
   }
 
