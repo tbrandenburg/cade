@@ -85,6 +85,16 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   (diff vs repo), `docker exec <container> cat /tmp/coder-startup-script.log`.
 - Commit + push every deliverable as the *first* action of a step, before writing the
   milestone report.
+- Run `git status --short` on the whole repo, not just the files you think you touched, right
+  before closing a step — an M13.1 review found the milestone report, plan-state files, and a
+  referenced screenshot all left untracked despite the step being marked closed/in-review.
+- A screenshot referenced by a milestone report but saved under a gitignored dir (e.g.
+  `.playwright-mcp/`) needs `git add -f` to actually get committed — plain `git add` silently
+  no-ops on gitignored paths with no error, masking the same "untracked deliverable" failure mode.
+- A gap-fill commit closing one uncommitted-deliverable finding can still leave sibling
+  files (e.g. `AGENTS.md`/`docs/*.md` edits made in the same working session) modified but
+  uncommitted — re-run `git status --short` on the *whole* repo after committing, not just on
+  the paths the step named, before declaring the step done.
 
 ### Coder / Terraform / Docker
 
@@ -155,6 +165,20 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   sealed (all reads 503) until `scripts/openbao-init.sh` is rerun against the existing
   `governance/openbao/unseal/init.json`; do not assume a previously-verified root-token
   revocation still holds without re-checking seal status first.
+- otelcol-contrib's `prometheusexporter` with `resource_to_telemetry_conversion.enabled: true`
+  silently drops any metric whose own attributes collide with a promoted resource attribute
+  (e.g. Temporal SDK's `job`) — `docker logs otel-collector` shows one `failed to convert
+  metric` error per collection cycle per affected metric; a scrape target reporting
+  `health: up` does not mean its metrics actually reached Prometheus.
+- Even with `resource_to_telemetry_conversion` disabled, the Temporal Python SDK's own OTLP
+  metric attributes still collide with `prometheusexporter`'s label handling for several
+  counters (`temporal_worker_task_slots_used`, `temporal_long_request`, etc.) — export the
+  Temporal worker's Runtime metrics via its native `PrometheusConfig` HTTP endpoint (scraped
+   directly by Prometheus) instead of routing them through otel-collector's OTLP receiver.
+- `temporalio` 1.32.0's `PrometheusConfig(counters_total_suffix=True)` does not actually
+  append `_total` to counter metric names on its native endpoint (verified live: flag has no
+  effect regardless of scrape `Accept` header) — write dashboard queries against the
+  un-suffixed name (e.g. `temporal_activity_task_received`, not `..._received_total`) instead.
 
 ### Sandbox / security
 
