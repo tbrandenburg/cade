@@ -106,6 +106,8 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   not inherit `coder_agent.env` — set `git config user.email/user.name` manually.
 - `ubuntu:24.04` already has a `ubuntu` group/user at uid/gid 1000 — detect/rename instead
   of `groupadd --gid 1000 coder`.
+- Cross-compiling with `gcc-aarch64-linux-gnu` needs `libc6-dev-arm64-cross` too (`ld: cannot
+  find Scrt1.o`/`crti.o` otherwise) — the cross-gcc metapackage alone has no target libc.
 - `RUN --mount=type=secret,id=cacert` run once without the secret gets BuildKit-cached as a
   no-op — rebuild with `--no-cache` once the secret is available; "no error" ≠ secret used.
 - `POST /repos/<o>/<r>/actions/runners/generate-jitconfig` needs `runner_group_id` as a JSON
