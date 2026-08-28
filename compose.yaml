@@ -53,6 +53,59 @@ services:
       retries: 5
       start_period: 30s
 
+  # runner-docker-proxy: Milestone M2. Gives the self-hosted GitHub Actions
+  # runner Docker access WITHOUT mounting /var/run/docker.sock directly into
+  # the runner container (see docs/security.md, option 3 — socket proxy).
+  # Only container/image lifecycle calls needed by runner-smoke.yml are
+  # allow-listed; everything else (exec, networks, volumes, swarm, etc.) is
+  # denied. Not published to the host — reachable only from
+  # platform-workspaces, i.e. only from containers on this private network.
+  runner-docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: runner-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+      VERSION: 1
+      PING: 1
+      # Explicitly deny everything higher-privilege: no exec, no volumes/
+      # networks/swarm/plugins/nodes management, no build.
+      EXEC: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      SWARM: 0
+      SYSTEM: 0
+      BUILD: 0
+      PLUGINS: 0
+      NODES: 0
+      SERVICES: 0
+      TASKS: 0
+      SECRETS: 0
+      CONFIGS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - platform-workspaces
+
+  # runner-health: Milestone M2. Minimal HTTP service with NO published host
+  # port — reachable exclusively from other containers on
+  # platform-workspaces. runner-smoke.yml calls it to prove the workflow ran
+  # somewhere with access to a local-only service, not merely on a generic
+  # GitHub-hosted runner.
+  runner-health:
+    image: nginx:1.27-alpine
+    container_name: runner-health
+    restart: unless-stopped
+    networks:
+      - platform-workspaces
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 networks:
   platform-control:
     name: platform-control

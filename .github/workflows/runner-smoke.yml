@@ -1,0 +1,31 @@
+name: runner-smoke
+
+# Milestone M2: manual-only trigger. Do NOT add pull_request/pull_request_target
+# triggers to this workflow — see docs/security.md for why any trigger that can
+# be sourced from a fork branch is unsafe on a self-hosted runner.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, private-lab, docker]
+    steps:
+      - name: Print hostname
+        run: hostname
+
+      - name: Print Docker version (via docker-socket-proxy)
+        env:
+          DOCKER_HOST: tcp://runner-docker-proxy:2375
+        run: docker version
+
+      - name: Run an ephemeral test container
+        env:
+          DOCKER_HOST: tcp://runner-docker-proxy:2375
+        run: docker run --rm hello-world
+
+      - name: Call the local-only health endpoint
+        run: |
+          curl -fsS http://runner-health/ | head -c 200
