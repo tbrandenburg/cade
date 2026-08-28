@@ -287,6 +287,39 @@ services:
       temporal:
         condition: service_healthy
 
+  # lab-sim: Milestone M11. MCP/HTTP "Lab Simulator" service - simulated
+  # ECU/BMS devices (no physical hardware), reservation lifecycle bound to
+  # the authenticated caller (see mcp/lab-sim/src/lab_sim). Per the MCP
+  # spec's "Local MCP Server Compromise" guidance, an HTTP-exposed MCP
+  # service must require a bearer token or bind to a Unix domain socket -
+  # never an open, unauthenticated TCP port. Bearer-token auth is enforced
+  # by lab_sim.server.BearerAuthMiddleware regardless of network placement;
+  # the host port is additionally bound to 127.0.0.1 only (defense in
+  # depth, same "internal-only where possible" posture as `registry`
+  # above), since the agent harness (M9's `opencode`) currently runs
+  # directly on this host rather than inside a workspace container on
+  # platform-workspaces.
+  lab-sim:
+    image: devenv-cloud/lab-sim:latest
+    container_name: lab-sim
+    restart: unless-stopped
+    environment:
+      LAB_SIM_PORT: 8300
+      LAB_SIM_TOKENS: ${LAB_SIM_TOKENS:-agent-a:change-me-a,agent-b:change-me-b}
+    ports:
+      - "127.0.0.1:${LAB_SIM_PORT:-8300}:8300"
+    networks:
+      - platform-workspaces
+    healthcheck:
+      # An authenticated-only endpoint returns 401 for a bare request - that
+      # counts as healthy here (server is up and enforcing auth), same
+      # pattern as the `registry` healthcheck above.
+      test: ["CMD", "python3", "/app/healthcheck.py"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 networks:
   platform-control:
     name: platform-control

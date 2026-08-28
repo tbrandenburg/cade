@@ -131,6 +131,14 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   destroyed by `coder delete` (`ignore_changes` only suppresses `apply`-time diffs, not
   `destroy`) — for a volume meant to survive workspace delete/recreate, reference it by a
   fixed name in `docker_container.volumes` only; never declare it as a resource at all.
+- `mcp` (Python SDK) 2.x renamed `FastMCP` to `mcp.server.mcpserver.MCPServer`; its
+  `streamable_http_client()` context manager yields a 2-tuple (`read, write`), not the 3-tuple
+  some older examples show, and takes `http_client=httpx.AsyncClient(headers=...)` for custom
+  headers (no `headers=` kwarg directly) — required for bearer-token-authenticated MCP/HTTP.
+- `mcp` 2.1.1's `streamable_http_client()` actually type-hints `http_client` as
+  `httpx2.AsyncClient` (a vendored fork, `pip install httpx` alone won't satisfy it) — check
+  `inspect.signature(streamable_http_client)` for the exact type before wiring a test/adversarial
+  MCP client against a `streamable-http` service in this repo.
 
 ### Sandbox / security
 
