@@ -106,6 +106,41 @@ services:
       timeout: 3s
       retries: 5
 
+  # registry: Milestone M7. Local OCI registry (CNCF Distribution) for the
+  # workspace toolchain images built by `make *-workspace-build` (M3/M6).
+  # Not published to the host and reachable only from
+  # platform-workspaces — the "bind it only to the internal compose network
+  # with no host port published" option from the CNCF deployment guide,
+  # since a build/pull-capable host already sits on that Docker network.
+  # Basic auth (htpasswd) is layered on top as defense in depth. An
+  # authenticated registry returns 401 (not 200) from `/v2/`, so the
+  # healthcheck below treats 401 as healthy too — a naive `curl -f` would
+  # misreport this registry as unhealthy.
+  registry:
+    image: registry:3.1.1
+    container_name: registry
+    restart: unless-stopped
+    environment:
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: devenv-cloud-registry
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - registry_data:/var/lib/registry
+      - ./cache/registry/auth:/auth:ro
+    networks:
+      - platform-workspaces
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/v2/); [ \"$$code\" = \"200\" ] || [ \"$$code\" = \"401\" ]",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 networks:
   platform-control:
     name: platform-control
@@ -115,3 +150,4 @@ networks:
 volumes:
   coder_db_data:
   coder_home:
+  registry_data:

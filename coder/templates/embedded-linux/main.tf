@@ -208,6 +208,19 @@ resource "docker_volume" "home_volume" {
   }
 }
 
+# Milestone M7: sccache compiler cache. Deliberately named without the
+# workspace ID (unlike home_volume above) so it is the *same* volume across
+# every workspace created from this template — deleting and recreating a
+# workspace (this template's Manual E2E cold/warm comparison) reuses it,
+# which is the whole point. See cache/sccache/README.md.
+resource "docker_volume" "sccache_cache" {
+  name = "devenv-cloud-sccache-cache"
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "docker_container" "workspace" {
   count = data.coder_workspace.me.start_count
   image = var.workspace_image
@@ -225,6 +238,15 @@ resource "docker_container" "workspace" {
   volumes {
     container_path = "/home/coder"
     volume_name    = docker_volume.home_volume.name
+    read_only      = false
+  }
+
+  # Milestone M7: mounted *inside* the per-workspace home volume's mount
+  # point above — a separate, shared volume nested at a subdirectory is a
+  # normal second bind mount in the container's mount namespace.
+  volumes {
+    container_path = "/home/coder/.cache/sccache"
+    volume_name    = docker_volume.sccache_cache.name
     read_only      = false
   }
 

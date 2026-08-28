@@ -33,4 +33,30 @@ RUN apt-get update \
       qemu-user-static=1:8.2.2+ds-0ubuntu1.18 \
     && rm -rf /var/lib/apt/lists/*
 
+# Milestone M7: sccache compiler cache, pinned release binary (no apt
+# package for this arch/distro combo). `SCCACHE_DIR`/`SCCACHE_BASEDIRS` are
+# baked into the image (not left to per-workspace config) so every
+# `embedded-linux` workspace agrees on both — see cache/sccache/README.md
+# for the absolute-path cache-key gotcha this avoids. The cache directory
+# itself is a named Docker volume mounted at this path by
+# coder/templates/embedded-linux/main.tf, shared across workspace
+# instances (unlike the per-workspace home volume).
+ARG SCCACHE_VERSION=0.17.0
+RUN curl -fsSL \
+      "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+      -o /tmp/sccache.tar.gz \
+    && tar -xzf /tmp/sccache.tar.gz -C /tmp \
+    && install -m 0755 "/tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" /usr/local/bin/sccache \
+    && rm -rf /tmp/sccache.tar.gz "/tmp/sccache-v${SCCACHE_VERSION}-x86_64-unknown-linux-musl"
+
+ENV SCCACHE_DIR=/home/coder/.cache/sccache \
+    SCCACHE_BASEDIRS=/home/coder/project
+
+# Pre-create and chown the cache dir as the `coder` user: Docker populates a
+# freshly created named volume from whatever already exists at the image's
+# mount point (including ownership), so the volume mounted here by
+# coder/templates/embedded-linux/main.tf comes up writable by `coder`
+# instead of root-owned.
+RUN mkdir -p /home/coder/.cache/sccache && chown -R coder:coder /home/coder/.cache
+
 USER coder

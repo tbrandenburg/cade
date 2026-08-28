@@ -9,3 +9,4 @@ __pycache__/
 .playwright-mcp/
 examples/embedded-sim/build/
 examples/embedded-sim/build-target/
+cache/registry/auth/htpasswd
