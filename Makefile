@@ -31,6 +31,15 @@ logs:
 
 ## coder-workspace-build: Build the docker-standard workspace image (Milestone M3).
 coder-workspace-build:
+	@dirty="$$(git status --porcelain -- examples coder Makefile 2>/dev/null)"; \
+	if [ -n "$$dirty" ]; then \
+		echo "ERROR: uncommitted changes under examples/, coder/, or Makefile:"; \
+		echo "$$dirty"; \
+		echo "The workspace template clones the remote repository, not this"; \
+		echo "working tree — commit and push these files first, otherwise the"; \
+		echo "built image/pushed template will not match what workspaces clone."; \
+		exit 1; \
+	fi
 	@if [ -n "$(CACERT)" ]; then \
 		docker buildx build -f coder/Dockerfile --secret id=cacert,src=$(CACERT) \
 			-t devenv-cloud/coder-workspace:latest --load coder; \
