@@ -1,0 +1,37 @@
+name: local-capability
+
+# Deterministic capability workflow (M10): build + test the hello-service
+# toolchain example on every push/PR. This is the "known build failure"
+# target that .github/workflows/investigate-failure.md watches via
+# on.workflow_run — keep this workflow's name in sync with the
+# `workflows: ["local-capability"]` filter in that file.
+#
+# Public-repo note (see docs/security.md): this workflow runs on the
+# GitHub-hosted `ubuntu-latest` runner, not the self-hosted M2 runner, so
+# pull_request from forks is safe here (no self-hosted secrets/network at
+# risk).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build
+        run: make -C examples/hello-service build
+
+      - name: test
+        run: make -C examples/hello-service test
