@@ -67,83 +67,50 @@ to touch, where secrets live, how to run validations.)_
 
 ## Lessons Learned
 
-_(Actionable, still-relevant lessons only — technical pitfalls and review checklist items. Historical blow-by-blow of who-missed-what has been pruned; see git history of this file if needed.)_
+_(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
+running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
-### Don't assume a stated blocker is still real — re-check it
+### Before trusting any "blocker" or "done" claim
 
-`doc/plan/steps/closed/00401`–`00405` spent five iterations chasing a
-"private repo needs a `github_token` credential" blocker for M4 workspace
-creation. Re-verified 2026-08-28: `tbrandenburg/devenv-cloud` is and was a
-**public** repository (`gh api repos/tbrandenburg/devenv-cloud --jq
-'.private, .visibility'` → `false`, `public`) — cloning never needed a
-token. The actual gap was simply that no prior session had completed
-"create workspace → run verification scripts → write the report" and
-committed it (see `docs/milestone-reports/M4-agent-host.md`, finally written
-once this was checked directly instead of re-trusting the stale blocker
-description). Lesson: re-verify a documented blocker's premise (e.g. "is
-this repo actually private?") with one direct command before repeating a
-prior session's remediation plan — a stale/incorrect blocker description
-can waste many iterations if taken on faith.
-
-### Review checklist (recurring failure mode: undelivered/uncommitted artifacts)
-
-A step/milestone report claiming completion is not evidence by itself. Before trusting any
-milestone report or "done" claim, always:
-- Run `git log --all -- <path>` (and `git status --short`) for every file/path the step
-  claims to have created or updated — uncommitted working-tree changes do not exist for a
-  workspace that clones from the remote, and repeatedly recurred as the single biggest
-  cause of false "done" claims across M0/M3/M4/M5/M9.
+- Re-verify a stated blocker's premise with one direct command before repeating a prior
+  remediation plan (e.g. `gh api repos/<owner>/<repo> --jq '.private'` — a "needs
+  `github_token`" blocker doesn't apply to a public repo; wasted 5 iterations on this once).
+- `git log --all -- <path>` + `git status --short` for every path a step claims to create —
+  uncommitted files don't exist for a workspace that clones from the remote (the single
+  biggest cause of false "done" claims).
 - Diff a report file against its prior committed version if a step claims to have rewritten
-  it — a byte-identical file means it was only re-saved, not actually redone.
-- Never trust "Succeeded"/"Started"/"Active" status strings alone. Cross-check with real
-  system state: `docker ps`/`docker inspect` for containers, `coder templates versions
-  list <name>`/`coder templates pull <name> <dir> --yes` (diffed against repo source) for
-  templates, and `docker exec <container> cat /tmp/coder-startup-script.log` (or `ps aux`
-  inside the container) for workspace provisioning/E2E claims.
-- As the implementer: commit and push every deliverable as the literal first action of a
-  step, before writing the milestone report — this is what finally broke the recurring
-  cycle in one pass (see M9 step 00601).
+  it — byte-identical means only re-saved, not redone.
+- Never trust "Succeeded"/"Started"/"Active" status strings alone — cross-check `docker
+  ps`/`docker inspect`, `coder templates versions list`/`templates pull <name> <dir> --yes`
+  (diff vs repo), `docker exec <container> cat /tmp/coder-startup-script.log`.
+- Commit + push every deliverable as the *first* action of a step, before writing the
+  milestone report.
 
-### Coder / Terraform / Docker technical notes
+### Coder / Terraform / Docker
 
-- `coder` CLI may not be on `PATH`; check for it under `/tmp/coderbin/bin/coder` or similar
-  before concluding it's unavailable. The Coder server itself runs as the `coder` Docker
-  container.
-- `coder create ... --yes` still prompts interactively for any `coder_parameter` without an
-  explicit `--parameter` value (even ones with a `default`) — pass every parameter
-  explicitly for non-interactive creates, or it hangs and fails with an opaque
-  `prepare build: EOF`.
-- `coder --global-config <dir> list` hides other users' workspaces unless given `-a`/
-  `--all`; `coder ssh`/`coder show` against another user's workspace fails with a generic
-  "Resource not found" (not permission-denied-shaped) — run `coder whoami` first to check
-  which account is authenticated before assuming a workspace is unreachable.
-- `coder stop --yes` + `coder start --yes` fully destroys/recreates the `docker_container`
-  resource while leaving `docker_volume.home_volume` untouched — useful as a non-GUI proxy
-  for "end a session, start a new one" when testing persistence across the home volume.
-- `coder templates push` only uploads the template's own directory, not the surrounding
-  repo — a `docker_image` resource cannot reference a Dockerfile via
-  `${path.module}/../../...`. Build/tag the workspace image out-of-band first (e.g. `make
-  coder-workspace-build`) and have `docker_container` reference the pre-built tag by name.
-- The `coder_agent` template's plain `git clone "${repo_url}"` silently hangs/fails for
-  private repos (falls into Coder's external-auth flow, never completes non-interactively).
-  Diagnose via `/tmp/coder-startup-script.log` inside the container. Fix: an optional
-  `github_token` `coder_parameter` wired into `GIT_ASKPASS` only for the clone step (keeps
-  the token out of `.git/config`). Also, `docker exec` into a workspace container does not
-  inherit `coder_agent.env` (e.g. `GITHUB_TOKEN`, `GIT_AUTHOR_NAME`) — manual verification
-  needs its own `git config user.email/user.name`.
-- `ubuntu:24.04` already ships a `ubuntu` group/user at uid/gid 1000 — a plain `groupadd
-  --gid 1000 coder` fails; detect and rename the existing group/user instead.
-- A `RUN --mount=type=secret,id=cacert` layer that ran once without the secret present gets
-  BuildKit-cached as a no-op; rebuilding later *with* the secret silently reuses the stale
-  cached layer unless rebuilt with `--no-cache`. Don't trust "no error" as proof a
-  secret-dependent step actually ran with the secret.
+- `coder` CLI may be off `PATH` — check `/tmp/coderbin/bin/coder`. Server runs as the
+  `coder` Docker container.
+- Pass every `coder_parameter` explicitly via `--parameter` on `coder create --yes` (even
+  ones with a default) — otherwise it hangs and fails with an opaque `prepare build: EOF`.
+- `coder --global-config <dir> list` needs `-a`/`--all` to see other users' workspaces;
+  `coder ssh`/`show` on another user's workspace gives a generic "Resource not found" — run
+  `coder whoami` first.
+- `coder stop --yes` + `start --yes` destroys/recreates `docker_container` but leaves
+  `docker_volume.home_volume` untouched — use as a non-GUI proxy for "new session" when
+  testing volume persistence.
+- `coder templates push` only uploads the template dir, not the repo — build/tag the
+  workspace image out-of-band (`make coder-workspace-build`) and reference the pre-built tag.
+- Plain `git clone "${repo_url}"` in `coder_agent` hangs/fails for private repos (falls into
+  external-auth flow). Diagnose via `/tmp/coder-startup-script.log`. Fix: optional
+  `github_token` parameter wired into `GIT_ASKPASS` only for the clone. `docker exec` does
+  not inherit `coder_agent.env` — set `git config user.email/user.name` manually.
+- `ubuntu:24.04` already has a `ubuntu` group/user at uid/gid 1000 — detect/rename instead
+  of `groupadd --gid 1000 coder`.
+- `RUN --mount=type=secret,id=cacert` run once without the secret gets BuildKit-cached as a
+  no-op — rebuild with `--no-cache` once the secret is available; "no error" ≠ secret used.
 
 ### Sandbox / security
 
-- Anthropic's Sandbox Runtime (`srt`) wraps commands in `bwrap --unshare-user`, which fails
-  outright in this Docker/WSL2 environment (`bwrap: No permissions to create new
-  namespace`) because Docker's default seccomp/AppArmor profile blocks unprivileged userns
-  creation — not a host `sysctl` issue. Do not fix this by adding `--privileged` or loosening
-  the workspace container's seccomp/AppArmor profile in Terraform — that's a security-
-  posture decision outside a single step's authority. Document `srt` as installed/configured
-  but non-enforcing in this deployment instead.
+- `srt`'s `bwrap --unshare-user` fails in this Docker/WSL2 environment (blocked unprivileged
+  userns, not a host `sysctl` issue). Do not fix with `--privileged` or loosened
+  seccomp/AppArmor in Terraform — document `srt` as installed but non-enforcing instead.
