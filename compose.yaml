@@ -45,6 +45,18 @@ services:
       # via `scripts/coder-trust-ca.sh /path/to/ca-bundle.pem` — see README
       # "Corporate TLS-intercepting proxy: trusting a CA for Coder itself".
       SSL_CERT_DIR: "${CODER_SSL_CERT_DIR:-}"
+      # Task 0 (issue #13): GitHub external auth provider. Requires a
+      # manually-created GitHub OAuth App (out of scope for this step) -
+      # empty client id/secret leaves this provider configured but unusable,
+      # which only disables the CI-triggered agent path and does not block
+      # anything else.
+      CODER_EXTERNAL_AUTH_0_ID: "github"
+      CODER_EXTERNAL_AUTH_0_TYPE: "github"
+      CODER_EXTERNAL_AUTH_0_CLIENT_ID: "${GITHUB_OAUTH_CLIENT_ID:-}"
+      CODER_EXTERNAL_AUTH_0_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
+      # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
+      # Required for /api/experimental/mcp/http to serve MCP clients.
+      CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder

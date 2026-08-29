@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -21,6 +21,7 @@ doctor:
 up: temporal-worker-build lab-sim-build
 	@$(COMPOSE) up -d
 	@bash scripts/print-urls.sh
+	@bash scripts/ai-bootstrap.sh --best-effort || true
 
 ## down: Stop and remove the platform stack's containers.
 down:
@@ -155,15 +156,41 @@ devcontainer-workspace-build:
 			-t cade/devcontainer-bootstrap:latest --load coder/devcontainer; \
 	fi
 
+## agent-workspace-build: Build the agent-workspace image (Issue #13 Task 7).
+## Depends on coder-workspace-build, which owns the dirty-tree refusal guard
+## (same pattern as embedded-workspace-build).
+agent-workspace-build: coder-workspace-build
+	@if [ -n "$(CACERT)" ]; then \
+		docker buildx build -f coder/agent-workspace/Dockerfile --secret id=cacert,src=$(CACERT) \
+			-t cade/agent-workspace:latest --load coder/agent-workspace; \
+	else \
+		docker buildx build -f coder/agent-workspace/Dockerfile \
+			-t cade/agent-workspace:latest --load coder/agent-workspace; \
+	fi
+
 ## templates-push: Push every Coder workspace template (docker-standard, embedded-linux,
-## devcontainer) to the running Coder server in one shot. Depends on all three
-## *-workspace-build targets, so it also builds/refreshes cade/coder-workspace,
-## cade/embedded-linux-workspace, and cade/devcontainer-bootstrap first (cache-hit,
-## near-instant unless code changed) — and inherits their dirty-tree refusal check.
+## devcontainer, agent-workspace) to the running Coder server in one shot. Depends on all
+## four *-workspace-build targets, so it also builds/refreshes cade/coder-workspace,
+## cade/embedded-linux-workspace, cade/devcontainer-bootstrap, and cade/agent-workspace
+## first (cache-hit, near-instant unless code changed) — and inherits their dirty-tree
+## refusal check.
 ## Requires: the `coder` CLI on PATH and an authenticated session
 ## (`coder login`/`coder whoami`), and the Coder server itself already up (`make up`)
 ## and healthy (`make status`).
-templates-push: embedded-workspace-build devcontainer-workspace-build
+templates-push: embedded-workspace-build devcontainer-workspace-build agent-workspace-build
 	@coder templates push docker-standard -d coder/templates/docker-workspace --yes
 	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
 	@coder templates push devcontainer -d coder/templates/devcontainer --yes
+	@coder templates push agent-workspace -d coder/templates/agent-workspace --yes
+
+## ai-bootstrap: Reconcile coder/ai/{providers,models}.yaml into the running Coder deployment.
+ai-bootstrap:
+	@bash scripts/ai-bootstrap.sh
+
+## ai-token: Mint an admin session token for `make ai-bootstrap`.
+ai-token:
+	@bash scripts/ai-token.sh
+
+## verify-ai: Prove the AI integration works end to end against the live stack.
+verify-ai:
+	@bash scripts/verify-ai.sh

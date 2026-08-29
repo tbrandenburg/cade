@@ -72,7 +72,8 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
 | `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
 | `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `cade/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
-| `make templates-push` | — | Pushes `docker-standard`, `embedded-linux`, and `devcontainer` templates to the running Coder server in one shot (`coder templates push ... --yes` x3). Depends on all three `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
+| `make agent-workspace-build` | Issue #13 | Depends on `coder-workspace-build` (inherits its dirty-tree refusal guard); builds `cade/agent-workspace:latest` (adds the OSS `boundary` network-isolation CLI) for the `agent-workspace` template, used for long-running Coder Agents sessions. |
+| `make templates-push` | — | Pushes `docker-standard`, `embedded-linux`, `devcontainer`, and `agent-workspace` templates to the running Coder server in one shot (`coder templates push ... --yes` x4). Depends on all four `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
 | `make runner-build` | M2 | Builds the self-hosted GitHub Actions runner image (pinned Ubuntu digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Convenience wrapper; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (just-in-time), one-job-then-destroy runner registration. |
 | `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
@@ -82,6 +83,9 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make governance-verify` | M12 | Runs `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip (`scripts/verify-governance.sh`). |
 | `make backup` | M14 | Creates a timestamped backup set under `backup/artifacts/<timestamp>/` covering every MUST-BACK-UP category (git bundle, Coder DB, Temporal DB, OpenBao snapshot + unseal keys, workspace home volumes). |
 | `make restore-test` | M14 | Destroys the MUST-BACK-UP resources and restores them from the latest backup set (`scripts/restore-test.sh`) — see `backup/restore-test.md` and `docs/disaster-recovery.md`. |
+| `make ai-bootstrap` | Issue #13 | Reconciles `coder/ai/{providers,models}.yaml` into the running Coder deployment (`scripts/ai-bootstrap.sh`). Also invoked best-effort at the end of `make up`. |
+| `make ai-token` | Issue #13 | Mints an admin session token for `make ai-bootstrap` (`scripts/ai-token.sh`). |
+| `make verify-ai` | Issue #13 | Proves the AI integration works end to end against the live stack (`scripts/verify-ai.sh`). |
 
 `examples/hello-service/Makefile` and `examples/embedded-sim/Makefile` each
 have their own `build`/`test`/`run`/`clean`(/`simulate`) targets — toolchain
@@ -424,6 +428,18 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   apparent hang on a chained `docker exec` sequence is not proof of a real functional bug;
   re-run each `docker exec` individually with its own bounded `timeout` before concluding
   anything is actually stuck.
+- 2026-08-29: Coder's AI provider-create API field is `api_keys` (not a differently-named
+  literal-secret field elsewhere in the payload) — a provider `POST /api/v2/ai/providers`
+  built from an assumed field name silently 4xxs. Its model-config API fields are
+  `ai_provider_id` (not `provider_id`) and `model` (not `model_identifier`) — check the
+  actual API response/schema of a live, unlicensed Coder server before trusting a field name
+  inferred from adjacent naming conventions elsewhere in the codebase.
+- 2026-08-29: Confirmed entitlement flags on this deployment's live Coder server: `aibridge`
+  (AI Gateway), `boundary` (Coder-native Agent Firewall), and `ai_governance_user_limit` /
+  `managed_agent_limit` / `workspace_external_agent` (AI Governance Add-On) are all
+  `not_entitled` — see `docs/ai-coder.md` for the full entitlement matrix and exact evidence
+  strings; `governance/boundary/config.yaml` already documents the `boundary` finding
+  specifically, this is the first record of the other two.
 
 ## Phase 5 — 2026-08-29
 
