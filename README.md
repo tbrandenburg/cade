@@ -373,6 +373,48 @@ builds/pulls/execs stay isolated per workspace. See
 its accepted `privileged`-container tradeoff.
 </details>
 
+<details>
+<summary><strong>Journey 9 — Reconnect to a running VS Code Agent Host session (AHP)</strong></summary>
+
+Give an AI coding agent a durable session that keeps running after you
+close VS Code, by connecting through VS Code's own Agent Host over AHP
+(Agent Host Protocol) instead of a plain terminal process.
+
+```bash
+make coder-workspace-build
+coder templates push docker-standard -d coder/templates/docker-workspace --yes
+coder create <owner>/<name> --template docker-standard --yes \
+  --parameter github_token=<token or empty> --parameter agent_capable=true
+scripts/configure-coder-ssh.sh
+```
+
+In VS Code Desktop: open the Agents window → select `coder.<name>` → start
+an agent session → give it a multi-minute task → close the project window
+→ reopen the Agents window later → reconnect to `coder.<name>` → the same
+session is still there, and the agent kept working while no editor was
+attached.
+
+```bash
+scripts/verify-agent-host.sh coder.<name>   # process reachable over SSH
+scripts/verify-ahp-session.sh coder.<name>  # actual AHP JSON-RPC handshake
+```
+
+**Verified 2026-08-29** against a live stack: workspace creation with
+`agent_capable=true`, `scripts/configure-coder-ssh.sh`'s SSH bridge
+(`ssh coder.<name>`), and both verification scripts all behave exactly as
+documented. `scripts/verify-agent-host.sh`/`verify-ahp-session.sh` both
+correctly report failure with no Agent Host process found, because VS
+Code's Agent Host is started lazily by a real VS Code Desktop client on
+first Agents-window connect — it is not part of workspace startup, and no
+non-interactive environment can substitute for that client. This matches
+the documented behavior in `scripts/verify-agent-host.sh` itself. **Known
+gap**: `opencode`/`pi` are not AHP adapters and never go through the Agent
+Host — they get session continuity from a detached `tmux` session
+instead (Journey 1). See `docs/phases/phase-1-remote-dev-agent.md`'s M4/M5
+sections and `docs/milestone-reports/M4-agent-host.md` for the full VS
+Code-Desktop-driven proof.
+</details>
+
 ## Makefile targets
 
 | Target | Milestone | Purpose |

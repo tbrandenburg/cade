@@ -174,6 +174,30 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   inspect, Durability Test 3) needs a documented bootstrap/login step; until then, `terraform
   validate` + a real `docker build` of the template's bootstrap image is the strongest
   evidence obtainable for a brand-new Coder template without an existing authenticated session.
+  **Update, same day**: a fully non-interactive bootstrap for exactly this gap does exist —
+  `docker exec coder coder server create-admin-user --postgres-url
+  "postgresql://coder:coder@coder-db/coder?sslmode=disable" --email <e> --password <p>
+  --username <u>` creates a second admin directly against the DB (works even while the
+  server is already running, and works even when a first user already exists from a prior
+  session — the "no cached creds" gap is only a *credentials* gap, not a missing-tooling
+  gap). Then `curl -s -X POST http://localhost:7080/api/v2/users/login -d
+  '{"email":"<e>","password":"<p>"}'` returns a `session_token` directly usable with `coder
+  login <url> --use-token-as-session` (piped via stdin) — no browser/`cli-auth` flow needed.
+  This unblocked a real, live `coder create`/`coder delete` round trip for the AHP user
+  journey (README Journey 9). One residue: a Coder user cannot delete or suspend itself
+  (`You cannot delete/suspend yourself`), so the ad-hoc admin account persists in `coder-db`
+  after `coder logout` — acceptable for this single-server, non-internet-exposed platform,
+  but note/clean it up (`coder users delete <name>` from a *different* admin session) if one
+  becomes available, rather than assuming `coder logout` alone removed it.
+  **Separately confirmed same day**: VS Code's Agent Host process is genuinely started lazily
+  by a real VS Code Desktop client's first Agents-window connect — `scripts/verify-agent-host.sh`
+  and `scripts/verify-ahp-session.sh` both correctly and expectedly report FAIL (no process
+  found / no port to discover) against a freshly created `agent_capable=true` workspace with
+  no VS Code Desktop client ever attached. This is not a bug in either script; there is no
+  known non-interactive substitute for that first real client connection, so the actual AHP
+  JSON-RPC handshake still cannot be produced end-to-end without a real VS Code Desktop
+  session — the SSH bridge, workspace creation, and both scripts' *own* failure-path behavior
+  are everything independently verifiable without one.
 
 - 2026-08-29: A subagent's "assumption: httpx is already a dependency" (based on seeing it
   used elsewhere in a sibling service) was false for the actual package it edited — the
