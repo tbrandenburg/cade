@@ -327,7 +327,7 @@ its accepted `privileged`-container tradeoff.
 | Target | Milestone | Purpose |
 |---|---|---|
 | `make doctor` | M0 | Verify host OS/arch/tooling/disk/ports meet baseline requirements. |
-| `make up` | M1 | Start the platform control plane (Postgres + Coder) in the background. |
+| `make up` | M1 | Start the platform control plane (Postgres + Coder) in the background. Also builds the `temporal-worker`/`lab-sim` images first (cache-hit, near-instant unless code changed) since compose.yaml has no `build:` stanza for them. |
 | `make down` | — | Stop and remove the platform stack's containers (named volumes persist). |
 | `make status` | — | Show status/health of every stack container. |
 | `make logs` | — | Follow logs of the platform stack's containers. |

@@ -14,7 +14,11 @@ doctor:
 	@bash scripts/doctor.sh
 
 ## up: Start the platform stack in the background (Milestone M1).
-up:
+## Builds cade/temporal-worker and cade/lab-sim first — compose.yaml
+## references them as local-only images (no `build:` stanza), so `up`
+## fails on a fresh host/clone without this. Pass CACERT=... to also
+## thread a corporate CA bundle through both builds.
+up: temporal-worker-build lab-sim-build
 	@$(COMPOSE) up -d
 
 ## down: Stop and remove the platform stack's containers.
