@@ -229,10 +229,12 @@ external credential), not something this step can create.
 - **Unseal key shares:** written once, by the bootstrap script, to
   `governance/openbao/unseal/init.json` — this path is in `.gitignore` and
   MUST be moved to an out-of-band store (password manager / physical safe)
-  and deleted from disk immediately after bootstrap. This location is not
-  covered by an automated backup yet; it must be added explicitly to
-  Milestone M14's backup plan (a future milestone) before this stack is
-  used beyond local/demo purposes.
+  and deleted from disk immediately after bootstrap. Milestone M14's
+  `scripts/backup.sh` now backs up the OpenBao storage directory itself
+  (the mechanism-appropriate equivalent for the `file` storage backend —
+  see `docs/disaster-recovery.md`); the unseal key shares themselves still
+  need to live out-of-band, separately from any backup artifact, since
+  they are the only thing that can decrypt that backup.
 - **Credential rotation log** (Phase 1–3 credentials, rotated under the
   interim secret-handling rule, `docs/INITIAL.md` Section 3 Rule 3 — new
   values live only in OpenBao's `secret/devenv-cloud/*`, never printed or
@@ -281,3 +283,31 @@ external credential), not something this step can create.
 which Keycloak's own docs call out as unsafe for anything beyond a quick
 demo) and requires `KEYCLOAK_ADMIN_PASSWORD` to be set in `.env` before it
 will boot (no hardcoded default password).
+
+## M13 — Observability
+
+Grafana is the only observability service published to the host
+(`127.0.0.1`-bound); Prometheus and Loki are internal-only, reached
+through Grafana's provisioned datasources. No telemetry data leaves the
+host. See `docs/operations.md` for the dashboard/correlation runbook.
+
+## M14 — Backup / Restore
+
+Backup artifacts (`backup/artifacts/`, gitignored) contain a full
+plaintext copy of every MUST BACK UP secret store (OpenBao's raw storage
+directory, both Postgres databases, the Coder/session home volumes) —
+treat a backup set with the same sensitivity as the live secrets store
+itself: encrypt at rest and restrict access if retained beyond a
+disposable test cycle. See `docs/disaster-recovery.md` for the full
+backup/restore procedure and the OpenBao `file`-backend deviation from
+the plan's literal Raft-snapshot wording.
+
+## M15/M16 — Final integration
+
+No new attack surface was introduced integrating the pieces above — the
+Final E2E scenario (`docs/plan/plan.md` M15/M16 section) reuses the same
+JIT self-hosted runner (M2), the same OPA-gated `lab-sim` MCP tool calls
+(M12), and the same `workflow_dispatch`-only, network-firewalled `gh-aw`
+investigator (M10) already documented. The two open `gh-aw` limitations
+above (docker-socket-proxy incompatibility, no AI engine credentials)
+remain open and unresolved at `0.1.0` — not silently worked around.

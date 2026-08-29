@@ -128,7 +128,7 @@ This is the single most important cross-cutting property of the architecture (`d
 | Level | What survives | Proven by |
 |---|---|---|
 | UI durability | Closing/reopening VS Code | AHP / Agent Host (M4) |
-| Workspace durability | Workspace container restart | Coder's persistent home volume (M3/M6) — a *template* property, not automatic |
+| Workspace durability | Workspace container restart | Coder's persistent home volume (M3/M6, re-verified with a byte-exact marker file at M16) — a *template* property, not automatic |
 | Process durability | Worker crash mid-execution | Temporal's Event History in Postgres (M8) |
 
 ---

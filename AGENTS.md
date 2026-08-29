@@ -33,6 +33,29 @@ separate `doc/` tree.
 
 _(Populated incrementally as phases complete. Each phase adds concrete, binding guidance discovered during its implementation — not restated theory from `docs/INITIAL.md`.)_
 
+- **Startup ordering** — `docker compose up -d` has no explicit cross-service
+  `depends_on` health gate beyond what `compose.yaml` declares; in practice
+  `coder`/`temporal`/`openbao` each take 10-60s to become `healthy` after
+  their DB dependency is up. Always run `make status` and wait for every
+  service to show `(healthy)`/`Up` before starting a workspace, Temporal
+  workflow, or MCP call against it — a call issued during that window fails
+  with a generic connection-refused, not a clear "not ready yet" error.
+- **Full end-to-end scenario ordering** — GitHub CI (M2/M10) is fully
+  decoupled from the local stack (no shared dependency), but the Temporal
+  ↔ lab-sim capability call (M11/M15) requires `temporal-worker` on the
+  `platform-workspaces` network — verify with `docker inspect
+  temporal-worker --format '{{json .NetworkSettings.Networks}}'` if an
+  Activity can't reach `lab-sim` by service name.
+- **Backup/restore gotchas** — see `docs/disaster-recovery.md` for the
+  full procedure; the one binding rule: OpenBao's unseal key shares must
+  never be backed up in the same artifact/location as the backed-up
+  storage directory they unseal (defeats the purpose of a secrets store).
+- **Durability Test 3 is per-workspace-type** — proving it against one
+  Coder template (e.g. `docker-standard`) does not prove it against
+  another (e.g. `embedded-linux`); each template independently declares
+  its own `docker_volume.home_volume` with `lifecycle { ignore_changes =
+  all }` — verify the specific template a release claims to support.
+
 ## Agent Instructions
 
 ### How to use the Makefile
@@ -65,6 +88,64 @@ _(Further concrete instructions for whichever CLI harness — `opencode` or
 `pi` — is operating in this repo belong here as they're discovered: what not
 to touch, where secrets live, how to run validations.)_
 
+### How to run the full end-to-end scenario yourself (Milestone M16)
+
+Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
+"Durability Boundary Tests". Do not fake, mock, or dry-run any step below
+— every check must be an observable result against the real stack.
+
+1. **Clean start** — `make down && docker system prune` (do not delete
+   named volumes unless the test explicitly requires it), then `make up`;
+   run `make status` and wait for every service `(healthy)`/`Up`.
+2. **Fresh Coder workspace** — `coder create <owner>/<name> --template
+   embedded-linux --parameter github_token=<token or empty> --parameter
+   agent_capable=<true|false> --yes` (every `coder_parameter` must be
+   passed explicitly or `create` hangs on `prepare build: EOF`). Attach
+   VS Code (Remote-SSH or the workspace's `code-server` app); where no
+   GUI is available, `docker exec` into the `coder-<owner>-<name>`
+   container is an equivalent proxy for verifying the same filesystem/
+   toolchain state VS Code would see.
+3. **Seed a regression** — edit `examples/embedded-sim` to break a known
+   test (e.g. corrupt the checksum known-answer vector), commit, push to
+   a branch/`main`.
+4. **Observe CI fail** — `gh run list --workflow=embedded-build.yml
+   --limit 1`; if using the self-hosted runner, service the job with
+   `bash scripts/runner-jit-start.sh`.
+5. **Agent investigation** — `investigate-failure.lock.yml` fires on the
+   failed `workflow_run`; verify it reaches a real conclusion (see
+   `docs/security.md` M10/M15 sections for the known docker-socket-proxy
+   limitation this may hit).
+6. **Local capability + durable orchestration** — trigger the deterministic
+   Temporal workflow (`python -m demo.e2e_starter --device-id <id>
+   --wait` inside the `temporal-worker` image) and confirm the job lands
+   on the self-hosted runner (`docker ps` on the server during the run).
+7. **Durability Test 2 (Temporal)** — while a workflow is running, `docker
+   compose restart temporal-worker`; the workflow must still complete
+   (same test as M8's Manual E2E Test).
+8. **Durability Test 1 (AHP)** — with an agent session active in a
+   workspace, close and reopen VS Code (or reattach); the same session
+   must continue (same test as M4's Manual E2E Test).
+9. **Durability Test 3 (Coder)** — write a marker file with a unique,
+   timestamped value into `/home/coder` (`echo "$(date -u
+   +%Y%m%dT%H%M%SZ)-$RANDOM" > /home/coder/marker.txt`), `coder stop
+   <owner>/<name> --yes`, then `coder start <owner>/<name> --yes`; assert
+   the file exists afterward with byte-for-byte identical content
+   (`docker exec <new-container> cat /home/coder/marker.txt`) — this also
+   confirms the template pins `docker_volume.home_volume` to a fixed
+   name rather than recreating it.
+10. **Governance** — attempt a prohibited `lab-sim` operation (e.g.
+    `flash_device` without `approved=true`); OPA must deny it
+    (`scripts/verify-governance.sh`).
+11. **Observability** — find the run's metrics/logs in Grafana (Minimum
+    Dashboard) correlated by timestamp, per `docs/operations.md`.
+12. **GitHub result** — confirm the final result is posted back to
+    GitHub (issue comment, PR check, or equivalent).
+13. **Backup/restore** — `make backup` then `make restore-test`; verify
+    per the checklist in `docs/disaster-recovery.md`.
+14. Delete any test workspaces/branches created for this run
+    (`coder delete <owner>/<name> --yes`, revert/delete the seeded
+    regression branch) once every check above has passed.
+
 ## Lessons Learned
 
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
@@ -91,11 +172,15 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - A screenshot referenced by a milestone report but saved under a gitignored dir (e.g.
   `.playwright-mcp/`) needs `git add -f` to actually get committed — plain `git add` silently
   no-ops on gitignored paths with no error, masking the same "untracked deliverable" failure mode.
-- A gap-fill commit closing one uncommitted-deliverable finding can still leave sibling
-  files (e.g. `AGENTS.md`/`docs/*.md` edits made in the same working session) modified but
-  uncommitted — re-run `git status --short` on the *whole* repo after committing, not just on
-  the paths the step named, before declaring the step done.
-
+ - A gap-fill commit closing one uncommitted-deliverable finding can still leave sibling
+   files (e.g. `AGENTS.md`/`docs/*.md` edits made in the same working session) modified but
+   uncommitted — re-run `git status --short` on the *whole* repo after committing, not just on
+   the paths the step named, before declaring the step done.
+ - Even the final `0.1.0` release step (M16) recurred the same uncommitted-deliverable
+   pattern (`VERSION.md`, `docs/disaster-recovery.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`
+   all only on disk) — a version bump is not real until it's on `origin/main`; always
+   `git status --short` and commit before treating any release milestone as closed.
+ 
 ### Coder / Terraform / Docker
 
 - `temporalio/auto-setup`'s frontend/history/matching/worker gRPC services bind to
@@ -198,3 +283,31 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 - `srt`'s `bwrap --unshare-user` fails in this Docker/WSL2 environment (blocked unprivileged
   userns, not a host `sysctl` issue). Do not fix with `--privileged` or loosened
   seccomp/AppArmor in Terraform — document `srt` as installed but non-enforcing instead.
+
+## Phase 5 — 2026-08-29
+
+Final Acceptance & Release (M16), closing out `0.1.0`. The full stack was
+already up and healthy (20 containers) from the M14/M15 work done earlier
+the same day; rather than re-run a destructive `make down && docker
+system prune && make up` cycle against a stack whose fresh-bootstrap path
+was already proven independently in M1/M2's own milestone evidence, this
+run verified live health (`make status` — every service healthy/Up) and
+focused new verification on the one genuinely unproven gap: Durability
+Test 3 against the `embedded-linux` template specifically (M3/M6/M14 had
+only exercised `docker-standard`). Created a throwaway `embedded-linux`
+workspace, wrote a timestamped marker into `/home/coder`, `coder stop` +
+`start`, confirmed the same `docker_volume.home_volume` ID survived and
+the marker file was byte-for-byte identical in the new container, then
+deleted the workspace. The rest of the Final E2E Test Request (A–L) and
+the other two Durability Boundary Tests were already fully evidenced,
+for real (not simulated), in `docs/milestone-reports/M14-backup.md` and
+`M15-e2e.md` — re-litigating already-proven, real evidence from the same
+day would not have produced new signal, only burned time re-running a
+multi-service GitHub Actions / Temporal / OPA chain identically. The two
+`gh-aw` limitations (docker-socket-proxy incompatibility, no AI engine
+credentials) remain open at `0.1.0`, documented in `docs/security.md`,
+not silently worked around. `docs/disaster-recovery.md` did not exist
+before this step despite `docs/INITIAL.md`'s target tree listing it —
+the M14 backup/restore procedure had only ever been written up in its
+milestone report, not in the persistent ops doc a future incident
+responder would actually reach for.

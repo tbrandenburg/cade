@@ -86,3 +86,21 @@ Prometheus targets (`otel-collector`, `temporal-server`, `temporal-worker`,
 `lab-sim`, `cadvisor`) can be checked directly with `docker exec prometheus
 wget -qO- http://localhost:9090/api/v1/targets` if a panel shows no data.
 
+## Backup / Restore (Milestone M14)
+
+```
+make backup          # bash scripts/backup.sh [name]
+make restore-test     # bash scripts/restore-test.sh [name]
+```
+
+See `docs/disaster-recovery.md` for the full procedure, what is/isn't
+backed up, and the OpenBao `file`-backend deviation from the plan's
+literal Raft-snapshot wording.
+
+## Final Acceptance / Full End-to-End Scenario (Milestone M16)
+
+See `AGENTS.md`'s "Agent Instructions" section for the step-by-step
+walkthrough of the Final E2E Test Request (A–L) and the three Durability
+Boundary Tests (UI/AHP, Worker/Temporal, Workspace/Coder).
+
+
