@@ -84,6 +84,14 @@ temporal-demo-start:
 		--entrypoint python \
 		cade/temporal-worker:latest -m demo.starter
 
+## temporal-build-demo-start: Start one execution of the Issue #5 build-in-workspace demo workflow.
+temporal-build-demo-start:
+	@docker run --rm --network platform-control \
+		-e TEMPORAL_ADDRESS=temporal:7233 \
+		-e DEMO_TASK_QUEUE=demo-durable-workflow \
+		--entrypoint python \
+		cade/temporal-worker:latest -m demo.build_starter --wait
+
 ## governance-bootstrap: Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token (Milestone M12).
 governance-bootstrap:
 	@bash scripts/openbao-init.sh

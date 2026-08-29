@@ -316,6 +316,11 @@ services:
       METRICS_BIND_ADDRESS: "0.0.0.0:9091"
       LAB_SIM_URL: http://lab-sim:8300/mcp/
       LAB_SIM_AGENT_TOKEN: ${LAB_SIM_AGENT_TOKEN:-change-me-a}
+      # Issue #5 MVP: separate Docker socket proxy for the new
+      # run_build_command Activity only — deliberately NOT reusing
+      # DOCKER_HOST/runner-docker-proxy above, see build-docker-proxy
+      # below and docs/security.md.
+      BUILD_DOCKER_HOST: tcp://build-docker-proxy:2375
     volumes:
       - temporal_worker_state:/var/lib/demo-worker
     networks:
@@ -326,6 +331,42 @@ services:
         condition: service_healthy
       lab-sim:
         condition: service_healthy
+
+  # build-docker-proxy: Issue #5 MVP. Separate, minimally-privileged Docker
+  # socket proxy used ONLY by `temporal-worker`'s new `run_build_command`
+  # Activity to spin up ephemeral containers from `cade/coder-workspace:
+  # latest` (or any other pre-built image) — kept deliberately distinct
+  # from `runner-docker-proxy` above (different consumer, different
+  # allow-list) rather than widening that proxy's scope. Only
+  # container/image lifecycle + POST are allow-listed (no BUILD, no EXEC,
+  # no VOLUMES/NETWORKS/SWARM/SYSTEM) — see docs/security.md. Not
+  # published to the host — reachable only from platform-workspaces.
+  build-docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: build-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+      VERSION: 1
+      PING: 1
+      EXEC: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      SWARM: 0
+      SYSTEM: 0
+      BUILD: 0
+      PLUGINS: 0
+      NODES: 0
+      SERVICES: 0
+      TASKS: 0
+      SECRETS: 0
+      CONFIGS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - platform-workspaces
 
   # lab-sim: Milestone M11. MCP/HTTP "Lab Simulator" service - simulated
   # ECU/BMS devices (no physical hardware), reservation lifecycle bound to

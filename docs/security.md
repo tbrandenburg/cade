@@ -311,3 +311,19 @@ JIT self-hosted runner (M2), the same OPA-gated `lab-sim` MCP tool calls
 investigator (M10) already documented. The two open `gh-aw` limitations
 above (docker-socket-proxy incompatibility, no AI engine credentials)
 remain open and unresolved at `0.1.0` — not silently worked around.
+
+## Issue #5 MVP — build-docker-proxy
+
+`temporal-worker`'s new `run_build_command` Activity reaches Docker
+through its own `build-docker-proxy` service (`tecnativa/docker-socket-
+proxy`), deliberately separate from `runner-docker-proxy` (M2) — a
+different consumer with a different allow-list rather than widening an
+existing proxy's scope. Only `CONTAINERS`, `IMAGES`, `POST`, `VERSION`,
+and `PING` are enabled; `EXEC`, `VOLUMES`, `NETWORKS`, `SWARM`, `SYSTEM`,
+and `BUILD` all stay denied (unlike `runner-docker-proxy`, this Activity
+never needs `docker build`, only `docker run` against a pre-built image).
+Not published to the host — reachable only from `platform-workspaces`.
+The OPA policy gate the issue's larger plan calls for (approve/deny which
+images/commands may run) is explicitly out of scope for this MVP slice
+and remains a follow-up.
+
