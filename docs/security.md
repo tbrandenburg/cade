@@ -1,4 +1,4 @@
-# Security — devenv-cloud
+# Security — cade
 
 Actual security posture as implemented, per milestone. Keep in sync with
 `docs/ARCHITECTURE.md` and the risk-acceptance requirements in
@@ -14,10 +14,10 @@ this runner."*
 
 ```
 $ gh repo view --json visibility,nameWithOwner
-{"nameWithOwner":"tbrandenburg/devenv-cloud","visibility":"PUBLIC"}
+{"nameWithOwner":"tbrandenburg/cade","visibility":"PUBLIC"}
 ```
 
-`tbrandenburg/devenv-cloud` is currently **PUBLIC**, not private. This is a
+`tbrandenburg/cade` is currently **PUBLIC**, not private. This is a
 genuine, unresolved conflict with the plan's core M2 security precondition,
 not an oversight to silently work around:
 
@@ -61,7 +61,7 @@ Chosen over a persistent runner, per the plan's stated preference. Flow
 1. `gh api repos/<owner>/<repo>/actions/runners/generate-jitconfig` requests
    a one-time, single-job JIT configuration (labels:
    `self-hosted, linux, private-lab, docker`).
-2. `docker run --rm devenv-cloud/runner:latest --jitconfig <config>` starts
+2. `docker run --rm cade/runner:latest --jitconfig <config>` starts
    the runner container, which executes exactly one job and exits — no
    registration token or long-lived runner identity is ever persisted on
    disk or in the image.

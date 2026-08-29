@@ -190,7 +190,7 @@ check_ports() {
 }
 
 main() {
-  echo "== devenv-cloud host doctor (M0) =="
+  echo "== cade host doctor (M0) =="
   echo
 
   check_os

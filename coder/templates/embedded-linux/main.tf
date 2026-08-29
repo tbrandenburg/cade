@@ -219,7 +219,7 @@ resource "docker_volume" "home_volume" {
 # `coder delete`/`coder create` across every workspace from this template.
 # See cache/sccache/README.md.
 locals {
-  sccache_volume_name = "devenv-cloud-sccache-cache"
+  sccache_volume_name = "cade-sccache-cache"
 }
 
 resource "docker_container" "workspace" {

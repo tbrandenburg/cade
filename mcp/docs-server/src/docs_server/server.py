@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 
-mcp = MCPServer("devenv-cloud-docs")
+mcp = MCPServer("cade-docs")
 
 
 def _find_repo_root(start: Path) -> Path:

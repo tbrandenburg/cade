@@ -1,6 +1,6 @@
 # Workspace image for the `embedded-linux` Coder template (Milestone M6).
 #
-# Layers on top of the standard `devenv-cloud/coder-workspace` image (same
+# Layers on top of the standard `cade/coder-workspace` image (same
 # base, agent CLIs, non-root `coder` user) with an embedded-style
 # cross-compilation toolchain: cmake, ninja, an aarch64 cross-gcc plus its
 # target libc headers/libs, and qemu-user (userspace emulation only — no
@@ -11,7 +11,7 @@
 # requirement. Pushing the resulting digest to a local OCI registry is
 # introduced in M7; until then, the digest is recorded manually in
 # docs/milestone-reports/M6-embedded.md.
-FROM devenv-cloud/coder-workspace:latest
+FROM cade/coder-workspace:latest
 
 USER root
 

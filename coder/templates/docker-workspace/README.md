@@ -25,7 +25,7 @@ make coder-workspace-build                       # unrestricted network
 make coder-workspace-build CACERT=/path/to/ca.pem # behind a MITM proxy
 ```
 
-This produces `devenv-cloud/coder-workspace:latest`, the default value of
+This produces `cade/coder-workspace:latest`, the default value of
 `workspace_image`.
 
 ## Push a template revision
@@ -33,7 +33,7 @@ This produces `devenv-cloud/coder-workspace:latest`, the default value of
 ```bash
 coder templates push docker-standard \
   --directory coder/templates/docker-workspace \
-  --var repo_url=https://github.com/<org>/devenv-cloud.git
+  --var repo_url=https://github.com/<org>/cade.git
 ```
 
 Per Coder's security best practices, push from CI using a dedicated

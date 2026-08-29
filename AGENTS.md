@@ -1,18 +1,18 @@
-# AGENTS.md — devenv-cloud
+# AGENTS.md — cade
 
 Instructions and accumulated knowledge for any AI agent (human or automated) working in this repository. Update this file at the end of every phase per `docs/phases/README.md`.
 
 ## How to use this file
 
 - Read this file before starting work on any phase or milestone.
-- Read `docs/ARCHITECTURE.md` alongside it — a condensed C4-model (Context/Container/Component) view of the platform, based on `docs/devenv-cloud.png` and `docs/INITIAL.md` Section 2. Use it for quick orientation; `docs/INITIAL.md` remains authoritative for details.
+- Read `docs/ARCHITECTURE.md` alongside it — a condensed C4-model (Context/Container/Component) view of the platform, based on `docs/cade.png` and `docs/INITIAL.md` Section 2. Use it for quick orientation; `docs/INITIAL.md` remains authoritative for details.
 - Update it before closing out a phase — do not leave it stale.
 - Keep entries dated and attributed to a phase/milestone so history stays traceable.
 - Prefer appending to "Lessons Learned" over rewriting history; only edit "Guidelines" when a rule changes.
 
 ## Purpose of this repository
 
-devenv-cloud is a Docker-first, single-repository private developer platform:
+cade is a Docker-first, single-repository private developer platform:
 remote development, agent-assisted coding, GitHub automation, durable
 orchestration, and governance/observability, running entirely on one Linux
 server with no inbound Internet exposure and no paid cloud infrastructure.
@@ -70,11 +70,11 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`, etc.) — data persists across `down`/`up`. |
 | `make status` | — | `docker compose ps` — check container health before assuming the stack is up. As of Phase 4 this covers all 18 services (Coder, Temporal, OpenBao, OPA, MCP lab-sim, Prometheus/Loki/Grafana, self-hosted-runner support, registry, cAdvisor), not just Postgres+Coder. |
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
-| `make coder-workspace-build` | M3 | Builds and tags the `devenv-cloud/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
-| `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `devenv-cloud/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
+| `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
+| `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `cade/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
 | `make runner-build` | M2 | Builds the self-hosted GitHub Actions runner image (pinned Ubuntu digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Convenience wrapper; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (just-in-time), one-job-then-destroy runner registration. |
-| `make temporal-worker-build` | M8 | Builds `devenv-cloud/temporal-worker:latest`. |
+| `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. |
 | `make temporal-demo-start` | M8 | Starts one durable-workflow execution against the live Temporal cluster; prints `workflow_id`. |
 | `make governance-bootstrap` | M12 | Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token. **Must be re-run any time the `openbao` container is recreated** — it does not auto-unseal across restarts. |
 | `make governance-verify` | M12 | Runs `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip (`scripts/verify-governance.sh`). |
@@ -288,6 +288,25 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   `403 Forbidden by administrative rules` (not an auth error) — `docker build`'s context is
   streamed over the API from the client, so enabling `BUILD=1` alone (no bind-mounted path)
   is the minimal widening needed for a self-hosted-runner Docker build step.
+
+- 2026-08-29: Rebranding `devenv-cloud` -> `cade` surfaced that `compose.yaml`
+  had no explicit top-level `name:` key, so Compose derived the project name
+  (and every named-volume prefix, e.g. `devenv-cloud_coder_db_data`) from the
+  directory name — renaming/moving the directory without pinning `name:`
+  first would have silently orphaned Coder's DB, Temporal's history, and
+  OpenBao's sealed storage on the next `docker compose up -d`. Pin `name:`
+  explicitly before any directory-level rename, independent of what the
+  eventual project name is. Separately, a hardcoded `docker_volume` name
+  (`coder/templates/embedded-linux/main.tf`'s `sccache_volume_name`) needed
+  the same one-off `docker run --rm -v old:/from -v new:/to alpine cp -a
+  /from/. /to/` migration pattern before the Terraform string was changed,
+  or the sccache build cache would have gone cold on the next embedded
+  build. Live OpenBao secret-engine paths (`secret/devenv-cloud/*`) and
+  Docker volume prefixes covered by the compose `name:` pin were
+  deliberately left un-renamed in docs — renaming the doc strings without
+  migrating the real infra they describe would make the docs lie about
+  live state; a full OpenBao secret-path migration is a separate, higher-risk
+  follow-up.
 
 ### Sandbox / security
 

@@ -39,7 +39,7 @@ docker run --rm --network platform-workspaces docker:27-cli \
 ## Toolchain image provenance (M6/M7)
 
 `coder/embedded-linux/Dockerfile`'s image is tagged
-`devenv-cloud/embedded-linux-workspace:latest` locally (M6). Pushing it to
+`cade/embedded-linux-workspace:latest` locally (M6). Pushing it to
 `registry:5000/embedded-linux-workspace` for content-addressable pull is
 the natural next step once a workspace/CI job needs to pull it from
 somewhere other than the local Docker daemon that built it; until then the

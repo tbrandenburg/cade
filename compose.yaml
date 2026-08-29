@@ -1,3 +1,9 @@
+name: devenv-cloud # pinned explicitly: the eventual devenv-cloud -> cade rebrand
+# must not change this until a deliberate, verified volume-migration step has
+# run (see AGENTS.md "Lessons Learned" for the 2026-08-29 rebrand-plan entry) —
+# Compose derives the project name (and every named-volume prefix, e.g.
+# devenv-cloud_coder_db_data) from the directory name unless pinned here.
+
 services:
   coder-db:
     image: postgres:17.6-alpine
@@ -128,7 +134,7 @@ services:
     restart: unless-stopped
     environment:
       REGISTRY_AUTH: htpasswd
-      REGISTRY_AUTH_HTPASSWD_REALM: devenv-cloud-registry
+      REGISTRY_AUTH_HTPASSWD_REALM: cade-registry
       REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     volumes:
@@ -293,7 +299,7 @@ services:
   # carries the same bearer-token identity ("agent-a") the manual M11/M12
   # verification scripts use.
   temporal-worker:
-    image: devenv-cloud/temporal-worker:latest
+    image: cade/temporal-worker:latest
     container_name: temporal-worker
     restart: unless-stopped
     environment:
@@ -339,7 +345,7 @@ services:
   # logic lives in governance/opa/policy/lab_authz.rego, not in this
   # container.
   lab-sim:
-    image: devenv-cloud/lab-sim:latest
+    image: cade/lab-sim:latest
     container_name: lab-sim
     restart: unless-stopped
     environment:

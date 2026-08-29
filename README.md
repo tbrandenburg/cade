@@ -1,11 +1,11 @@
-# devenv-cloud
+# cade
 
 **A Docker-first, single-repository private developer platform** for remote
 development, agent-assisted coding, GitHub automation, durable orchestration,
 and governance/observability — running entirely on one Linux server, with no
 inbound Internet exposure and no paid cloud infrastructure required.
 
-![Seven-layer architecture reference](docs/devenv-cloud.png)
+![Seven-layer architecture reference](docs/cade.png)
 
 **Status: `0.1.0` released** — all 16 milestones across 5 phases are
 delivered and evidenced. See [Project status](#project-status) below.
@@ -25,7 +25,7 @@ delivered and evidenced. See [Project status](#project-status) below.
 
 ## What this is
 
-devenv-cloud lets a developer open VS Code, connect to a durable remote
+cade lets a developer open VS Code, connect to a durable remote
 session over Tailscale/SSH, and drive an AI coding agent (OpenCode, Pi,
 Copilot, Claude, Gemini, ...) against an isolated, reproducible Docker
 workspace — with the session surviving editor restarts, workspace restarts,
@@ -73,7 +73,7 @@ implementation plan this repository executes.
 
 Most "cloud dev environment" products require a SaaS account, a paid
 control plane, and outbound trust in a third party's infrastructure just to
-edit code. devenv-cloud proves the same developer experience — persistent
+edit code. cade proves the same developer experience — persistent
 remote workspaces, AI-agent-assisted coding, CI automation, durable
 long-running jobs, policy-gated access to real/simulated hardware, and
 centralized observability — is achievable on a single Linux box you already
@@ -83,7 +83,7 @@ Prometheus/Loki/Grafana) wired together with Docker Compose and Terraform.
 ## Repository layout
 
 ```
-devenv-cloud/
+cade/
 ├── Makefile                     # host prep, stack lifecycle, image builds, backup/restore
 ├── compose.yaml                  # full platform stack (Coder, Temporal, MCP, governance, observability)
 ├── coder/                         # workspace container images + Terraform templates
