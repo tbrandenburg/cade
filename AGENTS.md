@@ -165,6 +165,11 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   sealed (all reads 503) until `scripts/openbao-init.sh` is rerun against the existing
   `governance/openbao/unseal/init.json`; do not assume a previously-verified root-token
   revocation still holds without re-checking seal status first.
+- `bao operator raft snapshot save`/restore only applies to the `raft` storage backend — this
+  stack's `openbao.hcl` uses `storage "file"`; Shamir unseal keys are tied to one specific
+  `bao operator init`, so a fresh re-init after a restore can never be unsealed by old backed-up
+  keys — back up/restore the `file` backend's storage directory itself (raw, point-in-time tar),
+  not `bao operator init` + KV replay, if "unseal with the backed-up keys" must hold after restore.
 - otelcol-contrib's `prometheusexporter` with `resource_to_telemetry_conversion.enabled: true`
   silently drops any metric whose own attributes collide with a promoted resource attribute
   (e.g. Temporal SDK's `job`) — `docker logs otel-collector` shows one `failed to convert
