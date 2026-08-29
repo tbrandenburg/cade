@@ -184,6 +184,14 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   append `_total` to counter metric names on its native endpoint (verified live: flag has no
   effect regardless of scrape `Accept` header) — write dashboard queries against the
   un-suffixed name (e.g. `temporal_activity_task_received`, not `..._received_total`) instead.
+- An MCP `streamable_http_app`'s DNS-rebinding protection 401s any request whose Host header
+  isn't in `transport_security.allowed_hosts` (checked before the app's own bearer-token auth)
+  — a cross-container caller reaching the service by its compose service name (e.g.
+  `lab-sim:8300`, not `127.0.0.1:8300`) must have that exact host:port explicitly allow-listed.
+- `tecnativa/docker-socket-proxy`'s per-group `BUILD=0` blocks `docker build` with a generic
+  `403 Forbidden by administrative rules` (not an auth error) — `docker build`'s context is
+  streamed over the API from the client, so enabling `BUILD=1` alone (no bind-mounted path)
+  is the minimal widening needed for a self-hosted-runner Docker build step.
 
 ### Sandbox / security
 
