@@ -222,6 +222,12 @@ resource "docker_container" "workspace" {
     read_only      = false
   }
 
+  # The bind-mounted socket is owned by the host's `docker` group; without
+  # adding that GID here, the non-root `coder` user inside the bootstrap
+  # image gets `permission denied` from every `docker`/`devcontainer` CLI
+  # call (found live: `docker ps` failing during `devcontainer up`).
+  group_add = var.docker_gid != "" ? [var.docker_gid] : []
+
   labels {
     label = "coder.owner"
     value = data.coder_workspace_owner.me.name

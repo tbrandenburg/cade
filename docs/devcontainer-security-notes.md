@@ -95,3 +95,56 @@ not meaningfully sandboxed by the outer container boundary at all.
 
 None of the above is implemented in this pass — this document exists so
 the tradeoff is visible and reviewable before a future issue picks one.
+
+## Live E2E findings (2026-08-29) — two real bugs found and fixed, one architectural gap found and NOT fixed
+
+A full live E2E was run against a freshly-reset Coder instance (fresh admin
+user bootstrapped via `POST /api/v2/users/first`, since no cached session
+existed in this environment): `coder templates push devcontainer`,
+`coder create --template devcontainer`, inner/outer container inspection.
+
+**Fixed (real bugs, not hypothetical):**
+
+1. **Missing `docker` group GID passthrough.** The outer bootstrap
+   container's non-root `coder` user had no access to the bind-mounted
+   `/var/run/docker.sock` (`permission denied`, breaking every
+   `docker`/`devcontainer` CLI call, confirmed via `docker exec ... docker
+   ps` before/after). Fixed by adding a `docker_gid` Terraform variable
+   (default `988`, override via `--variable docker_gid=$(getent group
+   docker | cut -d: -f3)` per host) and `group_add` on
+   `docker_container.workspace` in `main.tf`.
+
+**Found, NOT fixed — genuine architectural gap, deferred to a follow-up issue:**
+
+2. **Named-volume home directory is incompatible with docker-outside-of-docker
+   bind-mounting the workspace into the *inner* container.**
+   `docker_volume.home_volume` mounts at `/home/coder` as a Docker *named
+   volume* (`coder-<id>-home`), which only exists inside the outer
+   container's mount namespace — its real host-filesystem location is
+   `/var/lib/docker/volumes/coder-<id>-home/_data`, not `/home/coder`.
+   When the `devcontainer` CLI (running *inside* the outer container)
+   asks the *host's* Docker daemon (via the shared socket) to bind-mount
+   `/home/coder/project` into the inner container, the host daemon
+   resolves that path against the **real host filesystem**, where it
+   does not exist — confirmed live: `ls /home/coder/project` inside the
+   outer container showed the cloned repo; `docker inspect
+   coder-admin-devcontainer-e2e --format '{{range .Mounts}}...'` showed
+   `/home/coder` mounted from `/var/lib/docker/volumes/coder-*-home/_data`
+   (not `/home/coder` literally); the resulting inner container's
+   `postCreateCommand` failed with `chdir to cwd ("/workspaces/project")
+   ... no such file or directory`, and the real host gained an empty,
+   spuriously-created `/home/coder/` directory as a side effect.
+   This is the same fundamental "docker-outside-of-docker needs
+   host-path-identity between outer and inner mounts" limitation that
+   most `devcontainer`/DinD tooling documents as a known constraint of
+   the *shared-socket* approach specifically (as opposed to a nested
+   Docker-in-Docker daemon, hardening option 1 above, which does not
+   have this problem since the sidecar's paths are its own).
+   **Not fixed here** because the correct fix (bind-mounting a real host
+   directory, e.g. `/var/lib/cade/devcontainer-workspaces/<workspace-id>`,
+   instead of a named Docker volume for `/home/coder`) breaks this
+   template's parity with the "docker volume, not directory" durability
+   convention used by every other Coder template in this repo (see
+   `AGENTS.md`'s Durability Test 3 guidance) and needs its own
+   design/review pass, not a one-line patch.
+
