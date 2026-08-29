@@ -71,13 +71,19 @@ services:
       VERSION: 1
       PING: 1
       # Explicitly deny everything higher-privilege: no exec, no volumes/
-      # networks/swarm/plugins/nodes management, no build.
+      # networks/swarm/plugins/nodes management.
       EXEC: 0
       VOLUMES: 0
       NETWORKS: 0
       SWARM: 0
       SYSTEM: 0
-      BUILD: 0
+      # M15: enabled deliberately - .github/workflows/embedded-build.yml's
+      # "GitHub -> self-hosted runner -> Docker -> embedded build" step
+      # needs `docker build` (the M6 embedded-sim toolchain image is built
+      # from a Dockerfile streamed as build context over the API, not
+      # bind-mounted, so this is the minimal capability that unblocks it -
+      # EXEC/VOLUMES/NETWORKS/SWARM/SYSTEM stay denied).
+      BUILD: 1
       PLUGINS: 0
       NODES: 0
       SERVICES: 0

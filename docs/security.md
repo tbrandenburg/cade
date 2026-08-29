@@ -86,8 +86,15 @@ Chosen mitigation (option 3 in the plan's preference order — socket proxy):
   `PING` — enough to run `docker version` and `docker run --rm
   hello-world`.
 - Explicitly denied: `EXEC`, `VOLUMES`, `NETWORKS`, `SWARM`, `SYSTEM`,
-  `BUILD`, `PLUGINS`, `NODES`, `SERVICES`, `TASKS`, `SECRETS`, `CONFIGS` —
+  `PLUGINS`, `NODES`, `SERVICES`, `TASKS`, `SECRETS`, `CONFIGS` —
   no host-level or lateral-movement operations.
+- **M15 update:** `BUILD` was turned on deliberately (was `0` through M14)
+  so `.github/workflows/embedded-build.yml` can run `docker build` for the
+  deterministic embedded-sim firmware image. This is a minimal, scoped
+  widening, not a general relaxation: `docker build`'s context is streamed
+  to the daemon over the API from the client (the runner container), so it
+  never needed - and still doesn't get - a bind-mounted host path; `EXEC`/
+  `VOLUMES`/`NETWORKS`/`SWARM`/`SYSTEM` remain denied.
 - The runner container reaches it via `DOCKER_HOST=tcp://runner-docker-proxy:2375`,
   set per-step in `runner-smoke.yml` (not baked into the image or a global
   env, so a compromised job can't silently rely on it existing elsewhere).
