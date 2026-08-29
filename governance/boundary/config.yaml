@@ -15,20 +15,18 @@
 # boundary allowlist adds since it wraps the actual agent harness
 # process rather than an editor extension host.
 #
-# UNTESTED RISK (do not assume this works): `jail_type: nsjail` uses the
-# same `bwrap`/user-namespace primitives that AGENTS.md already records
-# as failing for `srt` in this Docker/WSL2 environment
-# (`bwrap --unshare-user` blocked by unprivileged userns restrictions).
-# `boundary`'s nsjail backend has NOT been live-tested in this
-# environment (no built `cade/agent-workspace:latest` image and no
-# running workspace were available in this step). If nsjail fails the
-# same way at E2E test time (T9), the documented fallback order is:
-#   1. Retry with `jail_type: landjail` (Landlock-based, no user
-#      namespace required — may work where nsjail does not).
-#   2. If `landjail` also fails, document `boundary` as installed but
-#      non-enforcing in this environment (same precedent as `srt`'s
-#      `bwrap --unshare-user` in AGENTS.md) rather than silently
-#      loosening sandbox flags or claiming enforcement that isn't real.
+# RESOLVED at E2E test time (issue #13, T9), against a real built
+# `cade/agent-workspace:latest` image: `jail_type: nsjail` DOES fail in
+# this environment, exactly as predicted — `setpriv: apply capabilities:
+# Operation not permitted` (the same underlying unprivileged-userns
+# restriction AGENTS.md already documents for `srt`'s
+# `bwrap --unshare-user`). Falling back to `jail_type: landjail`
+# (Landlock-based, no user namespace required) DOES work: verified live,
+# `boundary --jail-type landjail -- curl https://api.github.com` (an
+# allowlisted domain) returned 200, and the same command against
+# `https://example.com` (not allowlisted) returned 403 from boundary's
+# own proxy — a real, enforced block, not a silent pass-through. `landjail`
+# is therefore the default here, not `nsjail`.
 allowlist:
   - "domain=github.com"
   - "domain=*.github.com"
@@ -36,7 +34,7 @@ allowlist:
   - "domain=registry.npmjs.org"
   - "domain=pypi.org"
   - "domain=files.pythonhosted.org"
-jail_type: nsjail
+jail_type: landjail
 log_dir: /tmp/boundary_logs
 proxy_port: 8087
 log_level: warn

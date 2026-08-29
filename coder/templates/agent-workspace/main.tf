@@ -161,6 +161,15 @@ BOUNDARY_ALIASES
     # repo root — same limitation already noted for `agent_host_settings`
     # above), so the content is embedded inline here and MUST be kept in
     # sync by hand with `governance/boundary/config.yaml`.
+    #
+    # jail_type: landjail (not nsjail) — verified live at E2E test time
+    # (T9) against a real built cade/agent-workspace:latest image:
+    # nsjail fails in this environment with the same unprivileged-userns
+    # restriction AGENTS.md already documents for `srt`'s
+    # `bwrap --unshare-user` ("setpriv: apply capabilities: Operation not
+    # permitted"). landjail worked: a real `curl` to an allowlisted
+    # domain returned 200, a non-allowlisted domain returned 403 from
+    # boundary's own proxy.
     if [ ! -f ~/.boundary/config.yaml ]; then
       mkdir -p ~/.boundary
       cat > ~/.boundary/config.yaml <<'BOUNDARY_CONFIG'
@@ -171,7 +180,7 @@ allowlist:
   - "domain=registry.npmjs.org"
   - "domain=pypi.org"
   - "domain=files.pythonhosted.org"
-jail_type: nsjail
+jail_type: landjail
 log_dir: /tmp/boundary_logs
 proxy_port: 8087
 log_level: warn
