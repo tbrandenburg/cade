@@ -17,6 +17,7 @@ delivered and evidenced. See [Project status](#project-status) below.
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
   - [Resetting a Coder user's password](#resetting-a-coder-users-password)
+  - [Corporate TLS-intercepting proxy: trusting a CA for Coder itself](#corporate-tls-intercepting-proxy-trusting-a-ca-for-coder-itself)
 - [User journeys](#user-journeys)
 - [Makefile targets](#makefile-targets)
 - [Project status](#project-status)
@@ -207,6 +208,45 @@ Only wipe `coder-db` entirely (`docker compose down && docker volume rm
 devenv-cloud_coder_db_data && make up`) if you actually want to destroy
 every workspace/template/user and start over — not as a password-reset
 shortcut.
+
+### Corporate TLS-intercepting proxy: trusting a CA for Coder itself
+
+Workspace creation can fail during Terraform's provider download step
+with:
+
+```
+Error: Failed to query available provider packages
+Could not retrieve the list of available versions for provider coder/coder:
+could not connect to registry.terraform.io: ... tls: failed to verify
+certificate: x509: certificate signed by unknown authority
+```
+
+This is the same corporate/TLS-intercepting-proxy class of issue covered
+by `CACERT=/path/to/ca-bundle.pem` on the various `make *-build` targets,
+but it happens differently here: `terraform init` runs *inside the running
+`coder` server container itself* (fetching the `coder/coder` and
+`kreuzwerker/docker` provider packages needed by every Terraform
+template), not at image build time. Since `ghcr.io/coder/coder` is pulled
+prebuilt (no repo-owned Dockerfile to bake a CA into) and runs as a
+non-root user that can't write into the image's own `/etc/ssl/certs`,
+fix it with:
+
+```bash
+scripts/coder-trust-ca.sh /path/to/corporate-ca-bundle.pem
+```
+
+This copies the container's existing trust bundle plus your corporate CA
+into a writable directory inside the persistent `coder_home` volume, then
+prints the `.env` line to point `SSL_CERT_DIR` at it:
+
+```bash
+echo "CODER_SSL_CERT_DIR=/home/coder/.local-ca-certs" >> .env
+docker compose up -d coder   # recreate so the env var takes effect
+```
+
+Retry workspace creation afterward. On unrestricted networks, leave
+`CODER_SSL_CERT_DIR` unset — `SSL_CERT_DIR` then defaults to empty, which
+is a no-op (Go falls back to its normal default cert directories).
 
 ## User journeys
 
