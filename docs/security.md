@@ -327,3 +327,12 @@ The OPA policy gate the issue's larger plan calls for (approve/deny which
 images/commands may run) is explicitly out of scope for this MVP slice
 and remains a follow-up.
 
+Gap-fill: `run_build_command` is now gated by OPA's `build.authz` policy
+(`governance/opa/policy/build_authz.rego`), evaluated live via OPA's
+decision API (`POST /v1/data/build/authz/allow`) before any container is
+run — mirroring the M12 `lab.authz` pattern. Default is fail-closed: only
+images on an explicit allow-list (`cade/coder-workspace:latest`,
+`cade/embedded-linux-workspace:latest`) are permitted; any other image, a
+missing/unreachable OPA decision API, or a non-`true` result all deny the
+request.
+

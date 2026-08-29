@@ -54,3 +54,10 @@ LAB_SIM_AGENT_TOKEN = os.environ.get("LAB_SIM_AGENT_TOKEN", "change-me-a")
 # socket for local/standalone testing outside compose.
 BUILD_DOCKER_HOST = os.environ.get("BUILD_DOCKER_HOST", "unix:///var/run/docker.sock")
 
+# Issue #5 gap-fill: OPA base URL for `demo/build_activity.py`'s
+# `run_build_command` authorization gate (`build.authz` policy, see
+# `governance/opa/policy/build_authz.rego`). Same in-compose service
+# hostname default as `mcp/lab-sim/src/lab_sim/policy.py`'s `OPA_URL`;
+# override for local/out-of-container testing.
+OPA_URL = os.environ.get("OPA_URL", "http://opa:8181")
+
