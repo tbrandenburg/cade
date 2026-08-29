@@ -270,6 +270,58 @@ procedure and the OpenBao-specific gotcha (a restored OpenBao instance
 always comes back **sealed**).
 </details>
 
+<details>
+<summary><strong>Journey 7 — Run a build command in a predefined workspace, durably, via Temporal</strong></summary>
+
+Trigger a real build/test command inside a short-lived container built
+from a pre-defined workspace image, orchestrated by a durable Temporal
+workflow — gated by a fail-closed OPA policy, not a shared Docker socket.
+
+```bash
+make temporal-worker-build
+make temporal-build-demo-start
+# -> result={"exit_code": 0, "ok": true, "output": "hello\n"}
+```
+
+Only images on the `build.authz` allow-list
+(`governance/opa/policy/build_authz.rego`) may run — an arbitrary image is
+denied before a single container is created:
+
+```bash
+docker run --rm --network platform-control -e TEMPORAL_ADDRESS=temporal:7233 \
+  -e DEMO_TASK_QUEUE=demo-durable-workflow --entrypoint python \
+  cade/temporal-worker:latest -m demo.build_starter \
+  --image evil/attacker:latest --command echo hi --wait
+# -> result={"error": "denied by build.authz policy for image='evil/attacker:latest'", "ok": false}
+```
+
+See `docs/security.md`'s "Issue #5" section for the `build-docker-proxy`
+isolation this runs through.
+</details>
+
+<details>
+<summary><strong>Journey 8 — A repo's own devcontainer.json as the workspace blueprint</strong></summary>
+
+Instead of a fixed pre-built workspace image, run a Coder workspace whose
+toolchain comes entirely from the cloned repo's own
+`.devcontainer/devcontainer.json`, built at start time — no manual
+template maintenance per project.
+
+```bash
+make devcontainer-workspace-build
+coder templates push devcontainer -d coder/templates/devcontainer --yes
+coder create <owner>/<name> --template devcontainer --yes \
+  --parameter github_token=<token> --parameter agent_capable=false \
+  --parameter devcontainer_path=examples/hello-service/.devcontainer
+```
+
+Under the hood, each workspace runs its own **nested, per-workspace**
+Docker-in-Docker daemon (not a shared host socket) so `devcontainer.json`
+builds/pulls/execs stay isolated per workspace. See
+`docs/devcontainer-security-notes.md` for the full design rationale and
+its accepted `privileged`-container tradeoff.
+</details>
+
 ## Makefile targets
 
 | Target | Milestone | Purpose |
