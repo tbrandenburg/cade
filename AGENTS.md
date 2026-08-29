@@ -174,6 +174,14 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   validate` + a real `docker build` of the template's bootstrap image is the strongest
   evidence obtainable for a brand-new Coder template without an existing authenticated session.
 
+- 2026-08-29: A subagent's "assumption: httpx is already a dependency" (based on seeing it
+  used elsewhere in a sibling service) was false for the actual package it edited — the
+  subagent never ran the code it wrote against a real built image. Its own handoff even
+  said "verify this if building a fresh image" but did not verify it itself. Always
+  actually import/run new third-party-library code inside the real built artifact
+  (`docker run --rm --entrypoint python <image> -c "import <lib>"`) before trusting a
+  subagent's dependency assumption, even when its stated confidence is high.
+
 ### Before trusting any "blocker" or "done" claim
 
 - Re-verify a stated blocker's premise with one direct command before repeating a prior
