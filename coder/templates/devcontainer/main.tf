@@ -13,6 +13,17 @@ locals {
   username      = data.coder_workspace_owner.me.name
   repo_url      = var.repo_url
   workspace_dir = "/home/coder/project"
+
+  # `devcontainer_path` is "path (relative to the cloned repo root)
+  # containing devcontainer.json" (e.g. `.devcontainer` or
+  # `examples/hello-service/.devcontainer`), but `coder_devcontainer`'s
+  # `workspace_folder` expects the *parent* folder that directly contains a
+  # `.devcontainer/` subdirectory (matches Coder's own reference template:
+  # https://github.com/coder/coder/blob/v2.36.3/examples/templates/docker-devcontainer/main.tf,
+  # where `workspace_folder = "~/${module.git-clone[0].folder_name}"` is the
+  # repo root itself, one level above its `.devcontainer/`).
+  devcontainer_parent_dir = dirname(data.coder_parameter.devcontainer_path.value)
+  workspace_folder        = local.devcontainer_parent_dir == "." ? local.workspace_dir : "${local.workspace_dir}/${local.devcontainer_parent_dir}"
 }
 
 provider "docker" {
@@ -63,64 +74,39 @@ resource "coder_agent" "main" {
   arch = data.coder_provisioner.me.arch
   os   = "linux"
 
-  # Clone the repository (idempotent, verbatim from the docker-standard
-  # template's GIT_ASKPASS pattern), then build/run the repo's own
-  # .devcontainer/devcontainer.json via the devcontainer CLI instead of
-  # assuming a fixed toolchain.
+  # No manual git-clone/devcontainer-cli invocation here anymore -- both are
+  # handled by the `git-clone` module and the native `coder_devcontainer`
+  # resource below. This script only starts the nested (per-workspace)
+  # Docker-in-Docker daemon that `coder_devcontainer` needs to build/run the
+  # inner container against, and applies the agent_capable autostop toggle.
   startup_script = <<-EOT
     set -e
 
-    if [ ! -d "${local.workspace_dir}/.git" ]; then
-      if [ -n "$GITHUB_TOKEN" ]; then
-        cat > /tmp/git-askpass.sh <<'ASKPASS'
-#!/bin/sh
-echo "$GITHUB_TOKEN"
-ASKPASS
-        chmod +x /tmp/git-askpass.sh
-        export GIT_ASKPASS=/tmp/git-askpass.sh
-        export GIT_TERMINAL_PROMPT=0
+    sudo service docker start
+
+    # Wait for the nested daemon to actually accept connections before the
+    # git-clone/devcontainer coder_script(s) (which run concurrently, not
+    # necessarily after this one) try to use it.
+    for i in $(seq 1 30); do
+      if docker info >/dev/null 2>&1; then
+        break
       fi
-      git clone "${local.repo_url}" "${local.workspace_dir}"
-    fi
-
-    echo 'cd ${local.workspace_dir}' >> ~/.bashrc
-
-    DEVCONTAINER_JSON="${local.workspace_dir}/${data.coder_parameter.devcontainer_path.value}/devcontainer.json"
-
-    # Fail fast with a specific message instead of a generic connection/EOF
-    # error -- this is the first of the two required MVP guardrails (no
-    # devcontainer.json / dockerComposeFile devcontainers are out of scope).
-    if [ ! -f "$DEVCONTAINER_JSON" ]; then
-      echo "ERROR: no devcontainer.json found at $DEVCONTAINER_JSON" | tee -a /tmp/coder-startup-script.log
-    elif grep -q "dockerComposeFile" "$DEVCONTAINER_JSON"; then
-      echo "ERROR: unsupported: dockerComposeFile ($DEVCONTAINER_JSON) -- this template only supports image:/build.dockerfile: devcontainers" | tee -a /tmp/coder-startup-script.log
-    else
-      devcontainer up \
-        --workspace-folder "${local.workspace_dir}" \
-        --config "$DEVCONTAINER_JSON" \
-        --id-label "coder.workspace_id=${data.coder_workspace.me.id}" \
-        2>&1 | tee -a /tmp/coder-startup-script.log
-    fi
-
-    # Convenience alias so a developer/agent inside the outer container can
-    # run commands inside the devcontainer-built inner container without
-    # retyping --workspace-folder/--config every time.
-    if ! grep -q "alias devcontainer-exec=" ~/.bashrc 2>/dev/null; then
-      cat >> ~/.bashrc <<BASHRC_ALIASES
-alias devcontainer-exec='devcontainer exec --workspace-folder "${local.workspace_dir}" --config "$DEVCONTAINER_JSON"'
-BASHRC_ALIASES
-    fi
-
-    if [ ! -f "${local.workspace_dir}/.vscode/settings.json" ]; then
-      mkdir -p "${local.workspace_dir}/.vscode"
-      cat > "${local.workspace_dir}/.vscode/settings.json" <<'VSCODE_SETTINGS'
-{}
-VSCODE_SETTINGS
-    fi
+      sleep 1
+    done
 
     if [ "${data.coder_parameter.agent_capable.value}" = "true" ] && command -v coder >/dev/null 2>&1; then
       coder schedule stop "$(hostname)" --disable-ttl || true
     fi
+  EOT
+
+  # Runs the shutdown-time docker cleanup only if the daemon is actually up
+  # (avoids a noisy failure on a workspace that never finished starting).
+  shutdown_script = <<-EOT
+    set -e
+    if docker info >/dev/null 2>&1; then
+      docker system prune -a -f || true
+    fi
+    sudo service docker stop || true
   EOT
 
   env = {
@@ -128,7 +114,15 @@ VSCODE_SETTINGS
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
+    # GIT_ASKPASS points at a script baked into the bootstrap image
+    # (coder/devcontainer/Dockerfile) that just echoes GITHUB_TOKEN -- the
+    # `git-clone` registry module (registry.coder.com/coder/git-clone) has
+    # no token/auth input of its own, it only runs `git clone`, so
+    # credential injection has to happen via the ambient git environment
+    # instead, same as the previous inline-script approach.
     GITHUB_TOKEN        = data.coder_parameter.github_token.value
+    GIT_ASKPASS         = "/usr/local/bin/git-askpass.sh"
+    GIT_TERMINAL_PROMPT = "0"
   }
 
   metadata {
@@ -166,12 +160,67 @@ module "code-server" {
   order    = 1
 }
 
+# See https://registry.coder.com/modules/coder/git-clone
+module "git-clone" {
+  count    = data.coder_workspace.me.start_count
+  source   = "registry.coder.com/coder/git-clone/coder"
+  version  = "~> 2.0"
+  agent_id = coder_agent.main.id
+  url      = local.repo_url
+  base_dir = "/home/coder"
+  folder_name = "project"
+}
+
+# @devcontainers/cli is baked into coder/devcontainer/Dockerfile (npm
+# install -g) rather than installed via the
+# registry.coder.com/coder/devcontainers-cli module: this repo already has a
+# working, pinned bootstrap-image install path for it, and swapping it for
+# the module would add a network-dependent `coder_script` npm install to
+# every workspace start for no behavioral gain.
+
+# Automatically start the devcontainer for the workspace via Coder's native
+# resource, replacing the previous manual `devcontainer up`/`devcontainer
+# exec` shell invocations against a bind-mounted host socket.
+resource "coder_devcontainer" "repo" {
+  count            = data.coder_workspace.me.start_count
+  agent_id         = coder_agent.main.id
+  workspace_folder = local.workspace_folder
+}
+
 resource "docker_volume" "home_volume" {
   name = "coder-${data.coder_workspace.me.id}-home"
 
   # Same fixed-name + ignore_changes pattern as docker-workspace, so
   # Durability Test 3 holds for this template too (AGENTS.md: ignore_changes
   # does not protect the volume from `coder delete`, only from `apply` diffs).
+  lifecycle {
+    ignore_changes = all
+  }
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.owner_id"
+    value = data.coder_workspace_owner.me.id
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+  labels {
+    label = "coder.workspace_name_at_creation"
+    value = data.coder_workspace.me.name
+  }
+}
+
+# Persists the nested Docker-in-Docker daemon's own data dir across
+# workspace restarts, so the devcontainer image/layer cache survives (same
+# fixed-name + ignore_changes pattern as home_volume above).
+resource "docker_volume" "docker_volume" {
+  name = "coder-${data.coder_workspace.me.id}-docker"
+
   lifecycle {
     ignore_changes = all
   }
@@ -203,6 +252,18 @@ resource "docker_container" "workspace" {
   entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
   env        = ["CODER_AGENT_TOKEN=${coder_agent.main.token}"]
 
+  # Nested (per-workspace) Docker-in-Docker daemon instead of
+  # docker-outside-of-docker: a live E2E found bind-mounting the host's
+  # `/var/run/docker.sock` fundamentally broken for this template (the
+  # shared host daemon resolves bind-mount source paths against the real
+  # host filesystem, not this container's named-volume-backed one -- see
+  # docs/devcontainer-security-notes.md). Coder's own reference template
+  # (examples/templates/docker-devcontainer, coder/coder v2.36.3) uses
+  # `privileged = true` + a dedicated `/var/lib/docker` volume instead, and
+  # explicitly documents host-socket mounting as "strongly discouraged"
+  # because workspaces then compete for control of the devcontainers.
+  privileged = true
+
   host {
     host = "host.docker.internal"
     ip   = "host-gateway"
@@ -214,19 +275,11 @@ resource "docker_container" "workspace" {
     read_only      = false
   }
 
-  # docker-outside-of-docker: the outer container needs the host's Docker
-  # socket so `devcontainer up` can create the inner container next to it.
   volumes {
-    container_path = "/var/run/docker.sock"
-    host_path      = "/var/run/docker.sock"
+    container_path = "/var/lib/docker"
+    volume_name    = docker_volume.docker_volume.name
     read_only      = false
   }
-
-  # The bind-mounted socket is owned by the host's `docker` group; without
-  # adding that GID here, the non-root `coder` user inside the bootstrap
-  # image gets `permission denied` from every `docker`/`devcontainer` CLI
-  # call (found live: `docker ps` failing during `devcontainer up`).
-  group_add = var.docker_gid != "" ? [var.docker_gid] : []
 
   labels {
     label = "coder.owner"

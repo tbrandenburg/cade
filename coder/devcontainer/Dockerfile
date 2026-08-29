@@ -1,10 +1,14 @@
 # Bootstrap ("outer") image for the `devcontainer` Coder template. Contains
-# only what is needed for the Coder agent to run plus `devcontainer up`/`exec`
-# against a repo's own `.devcontainer/devcontainer.json`: git, curl, Docker
-# CLI (docker-outside-of-docker, talks to the mounted host socket), Node.js,
-# and `@devcontainers/cli`. The *inner* container — built from the cloned
-# repo's own devcontainer spec — is where the actual toolchain lives; keep
-# this image deliberately thin. Modelled on coder/Dockerfile (docker-standard
+# what is needed for the Coder agent to run a nested (per-workspace)
+# Docker-in-Docker daemon plus `devcontainer up`/`exec` against a repo's own
+# `.devcontainer/devcontainer.json`: git, curl, the full Docker *engine*
+# (dockerd, not just the CLI -- the container runs `privileged = true` and
+# starts its own nested daemon instead of bind-mounting the host's socket;
+# see coder/templates/devcontainer/main.tf and
+# docs/devcontainer-security-notes.md for why), Node.js, and
+# `@devcontainers/cli`. The *inner* container — built from the cloned repo's
+# own devcontainer spec — is where the actual toolchain lives; keep this
+# image deliberately thin. Modelled on coder/Dockerfile (docker-standard
 # template), reusing its CA-bundle and uid/gid-1000 user patterns verbatim.
 FROM ubuntu:24.04
 
@@ -47,6 +51,13 @@ RUN apt-get update \
 # spec, used by the template's startup script to `up`/`exec` against the
 # cloned repo's own `.devcontainer/devcontainer.json`.
 RUN npm install -g @devcontainers/cli
+
+# Referenced by GIT_ASKPASS in coder/templates/devcontainer/main.tf's
+# coder_agent.env -- the `git-clone` registry module has no token/auth input
+# of its own (it only runs `git clone`), so credential injection for
+# private `repo_url` clones has to happen via the ambient git environment.
+RUN printf '#!/bin/sh\necho "$GITHUB_TOKEN"\n' > /usr/local/bin/git-askpass.sh \
+    && chmod +x /usr/local/bin/git-askpass.sh
 
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
