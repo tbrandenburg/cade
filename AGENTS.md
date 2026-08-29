@@ -72,7 +72,8 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
 | `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
 | `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `cade/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
-| `make templates-push` | — | Pushes `docker-standard`, `embedded-linux`, and `devcontainer` templates to the running Coder server in one shot (`coder templates push ... --yes` x3). Depends on all three `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
+| `make agent-workspace-build` | Issue #13 | Depends on `coder-workspace-build` (inherits its dirty-tree refusal guard); builds `cade/agent-workspace:latest` (adds the OSS `boundary` network-isolation CLI) for the `agent-workspace` template, used for long-running Coder Agents sessions. |
+| `make templates-push` | — | Pushes `docker-standard`, `embedded-linux`, `devcontainer`, and `agent-workspace` templates to the running Coder server in one shot (`coder templates push ... --yes` x4). Depends on all four `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
 | `make runner-build` | M2 | Builds the self-hosted GitHub Actions runner image (pinned Ubuntu digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Convenience wrapper; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (just-in-time), one-job-then-destroy runner registration. |
 | `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
@@ -82,6 +83,9 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make governance-verify` | M12 | Runs `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip (`scripts/verify-governance.sh`). |
 | `make backup` | M14 | Creates a timestamped backup set under `backup/artifacts/<timestamp>/` covering every MUST-BACK-UP category (git bundle, Coder DB, Temporal DB, OpenBao snapshot + unseal keys, workspace home volumes). |
 | `make restore-test` | M14 | Destroys the MUST-BACK-UP resources and restores them from the latest backup set (`scripts/restore-test.sh`) — see `backup/restore-test.md` and `docs/disaster-recovery.md`. |
+| `make ai-bootstrap` | Issue #13 | Reconciles `coder/ai/{providers,models}.yaml` into the running Coder deployment (`scripts/ai-bootstrap.sh`). Also invoked best-effort at the end of `make up`. |
+| `make ai-token` | Issue #13 | Mints an admin session token for `make ai-bootstrap` (`scripts/ai-token.sh`). |
+| `make verify-ai` | Issue #13 | Proves the AI integration works end to end against the live stack (`scripts/verify-ai.sh`). |
 
 `examples/hello-service/Makefile` and `examples/embedded-sim/Makefile` each
 have their own `build`/`test`/`run`/`clean`(/`simulate`) targets — toolchain
@@ -424,6 +428,18 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   apparent hang on a chained `docker exec` sequence is not proof of a real functional bug;
   re-run each `docker exec` individually with its own bounded `timeout` before concluding
   anything is actually stuck.
+- 2026-08-29: Coder's AI provider-create API field is `api_keys` (not a differently-named
+  literal-secret field elsewhere in the payload) — a provider `POST /api/v2/ai/providers`
+  built from an assumed field name silently 4xxs. Its model-config API fields are
+  `ai_provider_id` (not `provider_id`) and `model` (not `model_identifier`) — check the
+  actual API response/schema of a live, unlicensed Coder server before trusting a field name
+  inferred from adjacent naming conventions elsewhere in the codebase.
+- 2026-08-29: Confirmed entitlement flags on this deployment's live Coder server: `aibridge`
+  (AI Gateway), `boundary` (Coder-native Agent Firewall), and `ai_governance_user_limit` /
+  `managed_agent_limit` / `workspace_external_agent` (AI Governance Add-On) are all
+  `not_entitled` — see `docs/ai-coder.md` for the full entitlement matrix and exact evidence
+  strings; `governance/boundary/config.yaml` already documents the `boundary` finding
+  specifically, this is the first record of the other two.
 
 ## Phase 5 — 2026-08-29
 
@@ -452,3 +468,75 @@ before this step despite `docs/INITIAL.md`'s target tree listing it —
 the M14 backup/restore procedure had only ever been written up in its
 milestone report, not in the persistent ops doc a future incident
 responder would actually reach for.
+
+## Issue #13 — 2026-08-29
+
+Coder AI integration (Agents, providers/models, MCP, `agent-workspace`
+template, OSS `boundary` egress). Full stepwise plan executed with
+sequential subagents, then a coordinator-run E2E pass against the live
+stack surfaced three real bugs no amount of code review would have
+caught: (1) `compose.yaml`'s external-auth block crash-looped `coder`
+the instant those env vars existed at all, even empty — Coder parses a
+provider from the var's *presence*, not its value; fixed by commenting
+the block out by default instead of defaulting it to an inert-looking
+empty string. (2) The AI-provider reconciler's idempotency (T4) broke on
+every re-run because `PATCH /api/v2/ai/providers/{name}` rejects the
+same `api_keys` body shape `POST` accepts — fixed by skipping the PATCH
+call entirely once non-secret fields already match, never re-sending
+`api_keys`. (3) `boundary`'s `nsjail` jail type failed with the exact
+same unprivileged-userns error already documented for `srt`'s
+`bwrap --unshare-user`; `landjail` (the issue's own documented fallback)
+was verified live to actually enforce the allowlist (200 allowed / 403
+blocked) and is now the default. See
+`docs/milestone-reports/issue-13-ai-coder.md` for full E2E evidence,
+including two tests (T5 genuine inference, T13 MCP tool invocation)
+honestly reported as blocked on a real `OPENAI_API_KEY` not being
+available in this environment, rather than faked or silently skipped.
+
+**Process lesson, not a code defect:** a manual `sed`-based redaction
+pattern used while validating `scripts/ai-token.sh`'s live output caught
+the token embedded in its printed `.env` line but missed the same token
+printed bare on its own line immediately above — a real Coder session
+token was briefly exposed in this session's own transcript. Mitigated
+immediately (password reset + `POST /api/v2/users/logout`, confirmed the
+old token now 401s) rather than left for later cleanup. Prevention rule:
+when manually redacting a secret from command output for any purpose
+(logs, chat transcripts, reports), capture the value into a shell
+variable first and reference only `<REDACTED>`/`${VAR:0:4}****` in
+anything printed — never rely on a single regex substitution to catch
+every place a raw secret might appear in multi-line tool output.
+
+**Update, same day, once a real `OPENAI_API_KEY`/`OPENROUTER_API_KEY`
+became available:** closing out T5 (genuine inference) surfaced two more
+real bugs the credential-less first pass could not have found. (4) The
+first idempotency fix above was itself incomplete — it never re-sent
+`api_keys` on PATCH *at all*, so a provider created once with a
+stale/placeholder key could never actually be rotated by a later
+`make ai-bootstrap` run; an operator setting a real key in `.env` after
+an earlier run would see no effect, silently. Fixed by reproducing
+Coder's own key-masking format (`first4...last4`) from the resolved
+secret and comparing it against the stored `masked` field to detect
+drift deterministically, without ever storing/comparing the raw secret
+— only including `api_keys` in the PATCH body when it actually differs.
+Verified live: reset to a placeholder key, re-ran with the real key,
+got `"key rotated"` exactly once, then `"unchanged"` on 3 subsequent
+runs. (5) `agent-workspace`'s `coder_agent` had no `dir` set, so Coder
+Agents' Chats API defaulted a chat's working directory to `$HOME`, not
+wherever `.mcp.json` actually lives — the agent had zero MCP tools
+registered and hallucinated shell commands instead. Fixed with
+`dir = local.workspace_dir` (Terraform flags it deprecated but still
+functional). **This did not fully close T13**: even with `dir` fixed, a
+real chat created purely over the REST API (no client ever attached)
+still showed no MCP tools discovered — this appears to be the same class
+of gap already documented above for VS Code's Agent Host: `.mcp.json`
+auto-discovery may require a real, interactively-attached client session,
+not a headless API-created chat. Given that, the actual security property
+T13 cares about (OPA denies an unapproved `flash_device`) was proven
+directly via the same MCP protocol calls a working auto-discovery would
+have produced, run from inside the real workspace container with a real
+bearer token — `list_devices`/`reserve_device`/`run_test` all succeeded,
+`flash_device` without `approved=true` was denied (`isError: true`). See
+the updated `docs/milestone-reports/issue-13-ai-coder.md` for full
+evidence of both passes.
+
+

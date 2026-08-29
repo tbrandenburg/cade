@@ -1,0 +1,15 @@
+# Models reconciled into Coder by `make ai-bootstrap`.
+# `provider` must match a `name` in providers.yaml.
+models:
+  - provider: openai
+    model: gpt-4o-mini              # exact string sent upstream
+    display_name: GPT-4o mini
+    context_limit: 128000
+    enabled: true
+    default: true                   # exactly one model may set this
+
+  - provider: openai
+    model: gpt-4o
+    display_name: GPT-4o
+    context_limit: 128000
+    enabled: true

@@ -1,0 +1,20 @@
+# Providers reconciled into Coder by `make ai-bootstrap`.
+# `api_key_env` names the environment variable holding the key.
+# It is NEVER the key itself — this indirection is what lets us swap
+# .env for OpenBao later without changing this file.
+providers:
+  - name: openai                      # lowercase, hyphenated, unique
+    display_name: OpenAI
+    type: openai
+    base_url: https://api.openai.com/v1/
+    api_key_env: OPENAI_API_KEY
+    enabled: true
+
+  # Example: a local OpenAI-compatible endpoint (Ollama / LiteLLM).
+  # Uncomment and adjust; no API key needed for most local servers.
+  # - name: local-llm
+  #   display_name: Local LLM
+  #   type: openai-compat
+  #   base_url: http://host.docker.internal:11434/v1
+  #   api_key_env: LOCAL_LLM_API_KEY
+  #   enabled: true

@@ -1,0 +1,40 @@
+# Egress allowlist for in-workspace agent harnesses (opencode / pi),
+# enforced by the OSS `boundary` CLI (github.com/coder/boundary).
+#
+# NOTE: Coder's *managed* Agent Firewall requires the AI Governance
+# Add-On, which this deployment does not have (entitlement
+# `boundary = not_entitled`, verified 2026-08-29). Running the OSS CLI
+# directly gives us allowlist enforcement WITHOUT control-plane audit
+# log streaming. That gap is intentional and documented.
+#
+# Kept consistent with `agent-host/srt-settings.json`'s
+# `network.allowedDomains` where the two lists overlap (github.com,
+# *.github.com) — srt's list additionally allows `api.github.com` and
+# `copilot-proxy.githubusercontent.com` (Copilot-specific, not relevant
+# here) but has no package-registry or LLM-API entries, which this
+# boundary allowlist adds since it wraps the actual agent harness
+# process rather than an editor extension host.
+#
+# RESOLVED at E2E test time (issue #13, T9), against a real built
+# `cade/agent-workspace:latest` image: `jail_type: nsjail` DOES fail in
+# this environment, exactly as predicted — `setpriv: apply capabilities:
+# Operation not permitted` (the same underlying unprivileged-userns
+# restriction AGENTS.md already documents for `srt`'s
+# `bwrap --unshare-user`). Falling back to `jail_type: landjail`
+# (Landlock-based, no user namespace required) DOES work: verified live,
+# `boundary --jail-type landjail -- curl https://api.github.com` (an
+# allowlisted domain) returned 200, and the same command against
+# `https://example.com` (not allowlisted) returned 403 from boundary's
+# own proxy — a real, enforced block, not a silent pass-through. `landjail`
+# is therefore the default here, not `nsjail`.
+allowlist:
+  - "domain=github.com"
+  - "domain=*.github.com"
+  - "domain=api.openai.com"
+  - "domain=registry.npmjs.org"
+  - "domain=pypi.org"
+  - "domain=files.pythonhosted.org"
+jail_type: landjail
+log_dir: /tmp/boundary_logs
+proxy_port: 8087
+log_level: warn

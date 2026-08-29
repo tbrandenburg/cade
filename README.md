@@ -211,6 +211,23 @@ devenv-cloud_coder_db_data && make up`) if you actually want to destroy
 every workspace/template/user and start over — not as a password-reset
 shortcut.
 
+### AI providers/models quickstart
+
+Reconcile the AI providers/models Coder offers users (Issue #13) once the
+stack is up:
+
+```bash
+make up                # if not already running
+make ai-token           # mints an admin session token
+$EDITOR .env            # set the minted token + any provider API keys
+make ai-bootstrap        # reconciles coder/ai/{providers,models}.yaml into Coder
+make verify-ai            # proves it end to end against the live stack
+```
+
+See `docs/ai-coder.md` for the entitlement boundaries (what's Premium-only
+on this deployment), the repeatability model, and MCP/CI automation
+details.
+
 ## User journeys
 
 Each journey below is a self-contained quick start for one thing the
@@ -546,6 +563,7 @@ claims, and the full walkthrough for re-running the final E2E scenario.
 | [`docs/INITIAL.md`](docs/INITIAL.md) | Authoritative implementation plan (source of truth) |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Condensed C4-model summary (Context/Container/Component) |
 | [`docs/security.md`](docs/security.md) | Security posture, threat model, known limitations |
+| [`docs/ai-coder.md`](docs/ai-coder.md) | Coder AI integration: entitlement matrix, repeatability model, MCP/CI automation (Issue #13) |
 | [`docs/disaster-recovery.md`](docs/disaster-recovery.md) | Backup/restore runbook |
 | [`docs/phases/`](docs/phases/README.md) | `INITIAL.md` split into 5 phases + milestones |
 | [`docs/milestone-reports/`](docs/milestone-reports/) | Evidence report per completed milestone |
