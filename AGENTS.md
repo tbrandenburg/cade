@@ -206,6 +206,33 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   assuming any devcontainer-CLI-style "create a sibling container with my files" flow
   will work against a named-volume-backed workspace.
 
+- 2026-08-29: docker-outside-of-docker (bind-mounting the host's `/var/run/docker.sock`
+  into a container so it can create sibling containers) breaks silently if the mounting
+  container's own workspace directory is a named Docker volume rather than a real host
+  path — the shared host daemon resolves any bind-mount source path the inner process
+  requests against the *actual host filesystem*, not the calling container's view, so a
+  path like `/home/coder/project` (valid inside the outer container) resolves to nothing
+  on the real host. Verify with `docker inspect <container> --format
+  '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}'` before
+  assuming any devcontainer-CLI-style "create a sibling container with my files" flow
+  will work against a named-volume-backed workspace. **Resolution found via research,
+  not trial-and-error**: Coder's own official reference template
+  (`coder/coder` `examples/templates/docker-devcontainer`) explicitly documents host-socket
+  mounting as "strongly discouraged" for exactly this class of problem, and ships a
+  per-workspace privileged nested Docker-in-Docker daemon (`docker_volume` at
+  `/var/lib/docker` + `coder_devcontainer` resource) as the supported alternative — check
+  the target platform's own official reference templates/examples *before* attempting to
+  hand-roll an integration path they already solved and documented a known failure mode for.
+- 2026-08-29: A per-workspace nested Docker-in-Docker daemon has a genuinely cold image
+  cache on every fresh workspace — it does NOT share the host's (or any other workspace's)
+  local image cache, even for images that were `docker build`-ed locally moments earlier.
+  A `devcontainer.json`'s `image:` field must reference something the nested daemon can
+  actually resolve on its own: a real publicly-pullable image (e.g.
+  `mcr.microsoft.com/devcontainers/python:3`), or an image explicitly pushed to a registry
+  the nested daemon is configured to reach — never a repo-local-only tag like
+  `cade/coder-workspace:latest` that only ever existed in the host's shared cache under the
+  old (now-abandoned) docker-outside-of-docker design.
+
 ### Before trusting any "blocker" or "done" claim
 
 - Re-verify a stated blocker's premise with one direct command before repeating a prior
