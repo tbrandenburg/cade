@@ -18,6 +18,8 @@ from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import Worker
 
 from demo.activities import prepare_build, verify_build
+from demo.build_activity import run_build_command
+from demo.build_workflow import BuildWorkflow
 from demo.config import (
     METRICS_BIND_ADDRESS,
     TASK_QUEUE,
@@ -61,7 +63,7 @@ async def run_worker() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[DemoDurableWorkflow, EmbeddedValidationWorkflow],
+        workflows=[DemoDurableWorkflow, EmbeddedValidationWorkflow, BuildWorkflow],
         activities=[
             prepare_build,
             verify_build,
@@ -69,6 +71,7 @@ async def run_worker() -> None:
             run_lab_test,
             retrieve_lab_logs,
             release_lab_device,
+            run_build_command,
         ],
         graceful_shutdown_timeout=timedelta(seconds=5),
     )

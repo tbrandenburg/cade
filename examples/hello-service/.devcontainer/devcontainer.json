@@ -1,0 +1,5 @@
+{
+  "name": "hello-service",
+  "image": "mcr.microsoft.com/devcontainers/python:3",
+  "postCreateCommand": "which make || sudo apt-get update && sudo apt-get install -y --no-install-recommends make; make build"
+}

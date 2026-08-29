@@ -52,7 +52,7 @@ C4Container
 
         Container(coder, "Coder Community", "Terraform + Docker", "L4 Execution Plane control. Provisions/destroys Docker workspaces from templates; separates ephemeral container from persistent home volume.")
 
-        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session.")
+        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session. Three Coder templates: `docker-standard`/`embedded-linux` (fixed pre-built image) and the additive `devcontainer` template (Issue #6), which instead builds/runs the workspace from the cloned repo's own `.devcontainer/devcontainer.json` via `@devcontainers/cli` at start time.")
 
         Container(runner, "Self-Hosted GitHub Runner", "Docker, JIT/ephemeral", "L5 Coordination. Outbound-only poller; executes deterministic Actions jobs and gh-aw's reasoning step.")
 
@@ -136,3 +136,19 @@ This is the single most important cross-cutting property of the architecture (`d
 ## Maintenance note
 
 This file is a **summary**, condensed on purpose. When a phase changes the architecture (new container, new component, changed data flow), update this file as part of that phase's mandatory "Documentation & Agent Instructions Update" step (see `docs/phases/README.md`), alongside `docs/architecture.md`, `docs/operations.md`, and `docs/security.md`. If this file and `docs/INITIAL.md` Section 2 ever disagree, `docs/INITIAL.md` wins until this file is corrected.
+
+## Issue #5 MVP — Build-in-workspace Activity/Workflow
+
+`temporal-worker` gained a scoped-down slice of the "run Temporal workflows
+in predefined workspaces with build tools installed" feature: a
+`run_build_command` Activity (`temporal/src/demo/build_activity.py`) uses
+the `docker` Python SDK to run a single command in a short-lived container
+built from `cade/coder-workspace:latest` (or any other pre-built image),
+capture its stdout/stderr and exit code, and remove the container. A
+minimal `BuildWorkflow` (`temporal/src/demo/build_workflow.py`) calls this
+Activity once; `temporal/src/demo/build_starter.py` and
+`make temporal-build-demo-start` trigger it manually. This is deliberately
+the smallest useful slice of the issue's larger plan — no OPA policy gate,
+no workspace-template-specific image selection, no multi-step build
+pipeline — those remain follow-up work, not implemented here.
+

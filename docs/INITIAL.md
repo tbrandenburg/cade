@@ -392,7 +392,15 @@ private-dev-platform/
 ├── coder/
 │   ├── Dockerfile
 │   ├── templates/
-│   │   └── docker-workspace/
+│   │   ├── docker-workspace/
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── README.md
+│   │   ├── embedded-linux/
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── README.md
+│   │   └── devcontainer/
 │   │       ├── main.tf
 │   │       ├── variables.tf
 │   │       └── README.md

@@ -162,6 +162,77 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-29: A one-off `docker run` client (`make temporal-build-demo-start`) can appear to
+  hang past a short shell timeout on its very first invocation purely from a cold image
+  pull/layer-cache warm-up, even though the Activity it triggers already completed
+  successfully (visible in `docker compose logs temporal-worker`) — check the worker's logs
+  for the real result before assuming a live E2E command actually hung.
+- 2026-08-29: No cached Coder admin session/credentials were available in this environment
+  for a live `coder create --template <new-template>` E2E check, and no `scripts/*.sh` exists
+  to automate `coder login` — a full new-template E2E (workspace create, inner-container
+  inspect, Durability Test 3) needs a documented bootstrap/login step; until then, `terraform
+  validate` + a real `docker build` of the template's bootstrap image is the strongest
+  evidence obtainable for a brand-new Coder template without an existing authenticated session.
+
+- 2026-08-29: A subagent's "assumption: httpx is already a dependency" (based on seeing it
+  used elsewhere in a sibling service) was false for the actual package it edited — the
+  subagent never ran the code it wrote against a real built image. Its own handoff even
+  said "verify this if building a fresh image" but did not verify it itself. Always
+  actually import/run new third-party-library code inside the real built artifact
+  (`docker run --rm --entrypoint python <image> -c "import <lib>"`) before trusting a
+  subagent's dependency assumption, even when its stated confidence is high.
+- 2026-08-29: Backgrounding a long-lived process (`git daemon &`) inside a persistent
+  shell-tool session without fully detaching it (`setsid ... </dev/null >file 2>&1 &`
+  plus `disown`) leaves it holding the tool's stdout pipe open — every subsequent command
+  in that same session then hangs for its full timeout with zero output, even though the
+  command itself actually completed (verifiable only by redirecting to a file and reading
+  that file separately). Always fully detach any backgrounded long-running process in a
+  persistent shell tool session, or run it in its own container instead.
+- 2026-08-29: A container on the default Docker bridge network could reach other
+  Docker-published host ports (e.g. Coder's `0.0.0.0:7080` via docker-proxy) but hung
+  indefinitely connecting to a bare `git daemon` process bound directly to the host
+  (no sudo available to inspect/fix the firewall rule). Workaround: run the ad-hoc
+  service as a sibling container on the same Docker network instead of a host process —
+  container-to-container traffic on the same bridge network bypasses the host's own
+  firewall entirely.
+- 2026-08-29: docker-outside-of-docker (bind-mounting the host's `/var/run/docker.sock`
+  into a container so it can create sibling containers) breaks silently if the mounting
+  container's own workspace directory is a named Docker volume rather than a real host
+  path — the shared host daemon resolves any bind-mount source path the inner process
+  requests against the *actual host filesystem*, not the calling container's view, so a
+  path like `/home/coder/project` (valid inside the outer container) resolves to nothing
+  on the real host. Verify with `docker inspect <container> --format
+  '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}'` before
+  assuming any devcontainer-CLI-style "create a sibling container with my files" flow
+  will work against a named-volume-backed workspace.
+
+- 2026-08-29: docker-outside-of-docker (bind-mounting the host's `/var/run/docker.sock`
+  into a container so it can create sibling containers) breaks silently if the mounting
+  container's own workspace directory is a named Docker volume rather than a real host
+  path — the shared host daemon resolves any bind-mount source path the inner process
+  requests against the *actual host filesystem*, not the calling container's view, so a
+  path like `/home/coder/project` (valid inside the outer container) resolves to nothing
+  on the real host. Verify with `docker inspect <container> --format
+  '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}'` before
+  assuming any devcontainer-CLI-style "create a sibling container with my files" flow
+  will work against a named-volume-backed workspace. **Resolution found via research,
+  not trial-and-error**: Coder's own official reference template
+  (`coder/coder` `examples/templates/docker-devcontainer`) explicitly documents host-socket
+  mounting as "strongly discouraged" for exactly this class of problem, and ships a
+  per-workspace privileged nested Docker-in-Docker daemon (`docker_volume` at
+  `/var/lib/docker` + `coder_devcontainer` resource) as the supported alternative — check
+  the target platform's own official reference templates/examples *before* attempting to
+  hand-roll an integration path they already solved and documented a known failure mode for.
+- 2026-08-29: A per-workspace nested Docker-in-Docker daemon has a genuinely cold image
+  cache on every fresh workspace — it does NOT share the host's (or any other workspace's)
+  local image cache, even for images that were `docker build`-ed locally moments earlier.
+  A `devcontainer.json`'s `image:` field must reference something the nested daemon can
+  actually resolve on its own: a real publicly-pullable image (e.g.
+  `mcr.microsoft.com/devcontainers/python:3`), or an image explicitly pushed to a registry
+  the nested daemon is configured to reach — never a repo-local-only tag like
+  `cade/coder-workspace:latest` that only ever existed in the host's shared cache under the
+  old (now-abandoned) docker-outside-of-docker design.
+
 ### Before trusting any "blocker" or "done" claim
 
 - Re-verify a stated blocker's premise with one direct command before repeating a prior

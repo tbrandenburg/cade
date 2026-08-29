@@ -88,7 +88,8 @@ cade/
 ├── compose.yaml                  # full platform stack (Coder, Temporal, MCP, governance, observability)
 ├── coder/                         # workspace container images + Terraform templates
 │   ├── Dockerfile
-│   └── templates/                  # docker-standard, embedded-linux workspace templates
+│   ├── devcontainer/                # devcontainer template's bootstrap image (Issue #6)
+│   └── templates/                  # docker-standard, embedded-linux, devcontainer workspace templates
 ├── agent-host/                    # VS Code Agent Host / sandbox security baseline
 ├── runner/                         # self-hosted GitHub Actions runner (JIT, ephemeral)
 ├── temporal/                       # Temporal worker image + demo durable workflow
@@ -145,6 +146,7 @@ coder login http://localhost:7080
 # 7. Build the workspace image(s) workspaces will run
 make coder-workspace-build          # docker-standard template
 make embedded-workspace-build       # embedded-linux template (optional)
+make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
 # 8. Push a Terraform template and create a workspace
 coder templates push docker-standard -d coder/templates/docker-workspace --yes
@@ -279,6 +281,7 @@ always comes back **sealed**).
 | `make logs` | — | Follow logs of the platform stack's containers. |
 | `make coder-workspace-build` | M3 | Build the `docker-standard` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). |
+| `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. |
 | `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
 | `make temporal-worker-build` | M8 | Build the Temporal worker image. |

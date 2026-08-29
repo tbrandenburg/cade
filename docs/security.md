@@ -311,3 +311,58 @@ JIT self-hosted runner (M2), the same OPA-gated `lab-sim` MCP tool calls
 investigator (M10) already documented. The two open `gh-aw` limitations
 above (docker-socket-proxy incompatibility, no AI engine credentials)
 remain open and unresolved at `0.1.0` — not silently worked around.
+
+## Issue #6 — devcontainer template: per-workspace privileged Docker-in-Docker
+
+`coder/templates/devcontainer/main.tf`'s workspace container runs
+`privileged = true` with its own nested, per-workspace `dockerd` (backed by
+a dedicated `docker_volume` at `/var/lib/docker`), replacing an earlier
+docker-outside-of-docker design (host `/var/run/docker.sock` bind-mount)
+that a live E2E found not just risky but functionally broken — see
+`docs/devcontainer-security-notes.md` for the full incident writeup and
+design rationale. `privileged = true` is still a real, accepted tradeoff
+(root-equivalent on the host kernel), but it's scoped per-workspace rather
+than sharing one host-wide Docker socket across every workspace. This
+matches Coder's own official reference template's documented default for
+Docker-only deployments without a Sysbox-capable host; live-verified
+working end-to-end (real clone, real nested daemon, real inner-container
+build, Durability Test 3 passing) on 2026-08-29.
+
+
+## Issue #5 MVP — build-docker-proxy
+
+`temporal-worker`'s new `run_build_command` Activity reaches Docker
+through its own `build-docker-proxy` service (`tecnativa/docker-socket-
+proxy`), deliberately separate from `runner-docker-proxy` (M2) — a
+different consumer with a different allow-list rather than widening an
+existing proxy's scope. Only `CONTAINERS`, `IMAGES`, `POST`, `VERSION`,
+and `PING` are enabled; `EXEC`, `VOLUMES`, `NETWORKS`, `SWARM`, `SYSTEM`,
+and `BUILD` all stay denied (unlike `runner-docker-proxy`, this Activity
+never needs `docker build`, only `docker run` against a pre-built image).
+Not published to the host — reachable only from `platform-workspaces`.
+The OPA policy gate the issue's larger plan calls for (approve/deny which
+images/commands may run) is explicitly out of scope for this MVP slice
+and remains a follow-up.
+
+Gap-fill: `run_build_command` is now gated by OPA's `build.authz` policy
+(`governance/opa/policy/build_authz.rego`), evaluated live via OPA's
+decision API (`POST /v1/data/build/authz/allow`) before any container is
+run — mirroring the M12 `lab.authz` pattern. Default is fail-closed: only
+images on an explicit allow-list (`cade/coder-workspace:latest`,
+`cade/embedded-linux-workspace:latest`) are permitted; any other image, a
+missing/unreachable OPA decision API, or a non-`true` result all deny the
+request.
+
+### OPA policy reload
+
+`compose.yaml`'s `opa` service bind-mounts `governance/opa/policy` into
+the container read-only, and OPA's `run --server` mode does not
+hot-reload that mount — a new or changed `.rego` file only takes effect
+after the `opa` process restarts. `scripts/reload-opa-policy.sh`
+automates this (restart `opa`, wait for it to become responsive, then
+smoke-query both `lab.authz.allow` and `build.authz.allow` to confirm the
+restarted server actually has the current policy files loaded) and is
+now run automatically as the first step of `scripts/verify-governance.sh`
+/ `make governance-verify`, so any policy edit is guaranteed to be live
+before verification runs.
+

@@ -1,0 +1,5 @@
+{
+  "name": "embedded-sim",
+  "image": "cade/embedded-linux-workspace:latest",
+  "postCreateCommand": "make -C examples/embedded-sim build"
+}
