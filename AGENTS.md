@@ -67,20 +67,31 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 |---|---|---|
 | `make doctor` | M0 | Verifies the host (OS, arch, tooling, disk space, outbound connectivity, port availability) meets baseline requirements before anything else is attempted. Run this first on any new host. |
 | `make up` | M1 | Starts the platform control plane (Postgres + Coder) via `docker compose up -d`. Requires `.env` (copy from `.env.example` first). |
-| `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`) — data persists across `down`/`up`. |
-| `make status` | — | `docker compose ps` — check container health before assuming the stack is up. |
+| `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`, etc.) — data persists across `down`/`up`. |
+| `make status` | — | `docker compose ps` — check container health before assuming the stack is up. As of Phase 4 this covers all 18 services (Coder, Temporal, OpenBao, OPA, MCP lab-sim, Prometheus/Loki/Grafana, self-hosted-runner support, registry, cAdvisor), not just Postgres+Coder. |
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
-| `make coder-workspace-build` | M3 | Builds and tags the `devenv-cloud/coder-workspace:latest` image that Coder workspaces run. **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
+| `make coder-workspace-build` | M3 | Builds and tags the `devenv-cloud/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
+| `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `devenv-cloud/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
+| `make runner-build` | M2 | Builds the self-hosted GitHub Actions runner image (pinned Ubuntu digest + checksum-verified runner binary). |
+| `make runner-run` | M2 | Convenience wrapper; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (just-in-time), one-job-then-destroy runner registration. |
+| `make temporal-worker-build` | M8 | Builds `devenv-cloud/temporal-worker:latest`. |
+| `make temporal-demo-start` | M8 | Starts one durable-workflow execution against the live Temporal cluster; prints `workflow_id`. |
+| `make governance-bootstrap` | M12 | Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token. **Must be re-run any time the `openbao` container is recreated** — it does not auto-unseal across restarts. |
+| `make governance-verify` | M12 | Runs `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip (`scripts/verify-governance.sh`). |
+| `make backup` | M14 | Creates a timestamped backup set under `backup/artifacts/<timestamp>/` covering every MUST-BACK-UP category (git bundle, Coder DB, Temporal DB, OpenBao snapshot + unseal keys, workspace home volumes). |
+| `make restore-test` | M14 | Destroys the MUST-BACK-UP resources and restores them from the latest backup set (`scripts/restore-test.sh`) — see `backup/restore-test.md` and `docs/disaster-recovery.md`. |
 
-`examples/hello-service/Makefile` has its own `build`/`test`/`run`/`clean`
-targets — a toolchain smoke test, not part of the platform itself; used to
-prove a freshly provisioned Coder workspace can build/test Python code
-unmodified.
+`examples/hello-service/Makefile` and `examples/embedded-sim/Makefile` each
+have their own `build`/`test`/`run`/`clean`(/`simulate`) targets — toolchain
+smoke tests, not part of the platform itself; used to prove a freshly
+provisioned Coder workspace can build/test/cross-compile unmodified code.
 
 There is no single top-level "build everything"/"test everything" target —
-each milestone/phase introduces its own validation script(s) under
-`scripts/`, invoked directly (e.g. `bash scripts/verify-ahp-session.sh`), not
-wrapped in `make` yet. Check `docs/phases/*.md` and the relevant
+`make status` after `make up && docker compose up -d` is the closest
+equivalent (confirms all 18 services healthy), but validating an individual
+milestone still means running its own script(s) under `scripts/` directly
+(e.g. `bash scripts/verify-ahp-session.sh`, `bash
+scripts/verify-governance.sh`). Check `docs/phases/*.md` and the relevant
 `docs/milestone-reports/*.md` for the exact validation commands a given
 milestone expects before claiming it passes.
 
