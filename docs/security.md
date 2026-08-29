@@ -312,6 +312,20 @@ investigator (M10) already documented. The two open `gh-aw` limitations
 above (docker-socket-proxy incompatibility, no AI engine credentials)
 remain open and unresolved at `0.1.0` — not silently worked around.
 
+## Issue #6 hardening pass — devcontainer template docker.sock mount
+
+`coder/templates/devcontainer/main.tf` bind-mounts the host's
+`/var/run/docker.sock` directly into the outer workspace container
+(docker-outside-of-docker), rather than routing through a socket-proxy
+like `runner-docker-proxy` or `build-docker-proxy`. This is a known,
+currently-accepted risk (equivalent to root on the Docker host for that
+workspace container), left unmitigated in the issue #6 MVP and its #6b
+hardening pass because narrowing it correctly requires an infra change
+(a new socket-proxy service or sandboxed runtime) out of scope for a
+docs-and-scripting-only pass. See `docs/devcontainer-security-notes.md`
+for the full blast-radius analysis and three concrete hardening options
+proposed for a future issue.
+
 ## Issue #5 MVP — build-docker-proxy
 
 `temporal-worker`'s new `run_build_command` Activity reaches Docker
