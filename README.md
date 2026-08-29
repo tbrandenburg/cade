@@ -181,7 +181,20 @@ docker exec -i coder /opt/coder reset-password <username> \
 
 It prompts twice (new password, then confirmation) and only touches that
 one user row — templates, workspaces, and every other account are
-untouched. Then log in as normal at `http://localhost:7080` or via
+untouched.
+
+**Log in with the user's email, not their username** — Coder's login form
+and `/api/v2/users/login` API both authenticate by email address, even
+though `reset-password` (and most other CLI subcommands) take a
+`<username>`. If you don't already know the email for a given username,
+look it up first:
+
+```bash
+docker exec coder-db psql -U "${CODER_PG_USER:-coder}" -d "${CODER_PG_DB:-coder}" \
+  -c "SELECT username, email FROM users WHERE deleted = false;"
+```
+
+Then log in at `http://localhost:7080` (email + new password) or via
 `coder login http://localhost:7080`.
 
 Only wipe `coder-db` entirely (`docker compose down && docker volume rm
