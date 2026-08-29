@@ -19,3 +19,6 @@ backup/artifacts/
 
 # Temporary agent worktrees
 .worktrees/
+
+# Ad-hoc/scratch diagram exports (not part of tracked docs)
+.tmp-diagrams/
