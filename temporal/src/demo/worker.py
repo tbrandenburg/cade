@@ -24,6 +24,13 @@ from demo.config import (
     TEMPORAL_ADDRESS,
     TEMPORAL_NAMESPACE,
 )
+from demo.e2e_activities import (
+    release_lab_device,
+    reserve_lab_device,
+    retrieve_lab_logs,
+    run_lab_test,
+)
+from demo.e2e_workflow import EmbeddedValidationWorkflow
 from demo.workflows import DemoDurableWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -54,8 +61,15 @@ async def run_worker() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[DemoDurableWorkflow],
-        activities=[prepare_build, verify_build],
+        workflows=[DemoDurableWorkflow, EmbeddedValidationWorkflow],
+        activities=[
+            prepare_build,
+            verify_build,
+            reserve_lab_device,
+            run_lab_test,
+            retrieve_lab_logs,
+            release_lab_device,
+        ],
         graceful_shutdown_timeout=timedelta(seconds=5),
     )
 

@@ -279,6 +279,13 @@ services:
   # shared with the starter via `temporal/src/demo/config.py`. Idempotency
   # state persisted to a named volume so it survives container
   # kill/recreate, not just in-process retries.
+  #
+  # Milestone M15: also runs `EmbeddedValidationWorkflow`, whose Activities
+  # (`demo/e2e_activities.py`) call the M11 lab-sim MCP service directly by
+  # its `platform-workspaces` service name - this worker is therefore
+  # joined to that network too (previously only `platform-control`), and
+  # carries the same bearer-token identity ("agent-a") the manual M11/M12
+  # verification scripts use.
   temporal-worker:
     image: devenv-cloud/temporal-worker:latest
     container_name: temporal-worker
@@ -295,12 +302,17 @@ services:
       # service's PROMETHEUS_ENDPOINT pattern above), not a published host
       # port - only `prometheus` (this compose network) ever reaches it.
       METRICS_BIND_ADDRESS: "0.0.0.0:9091"
+      LAB_SIM_URL: http://lab-sim:8300/mcp/
+      LAB_SIM_AGENT_TOKEN: ${LAB_SIM_AGENT_TOKEN:-change-me-a}
     volumes:
       - temporal_worker_state:/var/lib/demo-worker
     networks:
       - platform-control
+      - platform-workspaces
     depends_on:
       temporal:
+        condition: service_healthy
+      lab-sim:
         condition: service_healthy
 
   # lab-sim: Milestone M11. MCP/HTTP "Lab Simulator" service - simulated

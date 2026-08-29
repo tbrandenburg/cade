@@ -1,0 +1,20 @@
+# M15 deterministic embedded-firmware build+test image. Builds and runs the
+# ctest suite in a single `docker build` (fails the image build itself if
+# `ctest` fails) — no bind mount of the runner's checkout is needed, since
+# the build context is streamed to the daemon over the Docker API and works
+# unmodified through the `runner-docker-proxy` TCP proxy (M2).
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cmake ninja-build gcc libc6-dev make \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+COPY CMakeLists.txt Makefile ./
+COPY cmake ./cmake
+COPY src ./src
+COPY tests ./tests
+
+RUN cmake -S . -B build -G Ninja \
+    && cmake --build build \
+    && ctest --test-dir build --output-on-failure

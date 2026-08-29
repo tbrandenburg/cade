@@ -1,0 +1,35 @@
+name: embedded-build
+
+# Milestone M15: deterministic "GitHub -> self-hosted runner -> Docker ->
+# embedded build" step - builds and unit-tests the embedded-sim firmware
+# (examples/embedded-sim/Dockerfile.ci) inside a container on the M2
+# self-hosted runner, using the docker-socket-proxy DOCKER_HOST (same
+# pattern as runner-smoke.yml). This is the "known build failure" target
+# watched by .github/workflows/investigate-failure.md's on.workflow_run
+# filter, alongside local-capability.
+#
+# `workflow_dispatch` only - per docs/security.md, any [self-hosted,
+# private-lab] workflow must stay restricted to workflow_dispatch (no
+# push/pull_request) while this repo remains public, since a fork-sourced
+# trigger could otherwise reach the self-hosted runner.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: [self-hosted, linux, private-lab, docker]
+    env:
+      DOCKER_HOST: tcp://runner-docker-proxy:2375
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deterministic embedded-sim build+test (Docker, self-hosted)
+        run: |
+          docker build \
+            -f examples/embedded-sim/Dockerfile.ci \
+            -t embedded-sim-ci:${{ github.sha }} \
+            examples/embedded-sim

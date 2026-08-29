@@ -38,3 +38,11 @@ TASK_QUEUE = os.environ.get("DEMO_TASK_QUEUE", "demo-durable-workflow")
 # promotion artifact (see AGENTS.md).
 METRICS_BIND_ADDRESS = os.environ.get("METRICS_BIND_ADDRESS", "")
 
+# M15 end-to-end scenario: the Lab/Device API (M11 lab-sim MCP service,
+# governed by M12's OPA policy) that `e2e_activities.py` calls. Same
+# bearer-token scheme as `mcp/lab-sim/.env.example` / `opencode.jsonc`'s
+# `devenv-lab-sim` MCP server entry — this worker acts as one more
+# authenticated caller ("agent-a"), not a privileged bypass.
+LAB_SIM_URL = os.environ.get("LAB_SIM_URL", "http://127.0.0.1:8300/mcp/")
+LAB_SIM_AGENT_TOKEN = os.environ.get("LAB_SIM_AGENT_TOKEN", "change-me-a")
+

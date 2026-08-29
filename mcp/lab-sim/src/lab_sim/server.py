@@ -31,6 +31,7 @@ import contextlib
 import logging
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -183,7 +184,21 @@ def build_app() -> Starlette:
     not part of the MCP protocol surface."""
     from starlette.routing import Mount, Route
 
-    mcp_app = mcp.streamable_http_app(streamable_http_path="/", json_response=True)
+    mcp_app = mcp.streamable_http_app(
+        streamable_http_path="/",
+        json_response=True,
+        # M15: EmbeddedValidationWorkflow's Activities (temporal-worker,
+        # `platform-workspaces` network) call this service by its compose
+        # service name, not 127.0.0.1 - the MCP SDK's DNS-rebinding
+        # protection rejects any Host header not explicitly allow-listed,
+        # so "lab-sim:8300" must be named here alongside the existing
+        # localhost-only callers (M11 verify-governance.sh, opencode's
+        # local MCP client) or every cross-container tool call 401s at the
+        # transport-security layer before auth.py is even reached.
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=["127.0.0.1:8300", "localhost:8300", "lab-sim:8300"]
+        ),
+    )
 
     async def metrics(_request: Request) -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
