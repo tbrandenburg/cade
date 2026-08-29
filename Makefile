@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -73,8 +73,26 @@ runner-run:
 	@bash scripts/runner-jit-start.sh
 
 ## temporal-worker-build: Build the M8 demo durable-workflow worker image.
+## Pass CACERT=/path/to/ca-bundle.pem on a corporate TLS-intercepting proxy.
 temporal-worker-build:
-	@docker buildx build -f temporal/Dockerfile -t cade/temporal-worker:latest --load temporal
+	@if [ -n "$(CACERT)" ]; then \
+		docker buildx build -f temporal/Dockerfile --secret id=cacert,src=$(CACERT) \
+			-t cade/temporal-worker:latest --load temporal; \
+	else \
+		docker buildx build -f temporal/Dockerfile \
+			-t cade/temporal-worker:latest --load temporal; \
+	fi
+
+## lab-sim-build: Build the M11 lab-sim MCP service image.
+## Pass CACERT=/path/to/ca-bundle.pem on a corporate TLS-intercepting proxy.
+lab-sim-build:
+	@if [ -n "$(CACERT)" ]; then \
+		docker buildx build -f mcp/lab-sim/Dockerfile --secret id=cacert,src=$(CACERT) \
+			-t cade/lab-sim:latest --load mcp/lab-sim; \
+	else \
+		docker buildx build -f mcp/lab-sim/Dockerfile \
+			-t cade/lab-sim:latest --load mcp/lab-sim; \
+	fi
 
 ## temporal-demo-start: Start one execution of the M8 demo durable workflow.
 temporal-demo-start:

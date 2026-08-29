@@ -336,7 +336,8 @@ its accepted `privileged`-container tradeoff.
 | `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. |
 | `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
-| `make temporal-worker-build` | M8 | Build the Temporal worker image. |
+| `make temporal-worker-build` | M8 | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+| `make lab-sim-build` | M11 | Build the lab-sim MCP service image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make temporal-demo-start` | M8 | Start one durable-workflow execution against the live Temporal cluster. |
 | `make governance-bootstrap` | M12 | Init/unseal OpenBao, rotate credentials, revoke root token. Re-run whenever the `openbao` container is recreated (does not auto-unseal). |
 | `make governance-verify` | M12 | Run `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip. |

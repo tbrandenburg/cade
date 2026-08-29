@@ -7,6 +7,21 @@ FROM python:3.13-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /uvx /usr/local/bin/
 
+# Optional corporate/TLS-intercepting-proxy CA bundle. Passed as a BuildKit
+# secret (never a build arg or COPY) so it never lands in an image layer:
+#   make lab-sim-build CACERT=/path/to/ca-bundle.pem
+# On unrestricted networks this mount is empty and the step is a no-op.
+RUN --mount=type=secret,id=cacert \
+    if [ -s /run/secrets/cacert ]; then \
+      apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+      && cp /run/secrets/cacert /usr/local/share/ca-certificates/corporate-ca.crt \
+      && update-ca-certificates \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    UV_NATIVE_TLS=1
+
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
