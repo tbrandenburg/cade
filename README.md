@@ -16,6 +16,7 @@ delivered and evidenced. See [Project status](#project-status) below.
 - [Why it exists](#why-it-exists)
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
+  - [Resetting a Coder user's password](#resetting-a-coder-users-password)
 - [User journeys](#user-journeys)
 - [Makefile targets](#makefile-targets)
 - [Project status](#project-status)
@@ -142,6 +143,10 @@ make governance-bootstrap
 # 6. First login: open http://localhost:7080 in a browser and complete
 #    Coder's first-run admin setup — or from the CLI:
 coder login http://localhost:7080
+#    (If the browser doesn't show a "create first admin" form, an admin
+#    likely already exists on this stack from a previous run — see
+#    "Resetting a Coder user's password" below to regain access instead
+#    of wiping the deployment.)
 
 # 7. Build the workspace image(s) workspaces will run
 make coder-workspace-build          # docker-standard template
@@ -158,6 +163,31 @@ Once a workspace is running, `scripts/configure-coder-ssh.sh` wires up local
 SSH config so VS Code's Agent Host can connect to it as
 `ssh coder.<workspace-name>`, and `scripts/verify-ahp-session.sh` proves the
 Agent Host protocol handshake actually succeeds end-to-end.
+
+### Resetting a Coder user's password
+
+Coder's admin account has no seeded/default credentials — it's created
+either via the first-run browser wizard or `coder login`'s
+`--first-user-*` flags (see Quickstart step 6), and the password only ever
+exists wherever you first set it. If it's lost, or a fresh clone shows a
+normal login form instead of the "create first admin" wizard (meaning an
+admin already exists from a previous run), reset that user's password
+directly rather than wiping the whole deployment:
+
+```bash
+docker exec -i coder /opt/coder reset-password <username> \
+  --postgres-url "postgresql://${CODER_PG_USER:-coder}:${CODER_PG_PASSWORD:-coder}@coder-db/${CODER_PG_DB:-coder}?sslmode=disable"
+```
+
+It prompts twice (new password, then confirmation) and only touches that
+one user row — templates, workspaces, and every other account are
+untouched. Then log in as normal at `http://localhost:7080` or via
+`coder login http://localhost:7080`.
+
+Only wipe `coder-db` entirely (`docker compose down && docker volume rm
+devenv-cloud_coder_db_data && make up`) if you actually want to destroy
+every workspace/template/user and start over — not as a password-reset
+shortcut.
 
 ## User journeys
 
