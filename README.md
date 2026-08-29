@@ -172,30 +172,36 @@ either via the first-run browser wizard or `coder login`'s
 exists wherever you first set it. If it's lost, or a fresh clone shows a
 normal login form instead of the "create first admin" wizard (meaning an
 admin already exists from a previous run), reset that user's password
-directly rather than wiping the whole deployment:
+directly rather than wiping the whole deployment.
+
+**Coder authenticates by email, not username** — the built-in
+`coder reset-password <username>` subcommand (and most other CLI
+subcommands) take a `<username>`, but the login form and
+`/api/v2/users/login` API both need that user's *email*, which isn't
+necessarily the same string. `scripts/coder-reset-password.sh` wraps
+both steps — it looks up the email for the given username, runs
+`reset-password`, then prints the email you actually need to log in with:
+
+```bash
+scripts/coder-reset-password.sh <username>
+#   Resetting password for username 'admin' (email: admin@cade.local)...
+#   > Enter new  password : > Confirm  password :
+#   Password has been reset for user admin!
+#
+#   Log in with EMAIL (not username): admin@cade.local
+#     Browser: http://localhost:7080
+#     CLI:     coder login http://localhost:7080
+```
+
+It only touches that one user row — templates, workspaces, and every
+other account are untouched. Equivalent to running the two steps by hand:
 
 ```bash
 docker exec -i coder /opt/coder reset-password <username> \
   --postgres-url "postgresql://${CODER_PG_USER:-coder}:${CODER_PG_PASSWORD:-coder}@coder-db/${CODER_PG_DB:-coder}?sslmode=disable"
-```
-
-It prompts twice (new password, then confirmation) and only touches that
-one user row — templates, workspaces, and every other account are
-untouched.
-
-**Log in with the user's email, not their username** — Coder's login form
-and `/api/v2/users/login` API both authenticate by email address, even
-though `reset-password` (and most other CLI subcommands) take a
-`<username>`. If you don't already know the email for a given username,
-look it up first:
-
-```bash
 docker exec coder-db psql -U "${CODER_PG_USER:-coder}" -d "${CODER_PG_DB:-coder}" \
   -c "SELECT username, email FROM users WHERE deleted = false;"
 ```
-
-Then log in at `http://localhost:7080` (email + new password) or via
-`coder login http://localhost:7080`.
 
 Only wipe `coder-db` entirely (`docker compose down && docker volume rm
 devenv-cloud_coder_db_data && make up`) if you actually want to destroy
