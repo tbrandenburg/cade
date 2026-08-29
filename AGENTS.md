@@ -468,3 +468,41 @@ before this step despite `docs/INITIAL.md`'s target tree listing it —
 the M14 backup/restore procedure had only ever been written up in its
 milestone report, not in the persistent ops doc a future incident
 responder would actually reach for.
+
+## Issue #13 — 2026-08-29
+
+Coder AI integration (Agents, providers/models, MCP, `agent-workspace`
+template, OSS `boundary` egress). Full stepwise plan executed with
+sequential subagents, then a coordinator-run E2E pass against the live
+stack surfaced three real bugs no amount of code review would have
+caught: (1) `compose.yaml`'s external-auth block crash-looped `coder`
+the instant those env vars existed at all, even empty — Coder parses a
+provider from the var's *presence*, not its value; fixed by commenting
+the block out by default instead of defaulting it to an inert-looking
+empty string. (2) The AI-provider reconciler's idempotency (T4) broke on
+every re-run because `PATCH /api/v2/ai/providers/{name}` rejects the
+same `api_keys` body shape `POST` accepts — fixed by skipping the PATCH
+call entirely once non-secret fields already match, never re-sending
+`api_keys`. (3) `boundary`'s `nsjail` jail type failed with the exact
+same unprivileged-userns error already documented for `srt`'s
+`bwrap --unshare-user`; `landjail` (the issue's own documented fallback)
+was verified live to actually enforce the allowlist (200 allowed / 403
+blocked) and is now the default. See
+`docs/milestone-reports/issue-13-ai-coder.md` for full E2E evidence,
+including two tests (T5 genuine inference, T13 MCP tool invocation)
+honestly reported as blocked on a real `OPENAI_API_KEY` not being
+available in this environment, rather than faked or silently skipped.
+
+**Process lesson, not a code defect:** a manual `sed`-based redaction
+pattern used while validating `scripts/ai-token.sh`'s live output caught
+the token embedded in its printed `.env` line but missed the same token
+printed bare on its own line immediately above — a real Coder session
+token was briefly exposed in this session's own transcript. Mitigated
+immediately (password reset + `POST /api/v2/users/logout`, confirmed the
+old token now 401s) rather than left for later cleanup. Prevention rule:
+when manually redacting a secret from command output for any purpose
+(logs, chat transcripts, reports), capture the value into a shell
+variable first and reference only `<REDACTED>`/`${VAR:0:4}****` in
+anything printed — never rely on a single regex substitution to catch
+every place a raw secret might appear in multi-line tool output.
+
