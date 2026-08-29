@@ -1,0 +1,40 @@
+name: opa-policy-check
+
+# Issue #9 gap-fill: CI gate for governance/opa/policy/**. Prior to this
+# workflow, scripts/reload-opa-policy.sh / scripts/verify-governance.sh
+# were only invoked manually via `make governance-verify` against the
+# live single-host stack — a policy edit merged to main had no automated
+# check at all. This workflow does not attempt to reach the live `opa`
+# container (out of scope for a GitHub-hosted runner); it proves the
+# *merged* policy is provably correct (opa test + ALLOW/DENY decision
+# smoke check against a throwaway, job-scoped opa server) before merge.
+# The live-drift half of the original ask (making sure the *running*
+# container picks up the change) remains documented operational
+# discipline: `make governance-verify` / `docker compose restart opa`
+# after deploy (see docs/security.md "OPA policy reload").
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "governance/opa/policy/**"
+      - "scripts/opa-policy-check.sh"
+      - ".github/workflows/opa-policy-check.yml"
+  pull_request:
+    paths:
+      - "governance/opa/policy/**"
+      - "scripts/opa-policy-check.sh"
+      - ".github/workflows/opa-policy-check.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  opa-test-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: opa test + decision-API smoke check
+        run: bash scripts/opa-policy-check.sh
