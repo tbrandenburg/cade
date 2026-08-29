@@ -350,3 +350,16 @@ images on an explicit allow-list (`cade/coder-workspace:latest`,
 missing/unreachable OPA decision API, or a non-`true` result all deny the
 request.
 
+### OPA policy reload
+
+`compose.yaml`'s `opa` service bind-mounts `governance/opa/policy` into
+the container read-only, and OPA's `run --server` mode does not
+hot-reload that mount — a new or changed `.rego` file only takes effect
+after the `opa` process restarts. `scripts/reload-opa-policy.sh`
+automates this (restart `opa`, wait for it to become responsive, then
+smoke-query both `lab.authz.allow` and `build.authz.allow` to confirm the
+restarted server actually has the current policy files loaded) and is
+now run automatically as the first step of `scripts/verify-governance.sh`
+/ `make governance-verify`, so any policy edit is guaranteed to be live
+before verification runs.
+

@@ -16,6 +16,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
+echo "==> [0/3] Reloading live OPA server with current policy files"
+"${REPO_ROOT}/scripts/reload-opa-policy.sh"
+
+echo ""
 echo "==> [1/3] opa test governance/opa/policy"
 docker run --rm -v "${REPO_ROOT}/governance/opa/policy:/policy:ro" openpolicyagent/opa:1.9.0 test /policy
 
