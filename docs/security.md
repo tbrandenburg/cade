@@ -353,6 +353,66 @@ images on an explicit allow-list (`cade/coder-workspace:latest`,
 missing/unreachable OPA decision API, or a non-`true` result all deny the
 request.
 
+### Issue #8 — template-aware image selection
+
+`BuildWorkflow.run`/`demo.build_starter` now accept an optional
+`--template` (`docker-standard` / `embedded-linux`) that resolves via a
+small lookup table (`demo.build_workflow.TEMPLATE_IMAGES`) to the correct
+pre-built image tag, kept in sync with `build_authz.rego`'s
+`allowed_images` allow-list. Precedence: an explicit `--image` always
+wins (unchanged pre-#8 behavior); else `--template` is resolved; else the
+original hardcoded default (`cade/coder-workspace:latest`) is used.
+Live-verified 2026-08-29 (see the "orphan container" evidence below for
+the same session): both templates, an explicit `--image`, and the
+no-argument default all resolved to the correct image and ran
+successfully; the deny case (`--image alpine:latest`) was re-run and
+still correctly denied by OPA with zero container created — no
+regression from #5.
+
+### Issue #8 — orphaned container on mid-Activity worker crash
+
+Confirmed root cause, live: docker-py's `containers.run(..., remove=True)`
+(the code path used here, `detach=False`) removes the container
+client-side, calling `container.wait()` then `container.remove()` — it
+does **not** set the daemon-side `AutoRemove` flag (only the `detach=True`
+path does, per docker-py's own source). Reproduced by starting a
+long-running Activity (`sleep 30` inside `cade/coder-workspace:latest`),
+`docker kill`-ing the `temporal-worker` container mid-run, and confirming
+the started container kept running/exited untouched on the Docker daemon
+with nothing left to clean it up.
+
+Fix: every container `run_build_command` starts is labeled
+(`cade.build-activity.task-key`) with a key stable across Temporal retry
+attempts of the same Activity task (workflow ID + Activity ID, not the
+attempt number). Before starting a container, the Activity looks up and
+force-removes any container already carrying its own task key — cleaning
+up exactly the leftover from a previous, crashed attempt of the *same*
+Activity task, and only that container (never another task's). The
+default `RetryPolicy(maximum_attempts=1)` was also raised to `2`:
+`run_build_command` catches every Docker/OPA-level error itself and
+returns it as a structured `{"ok": False, ...}` result rather than
+raising, so this change only ever affects genuine infra faults (an
+unhandled exception, or the Activity timing out because the worker
+process that was running it crashed) — it can never cause a retry of a
+legitimate build/test command failure.
+
+Live-verified end-to-end 2026-08-29: started `BuildWorkflow` with
+`--command sleep 30`, killed `temporal-worker` ~5s in, confirmed the
+orphaned container (`angry_lovelace`) was still present (`Up`, later
+`Exited (0)`, never removed) after restarting `temporal-worker`, then
+waited out the Activity's 5-minute `start_to_close_timeout` for Temporal
+to time out attempt 1 and dispatch attempt 2. Attempt 2's worker log
+recorded `reaping orphaned container ... from a previous attempt of
+task_key=crash-test-1-1`, the workflow completed successfully
+(`{"ok": true, "exit_code": 0, ...}`), and `docker ps -a` afterward showed
+zero leftover `cade/coder-workspace:latest` containers. `build-docker-proxy`
+being briefly unreachable was not separately exercised live in this
+session (out of scope for the crash reproduction above) — the existing
+fail-closed pattern (`docker client init failed` / `docker API error`
+returned as a structured error dict, mirroring the already-verified
+OPA-unreachable fail-closed behavior) is unchanged by this fix and was
+not modified.
+
 ### OPA policy reload
 
 `compose.yaml`'s `opa` service bind-mounts `governance/opa/policy` into
