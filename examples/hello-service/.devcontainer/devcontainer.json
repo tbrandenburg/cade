@@ -1,0 +1,5 @@
+{
+  "name": "hello-service",
+  "image": "cade/coder-workspace:latest",
+  "postCreateCommand": "make -C examples/hello-service build"
+}

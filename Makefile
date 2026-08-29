@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify backup restore-test
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify backup restore-test
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -108,3 +108,22 @@ backup:
 restore-test:
 	@bash scripts/restore-test.sh
 
+
+## devcontainer-workspace-build: Build the devcontainer bootstrap image (Issue #6).
+devcontainer-workspace-build:
+	@dirty="$$(git status --porcelain -- examples coder Makefile 2>/dev/null)"; \
+	if [ -n "$$dirty" ]; then \
+		echo "ERROR: uncommitted changes under examples/, coder/, or Makefile:"; \
+		echo "$$dirty"; \
+		echo "The devcontainer template clones the remote repository, not this"; \
+		echo "working tree — commit and push these files first, otherwise the"; \
+		echo "built image/pushed template will not match what workspaces clone."; \
+		exit 1; \
+	fi
+	@if [ -n "$(CACERT)" ]; then \
+		docker buildx build -f coder/devcontainer/Dockerfile --secret id=cacert,src=$(CACERT) \
+			-t cade/devcontainer-bootstrap:latest --load coder/devcontainer; \
+	else \
+		docker buildx build -f coder/devcontainer/Dockerfile \
+			-t cade/devcontainer-bootstrap:latest --load coder/devcontainer; \
+	fi
