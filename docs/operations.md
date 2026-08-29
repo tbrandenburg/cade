@@ -1,4 +1,4 @@
-# Operations — devenv-cloud
+# Operations — cade
 
 Operational runbooks not covered by the `Makefile` help text.
 

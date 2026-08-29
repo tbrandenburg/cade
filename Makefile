@@ -42,30 +42,30 @@ coder-workspace-build:
 	fi
 	@if [ -n "$(CACERT)" ]; then \
 		docker buildx build -f coder/Dockerfile --secret id=cacert,src=$(CACERT) \
-			-t devenv-cloud/coder-workspace:latest --load coder; \
+			-t cade/coder-workspace:latest --load coder; \
 	else \
 		docker buildx build -f coder/Dockerfile \
-			-t devenv-cloud/coder-workspace:latest --load coder; \
+			-t cade/coder-workspace:latest --load coder; \
 	fi
 
 ## embedded-workspace-build: Build the embedded-linux workspace image (Milestone M6).
 embedded-workspace-build: coder-workspace-build
 	@if [ -n "$(CACERT)" ]; then \
 		docker buildx build -f coder/embedded-linux/Dockerfile --secret id=cacert,src=$(CACERT) \
-			-t devenv-cloud/embedded-linux-workspace:latest --load coder/embedded-linux; \
+			-t cade/embedded-linux-workspace:latest --load coder/embedded-linux; \
 	else \
 		docker buildx build -f coder/embedded-linux/Dockerfile \
-			-t devenv-cloud/embedded-linux-workspace:latest --load coder/embedded-linux; \
+			-t cade/embedded-linux-workspace:latest --load coder/embedded-linux; \
 	fi
 
 ## runner-build: Build the self-hosted GitHub Actions runner image (Milestone M2).
 runner-build:
 	@if [ -n "$(CACERT)" ]; then \
 		docker buildx build -f runner/Dockerfile --secret id=cacert,src=$(CACERT) \
-			-t devenv-cloud/runner:latest --load runner; \
+			-t cade/runner:latest --load runner; \
 	else \
 		docker buildx build -f runner/Dockerfile \
-			-t devenv-cloud/runner:latest --load runner; \
+			-t cade/runner:latest --load runner; \
 	fi
 
 ## runner-run: Request a JIT config and run one ephemeral self-hosted runner (Milestone M2).
@@ -74,7 +74,7 @@ runner-run:
 
 ## temporal-worker-build: Build the M8 demo durable-workflow worker image.
 temporal-worker-build:
-	@docker buildx build -f temporal/Dockerfile -t devenv-cloud/temporal-worker:latest --load temporal
+	@docker buildx build -f temporal/Dockerfile -t cade/temporal-worker:latest --load temporal
 
 ## temporal-demo-start: Start one execution of the M8 demo durable workflow.
 temporal-demo-start:
@@ -82,7 +82,7 @@ temporal-demo-start:
 		-e TEMPORAL_ADDRESS=temporal:7233 \
 		-e DEMO_TASK_QUEUE=demo-durable-workflow \
 		--entrypoint python \
-		devenv-cloud/temporal-worker:latest -m demo.starter
+		cade/temporal-worker:latest -m demo.starter
 
 ## governance-bootstrap: Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token (Milestone M12).
 governance-bootstrap:

@@ -1,6 +1,6 @@
-# Architecture — devenv-cloud
+# Architecture — cade
 
-Condensed C4-model view of the platform described in `docs/INITIAL.md` and `docs/devenv-cloud.png`. This is a summary for quick orientation — `docs/INITIAL.md` (Section 2, the seven-layer model) remains the source of truth for details; this file must be kept in sync with it, not the other way around.
+Condensed C4-model view of the platform described in `docs/INITIAL.md` and `docs/cade.png`. This is a summary for quick orientation — `docs/INITIAL.md` (Section 2, the seven-layer model) remains the source of truth for details; this file must be kept in sync with it, not the other way around.
 
 C4 levels used: **Context** (L1), **Container** (L2), **Component** (L3, one representative slice). A Code-level (L4) diagram is intentionally omitted — the codebase doesn't exist yet, and this doc will drift immediately if it tries to describe classes/functions before implementation.
 
@@ -12,7 +12,7 @@ Who/what interacts with the platform, and what external systems it depends on.
 
 ```mermaid
 C4Context
-    title devenv-cloud — System Context
+    title cade — System Context
 
     Person(dev, "Developer", "Human operating VS Code, a browser, or a CLI as the control surface")
 
@@ -40,7 +40,7 @@ The platform's internal building blocks, mapped to the seven-layer model (`docs/
 
 ```mermaid
 C4Container
-    title devenv-cloud — Container Diagram (single Linux server)
+    title cade — Container Diagram (single Linux server)
 
     Person(dev, "Developer")
     System_Ext(github, "GitHub.com")
@@ -98,7 +98,7 @@ The workspace is the container most agents will actually work inside of, so it's
 
 ```mermaid
 C4Component
-    title devenv-cloud — Components inside a Docker Workspace
+    title cade — Components inside a Docker Workspace
 
     Container_Boundary(ws, "Docker Workspace (ephemeral, except /home/coder)") {
         Component(repo, "Repo checkout + worktrees", "Git", "1 worktree per parallel agent session (M5 policy)")

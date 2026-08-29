@@ -17,7 +17,7 @@ Build a **single-repository, Docker-first private developer platform** that demo
 - MCP/internal APIs for tools and context
 - optional Keycloak, OpenBao, OPA, OpenTelemetry, and Grafana for governance and observability
 
-See `docs/devenv-cloud.png` for the seven-layer reference diagram this plan implements.
+See `docs/cade.png` for the seven-layer reference diagram this plan implements.
 
 The setup must:
 
@@ -36,7 +36,7 @@ The setup must:
 
 ## 2.1 Seven-Layer Model
 
-The platform is organized into seven layers (see `docs/devenv-cloud.png` for the full diagram):
+The platform is organized into seven layers (see `docs/cade.png` for the full diagram):
 
 ```text
 1. HUMAN CONTROL SURFACE

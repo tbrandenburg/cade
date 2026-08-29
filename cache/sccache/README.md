@@ -8,7 +8,7 @@ the `embedded-linux` Coder workspace image
 ## Where the cache actually lives
 
 Not a bind-mounted host directory under this path — a **named Docker
-volume**, `devenv-cloud-sccache-cache`, declared once in
+volume**, `cade-sccache-cache`, declared once in
 `coder/templates/embedded-linux/main.tf` and mounted into every workspace
 container's `/home/coder/.cache/sccache`. Unlike the per-workspace
 `coder-<id>-home` volume (destroyed with the workspace), this volume's name

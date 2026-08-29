@@ -12,8 +12,8 @@
 # runner image built (`make runner-build`).
 set -euo pipefail
 
-REPO="${RUNNER_REPO:-tbrandenburg/devenv-cloud}"
-IMAGE="${RUNNER_IMAGE:-devenv-cloud/runner:latest}"
+REPO="${RUNNER_REPO:-tbrandenburg/cade}"
+IMAGE="${RUNNER_IMAGE:-cade/runner:latest}"
 RUNNER_NAME="private-lab-$(date +%s)"
 
 if ! gh auth status >/dev/null 2>&1; then

@@ -45,7 +45,7 @@ from lab_sim.policy import check_allowed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lab_sim.server")
 
-mcp = MCPServer("devenv-cloud-lab-sim")
+mcp = MCPServer("cade-lab-sim")
 
 # M13 Observability: request-level metrics for the "MCP request count" /
 # "lab API request count" panels (docs/plan/plan.md, M13 Minimum

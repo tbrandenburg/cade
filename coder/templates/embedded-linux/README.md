@@ -10,8 +10,8 @@ top of the standard image — see `../../embedded-linux/Dockerfile`.
 
 Identical `main.tf`/`variables.tf` structure to `../docker-workspace`,
 except `variables.tf`'s `workspace_image` default points at
-`devenv-cloud/embedded-linux-workspace:latest` instead of
-`devenv-cloud/coder-workspace:latest`.
+`cade/embedded-linux-workspace:latest` instead of
+`cade/coder-workspace:latest`.
 
 ## Build the workspace image first
 
@@ -20,15 +20,15 @@ make embedded-workspace-build                       # unrestricted network
 make embedded-workspace-build CACERT=/path/to/ca.pem # behind a MITM proxy
 ```
 
-This builds `devenv-cloud/coder-workspace:latest` first (the base layer),
-then `devenv-cloud/embedded-linux-workspace:latest` on top of it.
+This builds `cade/coder-workspace:latest` first (the base layer),
+then `cade/embedded-linux-workspace:latest` on top of it.
 
 ## Push a template revision
 
 ```bash
 coder templates push embedded-linux \
   --directory coder/templates/embedded-linux \
-  --var repo_url=https://github.com/<org>/devenv-cloud.git
+  --var repo_url=https://github.com/<org>/cade.git
 ```
 
 ## Toolchain provenance
