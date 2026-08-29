@@ -1,0 +1,19 @@
+NAME                  IMAGE                                          COMMAND                  SERVICE               CREATED             STATUS                       PORTS
+cadvisor              gcr.io/cadvisor/cadvisor:v0.49.2               "/usr/bin/cadvisor -…"   cadvisor              11 hours ago        Up 11 hours (healthy)        8080/tcp
+coder                 ghcr.io/coder/coder:v2.36.3                    "/opt/coder server"      coder                 About an hour ago   Up About an hour (healthy)   0.0.0.0:7080->7080/tcp, [::]:7080->7080/tcp
+coder-db              postgres:17.6-alpine                           "docker-entrypoint.s…"   coder-db              About an hour ago   Up About an hour (healthy)   5432/tcp
+grafana               grafana/grafana-oss:12.1.0                     "/run.sh"                grafana               11 hours ago        Up 11 hours                  127.0.0.1:3001->3000/tcp
+lab-sim               devenv-cloud/lab-sim:latest                    "python -m lab_sim.s…"   lab-sim               45 minutes ago      Up 38 minutes (healthy)      127.0.0.1:8300->8300/tcp
+loki                  grafana/loki:3.5.9                             "/usr/bin/loki -conf…"   loki                  11 hours ago        Up 11 hours                  3100/tcp
+opa                   openpolicyagent/opa:1.9.0                      "/opa run --server -…"   opa                   12 hours ago        Up 12 hours                  127.0.0.1:8181->8181/tcp
+openbao               openbao/openbao:2.6.2                          "docker-entrypoint.s…"   openbao               About an hour ago   Up About an hour (healthy)   127.0.0.1:8200->8200/tcp
+otel-collector        otel/opentelemetry-collector-contrib:0.138.0   "/otelcol-contrib --…"   otel-collector        11 hours ago        Up 11 hours                  4317-4318/tcp, 55679/tcp
+prometheus            prom/prometheus:v3.7.3                         "/bin/prometheus --c…"   prometheus            11 hours ago        Up 11 hours                  9090/tcp
+promtail              grafana/promtail:3.5.9                         "/usr/bin/promtail -…"   promtail              11 hours ago        Up 11 hours                  
+registry              registry:3.1.1                                 "/entrypoint.sh /etc…"   registry              14 hours ago        Up 14 hours (healthy)        5000/tcp
+runner-docker-proxy   tecnativa/docker-socket-proxy:v0.5.0           "docker-entrypoint.s…"   runner-docker-proxy   27 minutes ago      Up 27 minutes                2375/tcp
+runner-health         nginx:1.27-alpine                              "/docker-entrypoint.…"   runner-health         14 hours ago        Up 14 hours (healthy)        80/tcp
+temporal              temporalio/auto-setup:1.29.7                   "/etc/temporal/entry…"   temporal              About an hour ago   Up About an hour (healthy)   6933-6935/tcp, 6939/tcp, 7234-7235/tcp, 7239/tcp, 0.0.0.0:7233->7233/tcp, [::]:7233->7233/tcp
+temporal-db           postgres:16.10-alpine                          "docker-entrypoint.s…"   temporal-db           About an hour ago   Up About an hour (healthy)   5432/tcp
+temporal-ui           temporalio/ui:2.53.3                           "./start-ui-server.sh"   temporal-ui           About an hour ago   Up About an hour (healthy)   0.0.0.0:8088->8080/tcp, [::]:8088->8080/tcp
+temporal-worker       devenv-cloud/temporal-worker:latest            "python -m demo.work…"   temporal-worker       38 minutes ago      Up 38 minutes                

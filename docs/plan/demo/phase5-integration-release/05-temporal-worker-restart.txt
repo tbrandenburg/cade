@@ -1,0 +1,2 @@
+ Container temporal-worker Restarting 
+ Container temporal-worker Started 

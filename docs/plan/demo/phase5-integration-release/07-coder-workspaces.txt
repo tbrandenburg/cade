@@ -1,0 +1,2 @@
+WORKSPACE         TEMPLATE         STATUS   HEALTHY  LAST BUILT  CURRENT VERSION  OUTDATED  STARTS AT  STOPS AFTER  
+  admin/demo-e2e  docker-standard  Started  true     1h4m        tough_jacobi88   false                             

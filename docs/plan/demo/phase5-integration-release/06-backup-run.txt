@@ -1,0 +1,18 @@
+==> Backup set: /home/tom/workspace/ai/made/workspace/devenv-cloud/backup/artifacts/20260829T080513Z
+==> [1/5] Platform repository (git bundle, all refs)
+==> [2/5] Coder database (pg_dump)
+==> [3/5] Temporal database (pg_dump: temporal + temporal_visibility)
+==> [4/5] OpenBao (raw storage-directory snapshot + KV export + unseal-key material)
+    Stopping openbao for a consistent storage-directory snapshot
+ Container openbao Stopping 
+ Container openbao Stopped 
+ Container openbao Starting 
+ Container openbao Started 
+    Copied unseal key shares from /home/tom/workspace/ai/made/workspace/devenv-cloud/governance/openbao/unseal/init.json.
+    NOTE: a real deployment keeps this OUT of the data backup set
+    (password manager / physical safe) - see backup-policy.md.
+    Exported 1 secret(s) under secret/devenv-cloud/.
+==> [5/5] Workspace persistent state (coder-*-home volumes)
+    Archiving volume: coder-25b6ebca-5e45-40e0-96f7-9635cca1053b-home
+tar: ./.local/share/code-server/code-server-ipc.sock: socket ignored
+==> Backup complete: /home/tom/workspace/ai/made/workspace/devenv-cloud/backup/artifacts/20260829T080513Z
