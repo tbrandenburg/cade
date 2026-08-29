@@ -16,3 +16,6 @@ governance/openbao/certs/*.key
 governance/openbao/data/
 governance/openbao/unseal/
 backup/artifacts/
+
+# Temporary agent worktrees
+.worktrees/
