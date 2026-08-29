@@ -506,3 +506,37 @@ variable first and reference only `<REDACTED>`/`${VAR:0:4}****` in
 anything printed — never rely on a single regex substitution to catch
 every place a raw secret might appear in multi-line tool output.
 
+**Update, same day, once a real `OPENAI_API_KEY`/`OPENROUTER_API_KEY`
+became available:** closing out T5 (genuine inference) surfaced two more
+real bugs the credential-less first pass could not have found. (4) The
+first idempotency fix above was itself incomplete — it never re-sent
+`api_keys` on PATCH *at all*, so a provider created once with a
+stale/placeholder key could never actually be rotated by a later
+`make ai-bootstrap` run; an operator setting a real key in `.env` after
+an earlier run would see no effect, silently. Fixed by reproducing
+Coder's own key-masking format (`first4...last4`) from the resolved
+secret and comparing it against the stored `masked` field to detect
+drift deterministically, without ever storing/comparing the raw secret
+— only including `api_keys` in the PATCH body when it actually differs.
+Verified live: reset to a placeholder key, re-ran with the real key,
+got `"key rotated"` exactly once, then `"unchanged"` on 3 subsequent
+runs. (5) `agent-workspace`'s `coder_agent` had no `dir` set, so Coder
+Agents' Chats API defaulted a chat's working directory to `$HOME`, not
+wherever `.mcp.json` actually lives — the agent had zero MCP tools
+registered and hallucinated shell commands instead. Fixed with
+`dir = local.workspace_dir` (Terraform flags it deprecated but still
+functional). **This did not fully close T13**: even with `dir` fixed, a
+real chat created purely over the REST API (no client ever attached)
+still showed no MCP tools discovered — this appears to be the same class
+of gap already documented above for VS Code's Agent Host: `.mcp.json`
+auto-discovery may require a real, interactively-attached client session,
+not a headless API-created chat. Given that, the actual security property
+T13 cares about (OPA denies an unapproved `flash_device`) was proven
+directly via the same MCP protocol calls a working auto-discovery would
+have produced, run from inside the real workspace container with a real
+bearer token — `list_devices`/`reserve_device`/`run_test` all succeeded,
+`flash_device` without `approved=true` was denied (`isError: true`). See
+the updated `docs/milestone-reports/issue-13-ai-coder.md` for full
+evidence of both passes.
+
+
