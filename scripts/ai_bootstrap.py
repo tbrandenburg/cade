@@ -131,6 +131,18 @@ def find_by_name(items: list[dict], name: str) -> dict | None:
     return None
 
 
+def expected_masked(secret: str) -> str:
+    """Reproduce Coder's own masking format for an API key, verified live:
+    a stored key with value "sk-test-...-000000" is returned by the API as
+    masked="sk-t...0000" — i.e. first 4 chars + "..." + last 4 chars. Used
+    to detect key drift deterministically without ever storing/comparing
+    the real secret value ourselves.
+    """
+    if len(secret) <= 8:
+        return secret
+    return f"{secret[:4]}...{secret[-4:]}"
+
+
 def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str | None:
     """Reconcile a single provider. Returns its UUID, or None if skipped."""
     name = provider["name"]
@@ -150,36 +162,55 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
     current = find_by_name(existing, name)
 
     if current is not None:
-        # NOTE: the PATCH endpoint's `api_keys` field expects a mutation
-        # object (add/remove), not the raw-string-array shape POST accepts
-        # — sending POST's shape on PATCH fails with a 400 ("cannot
-        # unmarshal string into ... AIProviderKeyMutation"), verified live
-        # against a real Coder server. We never re-send api_keys on PATCH:
-        # the only fields we can compare/reconcile idempotently here are
-        # the non-secret ones. If they already match, skip the PATCH call
-        # entirely (this is what makes reruns report "unchanged" instead
-        # of hitting the provider API at all).
+        # NOTE: the PATCH endpoint's `api_keys` field expects an array of
+        # mutation objects — each either `{"id": "<existing-key-id>"}` (keep)
+        # or `{"api_key": "<new-value>"}` (add) — not the raw-string-array
+        # shape POST accepts. Sending POST's shape on PATCH fails with a 400
+        # ("cannot unmarshal string into ... AIProviderKeyMutation"),
+        # verified live. Also verified live: PATCHing `api_keys` with a new
+        # `api_key` entry REPLACES the provider's key set (the old key's id
+        # disappears) rather than appending — so a rotation is a single
+        # `api_keys: [{"api_key": secret}]` PATCH, not an add-then-remove.
+        #
+        # We detect whether the currently-stored key already matches the
+        # resolved secret via Coder's own masking format (see
+        # expected_masked()) rather than ever storing/comparing the raw
+        # secret ourselves — this is what keeps a genuinely-unchanged key
+        # from re-PATCHing every run (true idempotency, T4) while still
+        # letting a real rotation (e.g. operator sets OPENAI_API_KEY for
+        # the first time after already running ai-bootstrap once) actually
+        # take effect (required for T5 to ever pass).
         non_secret_fields = {
             "display_name": provider["display_name"],
             "type": provider["type"],
             "base_url": provider["base_url"],
             "enabled": provider.get("enabled", True),
         }
-        if all(current.get(k) == v for k, v in non_secret_fields.items()):
+        fields_differ = any(current.get(k) != v for k, v in non_secret_fields.items())
+        current_keys = current.get("api_keys") or []
+        key_matches = bool(current_keys) and current_keys[0].get("masked") == expected_masked(secret)
+
+        if not fields_differ and key_matches:
             log(f"Provider '{name}': unchanged")
             results.append({"kind": "provider", "name": name, "action": "unchanged"})
             return current.get("id")
 
+        patch_body: dict = {"name": name}
+        if fields_differ:
+            patch_body.update(non_secret_fields)
+        if not key_matches:
+            patch_body["api_keys"] = [{"api_key": secret}]
+
         status, updated = http_request(
-            "PATCH", f"/api/v2/ai/providers/{name}", token,
-            {"name": name, **non_secret_fields},
+            "PATCH", f"/api/v2/ai/providers/{name}", token, patch_body
         )
         if status not in (200, 204):
             log(f"WARNING: PATCH provider '{name}' failed (status {status})")
             results.append({"kind": "provider", "name": name, "action": "skipped"})
             return current.get("id")
-        log(f"Provider '{name}': updated")
-        results.append({"kind": "provider", "name": name, "action": "updated"})
+        action = "updated" if fields_differ else "key rotated"
+        log(f"Provider '{name}': {action}")
+        results.append({"kind": "provider", "name": name, "action": action})
         return (updated or current).get("id")
 
     body = {
@@ -187,6 +218,7 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
         "display_name": provider["display_name"],
         "type": provider["type"],
         "base_url": provider["base_url"],
+
         "enabled": provider.get("enabled", True),
         "api_keys": [secret],
     }
