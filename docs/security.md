@@ -362,7 +362,35 @@ after the `opa` process restarts. `scripts/reload-opa-policy.sh`
 automates this (restart `opa`, wait for it to become responsive, then
 smoke-query both `lab.authz.allow` and `build.authz.allow` to confirm the
 restarted server actually has the current policy files loaded) and is
-now run automatically as the first step of `scripts/verify-governance.sh`
-/ `make governance-verify`, so any policy edit is guaranteed to be live
-before verification runs.
+run automatically as the first step of `scripts/verify-governance.sh` /
+`make governance-verify`, so any policy edit is guaranteed to be live
+before verification runs on this single host.
+
+That live-reload step is not itself automated by anything other than a
+human remembering to run `make governance-verify` — a policy edit merged
+to `main` does not, by itself, restart the live `opa` container (Issue
+#9). For a single-operator, single-host platform, standing up new
+always-running infrastructure to watch `governance/opa/policy/` for
+changes (a file-watcher sidecar, a `compose.yaml` healthcheck hook, etc.)
+is unjustified extra complexity for how infrequently policy changes,
+and every such change already goes through PR review. Instead, the
+enforced discipline is a two-part split:
+
+- **CI gate (automated, before merge)** —
+  `.github/workflows/opa-policy-check.yml` triggers on any push/PR
+  touching `governance/opa/policy/**` and runs
+  `scripts/opa-policy-check.sh` (also `make opa-policy-check`): `opa
+  test` against the changed policy bundle, plus an ALLOW/DENY decision
+  smoke check for both `lab.authz` and `build.authz` against a
+  throwaway, job-scoped `opa` server on the GitHub-hosted runner — no
+  live platform stack required. This is the provable-correctness half:
+  a policy typo/regression is caught before merge, not discovered live.
+- **Operational discipline (documented, after deploy)** — after a
+  policy change merges to `main`, the operator runs `make
+  governance-verify` (or, for just the reload step, `bash
+  scripts/reload-opa-policy.sh`) against the live single-host stack to
+  restart the running `opa` container and confirm it picked up the
+  merged policy. This is intentionally still a manual step, not new
+  standing infrastructure — tracked here rather than left as tribal
+  knowledge.
 

@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify backup restore-test
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -99,6 +99,10 @@ governance-bootstrap:
 ## governance-verify: Run opa test plus a live OPA/MCP ALLOW-run_test / DENY-flash_device round trip (Milestone M12).
 governance-verify:
 	@bash scripts/verify-governance.sh
+
+## opa-policy-check: Run opa test plus an ALLOW/DENY decision smoke check against a throwaway, job-scoped opa server - no live platform stack required (Issue #9, also run in CI).
+opa-policy-check:
+	@bash scripts/opa-policy-check.sh
 
 ## backup: Create a timestamped backup set covering every MUST-BACK-UP category (Milestone M14).
 backup:
