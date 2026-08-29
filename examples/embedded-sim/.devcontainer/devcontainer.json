@@ -1,5 +1,5 @@
 {
   "name": "embedded-sim",
-  "image": "cade/embedded-linux-workspace:latest",
-  "postCreateCommand": "make -C examples/embedded-sim build"
+  "image": "mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross cmake ninja-build qemu-user make && make -C examples/embedded-sim build"
 }

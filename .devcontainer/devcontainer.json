@@ -1,0 +1,5 @@
+{
+  "name": "cade",
+  "image": "mcr.microsoft.com/devcontainers/python:3",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends make docker.io && (which terraform || (curl -fsSL https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip -o /tmp/terraform.zip && sudo unzip -o /tmp/terraform.zip -d /usr/local/bin && rm /tmp/terraform.zip))"
+}
