@@ -4,7 +4,7 @@
 
 Get backup/restore validated, prove the entire chain end-to-end across every prior phase — including all three durability levels independently — and cut the first release.
 
-Covers: **M14** (Backup / Restore), Final Milestone (Complete End-to-End Scenario), Final Manual E2E Test Request (incl. Durability Boundary Tests), Final Acceptance Criteria, Versioning Policy.
+Covers: **M14** (Backup / Restore), **M15** (Complete End-to-End Scenario), **M16** (Final Acceptance & Release, including the Final E2E Test Request, Durability Boundary Tests, Final Acceptance Criteria, and Versioning Policy).
 
 ---
 
@@ -63,7 +63,7 @@ Record in `backup/restore-test.md` and `docs/milestone-reports/M14-backup.md`.
 
 ---
 
-## Final Milestone — Complete End-to-End Scenario
+## M15 — Complete End-to-End Scenario
 
 This is the most important acceptance test. Do not fake any step. Use the simulated embedded project.
 
@@ -105,9 +105,13 @@ Result must appear in GitHub as a workflow summary, issue comment, PR comment, o
 
 ---
 
-## Final Manual E2E Test Request (performed by you, the agent)
+## M16 — Final Acceptance & Release
 
-You, as the agent, must execute this test personally. No automated test is accepted as a substitute.
+This is the final acceptance gate test and finalization.
+
+### Final E2E Test Request
+
+Execute this test against the real stack. Manual execution is preferred, but faithful automation is acceptable when it performs the same external actions and verifies the same observable results. Do not replace any step with a mock, dry run, description of expected behavior, or a check of configuration alone.
 
 Start from a clean state:
 
@@ -172,7 +176,7 @@ Final result must appear back in GitHub.
 
 ---
 
-## Durability Boundary Tests
+### Durability Boundary Tests
 
 Steps A–L above prove the automation/coordination chain. These three additional tests prove the three durability levels (`docs/INITIAL.md` Section 2.2) **individually** — do not assume proving one implies the others.
 
@@ -204,7 +208,7 @@ Coder validates this — Coder explicitly separates persistent resources (the ho
 
 ---
 
-## Final Acceptance Criteria
+### Final Acceptance Criteria
 
 The implementation is complete only if all of the following are true:
 
@@ -240,12 +244,12 @@ The implementation is complete only if all of the following are true:
 
 ---
 
-## Versioning Policy
+### Versioning Policy
 
 `VERSION.md` tracks the platform's release version, not individual milestones or phases. Milestones and phases are implementation stages, not releases — do not tag or version-bump per phase.
 
 - While any milestone from Phases 1–4 is incomplete, the platform is pre-release. `VERSION.md` should read `unreleased`.
-- Once every checkbox above is checked and the Final Milestone end-to-end scenario (including the Durability Boundary Tests) passes, set `VERSION.md` to `0.1.0`.
+- Once every checkbox above is checked and the M15-M16 end-to-end scenario (including the Durability Boundary Tests) passes, set `VERSION.md` to `0.1.0`.
 - After `0.1.0`, use standard SemVer (`MAJOR.MINOR.PATCH`):
   - **MAJOR** — breaking change to the developer-facing contract (Make targets, repo layout, workspace types)
   - **MINOR** — backward-compatible capability added (new workspace type, new MCP tool, new milestone-like feature)
@@ -254,24 +258,24 @@ The implementation is complete only if all of the following are true:
 
 ---
 
-## Phase 5 Documentation & Agent Instructions Update
+### Phase 5 Documentation & Agent Instructions Update
 
 Before Phase 5 is considered done, you, as the agent, must:
 
 1. **Update project docs** — do a final pass over `docs/architecture.md`, `docs/operations.md`, `docs/security.md`, and `docs/disaster-recovery.md` so they describe the fully integrated system as it actually exists, with no remaining drift from any earlier phase. `docs/disaster-recovery.md` specifically should reflect the real M14 backup/restore procedure.
 2. **Update `AGENTS.md`** at the repo root with:
    - **Guidelines** — consolidate any cross-phase rules that only became clear once everything was integrated (e.g. ordering dependencies between services on startup, timing constraints across the full chain, backup/restore gotchas).
-   - **Agent Instructions** — a single "how to run the full end-to-end scenario yourself" walkthrough, referencing the Final Manual E2E Test Request and Durability Boundary Tests above.
+    - **Agent Instructions** — a single "how to run the full end-to-end scenario yourself" walkthrough, referencing the Final E2E Test Request and Durability Boundary Tests above.
    - **Lessons Learned** — a dated entry (`## Phase 5 — <date>`) covering what broke, what surprised you, and what to avoid next time. Append; do not overwrite prior entries. This closes out the lessons-learned log for the `0.1.0` release.
 3. **Update `VERSION.md`** per the Versioning Policy above, only after all other steps in this section are complete.
 
 ---
 
-## Phase 5 Exit Criteria
+### Phase 5 Exit Criteria
 
 - [ ] A full backup/restore cycle (M14) has been executed and verified against all four "MUST BACK UP" categories.
 - [ ] The full 8-step end-to-end scenario runs without a faked step.
-- [ ] The Final Manual E2E Test Request (A–L) passes, executed by you, the agent, personally.
+- [ ] The Final E2E Test Request (A–L) passes against the real stack, using manual execution or faithful automation that verifies the same observable results.
 - [ ] All three Durability Boundary Tests (UI/AHP, Worker/Temporal, Workspace/Coder) pass independently.
 - [ ] Every checkbox in Final Acceptance Criteria is checked.
 - [ ] `docs/architecture.md`, `docs/operations.md`, `docs/security.md`, and `docs/disaster-recovery.md` are fully up to date with no drift from the implementation.
