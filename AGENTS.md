@@ -162,6 +162,18 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-29: A one-off `docker run` client (`make temporal-build-demo-start`) can appear to
+  hang past a short shell timeout on its very first invocation purely from a cold image
+  pull/layer-cache warm-up, even though the Activity it triggers already completed
+  successfully (visible in `docker compose logs temporal-worker`) — check the worker's logs
+  for the real result before assuming a live E2E command actually hung.
+- 2026-08-29: No cached Coder admin session/credentials were available in this environment
+  for a live `coder create --template <new-template>` E2E check, and no `scripts/*.sh` exists
+  to automate `coder login` — a full new-template E2E (workspace create, inner-container
+  inspect, Durability Test 3) needs a documented bootstrap/login step; until then, `terraform
+  validate` + a real `docker build` of the template's bootstrap image is the strongest
+  evidence obtainable for a brand-new Coder template without an existing authenticated session.
+
 ### Before trusting any "blocker" or "done" claim
 
 - Re-verify a stated blocker's premise with one direct command before repeating a prior
