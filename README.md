@@ -1,4 +1,4 @@
-# cade
+# cade - Continuous Agentic Development Environment
 
 **A Docker-first, single-repository private developer platform** for remote
 development, agent-assisted coding, GitHub automation, durable orchestration,
