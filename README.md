@@ -17,9 +17,10 @@ delivered and evidenced. See [Project status](#project-status) below.
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
   - [Resetting a Coder user's password](#resetting-a-coder-users-password)
-  - [Corporate TLS-intercepting proxy: trusting a CA for Coder itself](#corporate-tls-intercepting-proxy-trusting-a-ca-for-coder-itself)
 - [User journeys](#user-journeys)
 - [Makefile targets](#makefile-targets)
+- [Troubleshooting](#troubleshooting)
+  - [Self-signed / corporate TLS-intercepting proxy certificates](#self-signed--corporate-tls-intercepting-proxy-certificates)
 - [Project status](#project-status)
 - [Documentation map](#documentation-map)
 - [Known limitations](#known-limitations)
@@ -209,45 +210,6 @@ devenv-cloud_coder_db_data && make up`) if you actually want to destroy
 every workspace/template/user and start over — not as a password-reset
 shortcut.
 
-### Corporate TLS-intercepting proxy: trusting a CA for Coder itself
-
-Workspace creation can fail during Terraform's provider download step
-with:
-
-```
-Error: Failed to query available provider packages
-Could not retrieve the list of available versions for provider coder/coder:
-could not connect to registry.terraform.io: ... tls: failed to verify
-certificate: x509: certificate signed by unknown authority
-```
-
-This is the same corporate/TLS-intercepting-proxy class of issue covered
-by `CACERT=/path/to/ca-bundle.pem` on the various `make *-build` targets,
-but it happens differently here: `terraform init` runs *inside the running
-`coder` server container itself* (fetching the `coder/coder` and
-`kreuzwerker/docker` provider packages needed by every Terraform
-template), not at image build time. Since `ghcr.io/coder/coder` is pulled
-prebuilt (no repo-owned Dockerfile to bake a CA into) and runs as a
-non-root user that can't write into the image's own `/etc/ssl/certs`,
-fix it with:
-
-```bash
-scripts/coder-trust-ca.sh /path/to/corporate-ca-bundle.pem
-```
-
-This copies the container's existing trust bundle plus your corporate CA
-into a writable directory inside the persistent `coder_home` volume, then
-prints the `.env` line to point `SSL_CERT_DIR` at it:
-
-```bash
-echo "CODER_SSL_CERT_DIR=/home/coder/.local-ca-certs" >> .env
-docker compose up -d coder   # recreate so the env var takes effect
-```
-
-Retry workspace creation afterward. On unrestricted networks, leave
-`CODER_SSL_CERT_DIR` unset — `SSL_CERT_DIR` then defaults to empty, which
-is a no-op (Go falls back to its normal default cert directories).
-
 ## User journeys
 
 Each journey below is a self-contained quick start for one thing the
@@ -421,9 +383,9 @@ its accepted `privileged`-container tradeoff.
 | `make status` | — | Show status/health of every stack container. |
 | `make logs` | — | Follow logs of the platform stack's containers. |
 | `make coder-workspace-build` | M3 | Build the `docker-standard` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). |
-| `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. |
-| `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). |
+| `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+| `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+| `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
 | `make temporal-worker-build` | M8 | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make lab-sim-build` | M11 | Build the lab-sim MCP service image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
@@ -437,6 +399,76 @@ its accepted `privileged`-container tradeoff.
 additionally provide their own `build`/`test`/`run`/`clean`/`simulate`
 targets — toolchain smoke tests proving a freshly provisioned workspace can
 build/test unmodified code.
+
+## Troubleshooting
+
+### Self-signed / corporate TLS-intercepting proxy certificates
+
+On a network behind a corporate TLS-intercepting proxy (or any self-signed
+CA), builds and workspace creation can fail with variations of `x509:
+certificate signed by unknown authority`. There are two distinct places
+this shows up, with two distinct fixes — they are **not** interchangeable.
+
+**1. `make *-build` targets** — failing to fetch packages (PyPI, apt,
+system CA install) while building an image this repo owns a `Dockerfile`
+for. Every one of these targets accepts an optional `CACERT` pointing at
+your corporate CA bundle, baked into the image at build time via a
+BuildKit secret (never a build arg/`COPY`, so it never lands in an image
+layer):
+
+| Target | Image built |
+|---|---|
+| `make coder-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/coder-workspace:latest` |
+| `make embedded-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/embedded-linux-workspace:latest` |
+| `make devcontainer-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/devcontainer-bootstrap:latest` |
+| `make runner-build CACERT=/path/to/ca-bundle.pem` | the self-hosted GitHub Actions runner image |
+| `make temporal-worker-build CACERT=/path/to/ca-bundle.pem` | `cade/temporal-worker:latest` |
+| `make lab-sim-build CACERT=/path/to/ca-bundle.pem` | `cade/lab-sim:latest` |
+
+Omit `CACERT` entirely on unrestricted networks — every one of these
+Dockerfiles treats an empty/unset secret as a no-op.
+
+**2. Workspace creation itself** (not a `make *-build` target) — failing
+during Terraform's provider download step, inside the *running* `coder`
+server container:
+
+```
+Error: Failed to query available provider packages
+Could not retrieve the list of available versions for provider coder/coder:
+could not connect to registry.terraform.io: ... tls: failed to verify
+certificate: x509: certificate signed by unknown authority
+```
+
+This can't be fixed with `CACERT` on a `make *-build` target — `terraform
+init` here runs inside `ghcr.io/coder/coder` itself (fetching the
+`coder/coder` and `kreuzwerker/docker` provider packages needed by every
+Terraform template), and that image is pulled prebuilt with no repo-owned
+Dockerfile to bake a CA into, plus its non-root runtime user can't write
+into the image's own `/etc/ssl/certs`. Root-caused live: Terraform (a Go
+binary) merges every file found under `$SSL_CERT_DIR` into its trust pool
+(its default directories already include `/etc/ssl/certs`) — reproduced
+the failure by pointing `SSL_CERT_DIR` at an empty directory, then
+confirmed it resolves once the existing system bundle and a CA both exist
+in a directory `SSL_CERT_DIR` points to. Fix:
+
+```bash
+scripts/coder-trust-ca.sh /path/to/corporate-ca-bundle.pem
+```
+
+This copies the container's existing trust bundle plus your corporate CA
+into a writable directory inside the persistent `coder_home` volume
+(survives container recreation), then prints the `.env` line to point
+`SSL_CERT_DIR` at it:
+
+```bash
+echo "CODER_SSL_CERT_DIR=/home/coder/.local-ca-certs" >> .env
+docker compose up -d coder   # recreate so the env var takes effect
+```
+
+Retry workspace creation afterward. On unrestricted networks, leave
+`CODER_SSL_CERT_DIR` unset — `compose.yaml` then passes `SSL_CERT_DIR=""`,
+which Go treats identically to unset (falls back to its normal default
+cert directories), so this is also a no-op by default.
 
 ## Project status
 
