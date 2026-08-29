@@ -95,6 +95,17 @@ Sysbox is later verified compatible with the actual target host.
   workspace. `examples/hello-service/.devcontainer/devcontainer.json` was
   updated to reference a real, publicly-pullable image
   (`mcr.microsoft.com/devcontainers/python:3`) instead of the repo-local
-  `cade/coder-workspace:latest` for exactly this reason.
+  `cade/coder-workspace:latest` for exactly this reason, and is the
+  **only** reference fixture actually live-verified against this design.
+  `examples/embedded-sim/.devcontainer/devcontainer.json` still
+  references the repo-local `cade/embedded-linux-workspace:latest` image
+  and has **not** been updated or live-tested against the nested-DinD
+  design — it will very likely hit the identical cold-cache resolution
+  failure. Flagged here rather than silently left implying it works;
+  fixing it needs either a public image with the same cross-compile
+  toolchain (`gcc-aarch64-linux-gnu`/`cmake`/`ninja`/`qemu-user`) or
+  pushing the existing image to this stack's own `registry` service
+  (M7) and wiring the nested daemon to trust it — deferred as a
+  follow-up, not attempted here.
 
 
