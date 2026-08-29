@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 doctor:
@@ -154,3 +154,15 @@ devcontainer-workspace-build:
 		docker buildx build -f coder/devcontainer/Dockerfile \
 			-t cade/devcontainer-bootstrap:latest --load coder/devcontainer; \
 	fi
+
+## templates-push: Push every Coder workspace template (docker-standard, embedded-linux,
+## devcontainer) to the running Coder server in one shot. Requires: the `coder` CLI on
+## PATH and an authenticated session (`coder login`/`coder whoami`), and the Coder
+## server itself already up (`make up`) and healthy (`make status`). Does NOT build the
+## workspace images those templates reference — run coder-workspace-build /
+## embedded-workspace-build / devcontainer-workspace-build first (or accept that
+## `coder create` will fail later if an image is missing).
+templates-push:
+	@coder templates push docker-standard -d coder/templates/docker-workspace --yes
+	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
+	@coder templates push devcontainer -d coder/templates/devcontainer --yes

@@ -155,8 +155,9 @@ make coder-workspace-build          # docker-standard template
 make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
-# 8. Push a Terraform template and create a workspace
-coder templates push docker-standard -d coder/templates/docker-workspace --yes
+# 8. Push the Terraform template(s) and create a workspace
+make templates-push                 # pushes all three templates in one shot
+# (or push just one: coder templates push docker-standard -d coder/templates/docker-workspace --yes)
 coder create <owner>/<name> --template docker-standard --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 ```
@@ -427,6 +428,7 @@ Code-Desktop-driven proof.
 | `make coder-workspace-build` | M3 | Build the `docker-standard` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+| `make templates-push` | — | Push every Coder workspace template (`docker-standard`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy — does not build the workspace images the templates reference; run the `*-workspace-build` targets first. |
 | `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
 | `make temporal-worker-build` | M8 | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
