@@ -20,6 +20,7 @@ doctor:
 ## thread a corporate CA bundle through both builds.
 up: temporal-worker-build lab-sim-build
 	@$(COMPOSE) up -d
+	@bash scripts/print-urls.sh
 
 ## down: Stop and remove the platform stack's containers.
 down:
