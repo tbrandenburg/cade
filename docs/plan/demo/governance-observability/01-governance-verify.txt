@@ -1,0 +1,20 @@
+==> [1/3] opa test governance/opa/policy
+PASS: 6/6
+
+==> [2/3] Live OPA decision API checks
+    run_test -> {"result":true}
+    flash_device (unapproved) -> {"result":false}
+
+==> [3/3] Live MCP round trip through lab-sim (reserve -> run_test -> flash_device x2 -> release)
+    reserved ecu-demo-01 -> 59f24b50c36336a9
+    run_test: is_error=False '{\n  "device": "ecu-demo-01",\n  "result": "pass"\n}'
+    flash_device (unapproved): is_error=True 'Error executing tool flash_device'
+    flash_device (approved): is_error=False 'flashed ecu-demo-01 with simulated firmware image'
+    released ecu-demo-01
+MCP round trip OK
+
+==================================================================
+M12 governance validation PASSED: opa test, live OPA decision API,
+and a live MCP tool round trip all confirm run_test=ALLOW and
+flash_device(unapproved)=DENY / flash_device(approved)=ALLOW.
+==================================================================
