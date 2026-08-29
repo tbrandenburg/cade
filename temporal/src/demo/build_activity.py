@@ -15,6 +15,8 @@ Docker daemon connection (`BUILD_DOCKER_HOST`, see `demo/config.py`) that is
 intentionally separate from anything else this worker may reach.
 """
 
+import re
+
 import docker
 import httpx
 from docker.errors import ImageNotFound
@@ -23,6 +25,54 @@ from temporalio import activity
 from demo.config import BUILD_DOCKER_HOST, OPA_URL
 
 OPA_DECISION_PATH = "/v1/data/build/authz/allow"
+
+# Issue #8 gap-fill: docker-py's `containers.run(..., remove=True)` (with
+# the default `detach=False`) removes the container client-side, AFTER
+# `container.wait()` returns — it does NOT set the daemon-side
+# `AutoRemove` flag (verified by reading docker-py's own source: that
+# path is only taken when `detach=True`). If this Activity's process
+# (i.e. `temporal-worker`) is killed between `container.start()` and the
+# final `container.remove()` call — e.g. a mid-Activity worker
+# crash/restart — the container is orphaned on the Docker daemon side;
+# nothing else ever cleans it up. Every container this Activity starts is
+# labeled with a key stable across Temporal retry attempts of the *same*
+# Activity task (workflow ID + Activity ID, not the attempt number), so a
+# retried attempt can find and remove its own previous attempt's
+# leftover container before starting a new one.
+LABEL_KEY = "cade.build-activity.task-key"
+
+
+def _task_key() -> str:
+    """A key stable across retries of one Activity task (same workflow +
+    same Activity ID), but unique per Activity invocation site."""
+    info = activity.info()
+    raw = f"{info.workflow_id}-{info.activity_id}"
+    # Docker label values allow arbitrary strings, but keep it simple/safe.
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", raw)[:255]
+
+
+def _reap_previous_attempt(client: docker.DockerClient, task_key: str) -> None:
+    """Best-effort cleanup of any container left behind by a previous,
+    crashed attempt of this same Activity task. Never raises — a failure
+    here must not block the current attempt from running."""
+    try:
+        stale = client.containers.list(
+            all=True, filters={"label": f"{LABEL_KEY}={task_key}"}
+        )
+        for container in stale:
+            activity.logger.warning(
+                "run_build_command: reaping orphaned container %s from a "
+                "previous attempt of task_key=%s",
+                container.id,
+                task_key,
+            )
+            container.remove(force=True)
+    except docker.errors.APIError as exc:  # noqa: BLE001 - best-effort only
+        activity.logger.warning(
+            "run_build_command: orphan-container reap failed (non-fatal): %s",
+            exc,
+        )
+
 
 
 def _opa_allows(image: str, command: list[str]) -> bool:
@@ -64,6 +114,9 @@ async def run_build_command(
     except Exception as exc:  # noqa: BLE001 - fail closed, see docstring
         return {"ok": False, "error": f"docker client init failed: {exc}"}
 
+    task_key = _task_key()
+    _reap_previous_attempt(client, task_key)
+
     try:
         try:
             client.images.get(image)
@@ -78,6 +131,7 @@ async def run_build_command(
                 remove=True,
                 stdout=True,
                 stderr=True,
+                labels={LABEL_KEY: task_key},
             )
             activity.logger.info(
                 "run_build_command: image=%s command=%s -> ok", image, command
