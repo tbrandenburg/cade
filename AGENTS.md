@@ -385,6 +385,20 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   userns, not a host `sysctl` issue). Do not fix with `--privileged` or loosened
   seccomp/AppArmor in Terraform — document `srt` as installed but non-enforcing instead.
 
+- 2026-08-29: docker-py's `containers.run(..., remove=True, detach=False)` only removes the
+  container client-side after `wait()` returns in the *same* process — a mid-Activity
+  `temporal-worker` crash/restart orphans the running container with nothing left to clean
+  it up (confirmed live: killed `temporal-worker` mid-`sleep 30`, container survived
+  untouched on the daemon). Fix pattern: label every ephemeral container with a stable
+  per-task key (e.g. `workflow_id-activity_id`) and reap any leftover from a previous
+  attempt at the start of each new attempt, rather than relying on `remove=True` alone.
+- 2026-08-29: `docker exec <container> ... --wait` calls chained with `&&`/`;` in one shell
+  command can appear to hang the whole multi-command batch even when each individual
+  workflow actually completed successfully in seconds (confirmed via `docker logs`) — an
+  apparent hang on a chained `docker exec` sequence is not proof of a real functional bug;
+  re-run each `docker exec` individually with its own bounded `timeout` before concluding
+  anything is actually stuck.
+
 ## Phase 5 — 2026-08-29
 
 Final Acceptance & Release (M16), closing out `0.1.0`. The full stack was
