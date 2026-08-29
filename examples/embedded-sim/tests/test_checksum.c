@@ -7,7 +7,7 @@
 int main(void) {
     /* Known-answer test vector (RFC 1146-style Fletcher-16 example). */
     const uint8_t abcde[] = {'a', 'b', 'c', 'd', 'e'};
-    assert(fletcher16(abcde, sizeof(abcde)) == 0xC8F1);
+    assert(fletcher16(abcde, sizeof(abcde)) == 0xC8F0);
 
     /* Empty buffer must checksum to zero. */
     assert(fletcher16(abcde, 0) == 0x0000);
