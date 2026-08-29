@@ -1,150 +1,100 @@
 # devcontainer template security notes
 
 Issue: GitHub #6 ("real devcontainer.json support as a workspace
-blueprint"), hardening follow-up captured in issue #6b. This document
-records a known, currently-accepted risk in `coder/templates/devcontainer/`
-and defers the actual mitigation to a future issue — see
-`docs/security.md` for the cross-reference and `AGENTS.md`'s "Must avoid"
-scope for why this pass only documents rather than fixes the mount.
+blueprint"). This document is the up-to-date record of the template's
+actual, shipped design and its accepted security tradeoff. See
+`docs/security.md` for the cross-reference.
 
-## Why the template bind-mounts `/var/run/docker.sock` directly
+**Design history, for context:** the template originally used
+docker-outside-of-docker (bind-mounting the host's `/var/run/docker.sock`
+directly). A live E2E found that approach fundamentally broken — not just
+risky — because `docker_volume.home_volume` is a named Docker volume, not
+a real host path, so the *host's* Docker daemon (reached via the shared
+socket) could never resolve the bind-mount paths the `devcontainer` CLI
+asked it to create for the inner container. Researching Coder's own
+official reference template
+(`https://github.com/coder/coder/tree/v2.36.3/examples/templates/docker-devcontainer`)
+confirmed this wasn't a one-off bug: Coder's own docs state mounting the
+host socket is "strongly discouraged because workspaces will then compete
+for control of the devcontainers." The template was rewritten to match
+Coder's reference pattern instead, described below. The old
+docker-outside-of-docker design is not used anywhere in this repo anymore.
 
-`coder/templates/devcontainer/main.tf`'s `docker_container.workspace`
-bind-mounts the host's `/var/run/docker.sock` straight into the outer
-workspace container (docker-outside-of-docker), rather than routing
-through a restrictive socket-proxy the way `runner-docker-proxy` (M2) or
-`build-docker-proxy` (issue #5 MVP) do for their own consumers.
+## Current design: per-workspace nested Docker-in-Docker (DinD)
 
-The reason is functional, not an oversight: the outer container's
-`startup_script` shells out to the `devcontainer` CLI
-(`devcontainer up --workspace-folder ... --config ...`), which needs to:
+`coder/templates/devcontainer/main.tf`'s `docker_container.workspace` runs
+`privileged = true` with its own nested `dockerd`, backed by a dedicated
+`docker_volume.docker_volume` mounted at `/var/lib/docker` (alongside the
+existing `docker_volume.home_volume` at `/home/coder`). The agent's
+`startup_script` just starts and waits for this nested daemon
+(`sudo service docker start` + poll `docker info`); cloning is handled by
+the `registry.coder.com/coder/git-clone` module; the devcontainer itself
+is declared via Coder's native `coder_devcontainer` resource instead of a
+hand-rolled `devcontainer up`/`devcontainer exec` shell script.
 
-- **build** an image from the cloned repo's `.devcontainer/Dockerfile`
-  (or pull the `image:` it names),
-- **create** a sibling inner container next to the outer one,
-- **inspect/attach exec** into that inner container for the VS
-  Code/code-server Remote-Containers experience,
-- and later **remove** that inner container on workspace stop/teardown.
+This is **live-verified working end-to-end** (2026-08-29): a real
+workspace correctly built and ran `examples/hello-service`'s
+`.devcontainer/devcontainer.json` inside a real inner container, with the
+cloned repo's bind-mount landing exactly where the devcontainer CLI
+expected it (`workspaceMount":"type=bind,source=/home/coder/project,
+target=/workspaces/project"` — no path-identity problem, by construction,
+because the nested daemon and the cloned repo live in the *same*
+container's filesystem view). `postCreateCommand` (`make build`) reported
+`"outcome":"success"`. Durability Test 3 (`coder stop`/`start`, marker
+file in `/home/coder`) also passed against this design.
 
-Every existing socket-proxy profile in this repo is deliberately
-*narrower* than that. `runner-docker-proxy` (M2) allows `BUILD` but not
-Docker Desktop for the AI-agent sandbox path (`gh-aw`'s MCP Gateway is
-documented in `docs/security.md` as flatly incompatible with any
-proxy, needing the real socket). `build-docker-proxy` (issue #5 MVP)
-explicitly denies `BUILD`, `EXEC`, `VOLUMES`, and `NETWORKS` because its
-one Activity only ever needs `docker run` against a pre-built image. The
-devcontainer CLI's actual need set (`BUILD` + `EXEC` + create/remove
-containers, at minimum) is close enough to "full access" that no
-existing profile in this repo covers it, and standing up a new one
-correctly — verified against the CLI's real API call sequence, not
-guessed — is nontrivial scope, deferred here per the assigned task's
-"do NOT change compose.yaml or add a socket-proxy service" constraint.
+## Blast radius of `privileged = true`
 
-## Blast radius
-
-A container holding an unrestricted `/var/run/docker.sock` bind-mount
-has the practical equivalent of **root on the Docker host**, not just
-"root in its own container": it can launch a new container with
-`--privileged`, bind-mount the host's `/` into it, and read/write
-anything the host's Docker daemon can reach — including every other
-container's volumes, the Coder/Postgres/OpenBao data volumes, and (via a
-privileged container) the host kernel itself. This is a well-known
-container-escape-adjacent pattern (Docker's own docs and multiple CVE
-writeups treat "give a container the host socket" as equivalent to
-disabling container isolation entirely for that workload).
-
-Concretely for this template: any code executed inside the outer
-`coder-<owner>-<workspace>` container (the developer, an editor
-extension, a supply-chain-compromised `devcontainer.json`/`Dockerfile`
-in a cloned repo, or an Agent Host session running unattended per the
-`agent_capable` parameter) can reach the host Docker API directly and is
-not meaningfully sandboxed by the outer container boundary at all.
+A privileged container is root-equivalent on the Docker host's kernel —
+this is a real, accepted tradeoff, not a false sense of safety. It is,
+however, **scoped per-workspace**: this nested daemon's own storage,
+containers, and potential escape surface are confined to that one
+workspace's `/var/lib/docker` volume, not shared with any other
+workspace's daemon or with the *actual* host daemon (unlike the abandoned
+host-socket design, where every workspace shared one daemon and could, in
+principle, interfere with each other's inner containers — a correctness
+problem as much as a security one). This matches Coder's own official
+reference template's tradeoff exactly; it is the tradeoff Coder itself
+ships and recommends for Docker-only deployments without a
+Sysbox-capable host.
 
 ## Hardening options for a future issue (not implemented here)
 
-1. **Rootless Docker-in-Docker via a `docker:dind` (or `docker:dind-rootless`)
-   sidecar.** Give the workspace pod its own nested Docker daemon instead
-   of the host's, so `devcontainer up` talks to a daemon whose blast
-   radius is scoped to that one sidecar's storage volume. Tradeoffs:
-   loses host layer-cache sharing across workspaces (slower first
-   builds), needs `--privileged` (or fuse-overlayfs + rootless mode) on
-   the sidecar itself, and doubles the container count per workspace.
+The most secure alternative — **Sysbox** (or Coder's `envbox`, which
+bundles it) — lets an *unprivileged* container run Docker-in-Docker
+safely, with no `privileged` flag needed at all. It requires installing
+the Sysbox runtime on the Docker host, which this repo's `AGENTS.md`
+already flagged as unproven here: a prior sandboxing attempt
+(`bwrap --unshare-user`) failed under this exact host's environment
+(blocked unprivileged userns), so Sysbox would need its own from-scratch
+feasibility check before being adopted, not assumed to work. Rootless
+Podman and Kubernetes-oriented options (Envbox on GKE/EKS/AKS) don't apply
+to this repo's single-Docker-host, no-Kubernetes deployment model at all.
 
-2. **A sandboxed container runtime (gVisor `runsc` or Sysbox) for the
-   *inner* devcontainer instead of the default `runc`.** Sysbox in
-   particular is purpose-built to let an unprivileged container run
-   Docker-in-Docker safely without a host socket mount at all (it
-   virtualizes `/proc`, `/sys`, and syscalls the kernel would otherwise
-   require `--privileged` for). Tradeoffs: a third-party runtime to
-   install/maintain on the single Linux server (this repo's guideline is
-   Docker-first, no extra infra), and per-`AGENTS.md`'s "Sandbox /
-   security" lesson, this environment has already hit one blocked
-   runtime-hardening attempt (`bwrap --unshare-user` failing under
-   Docker/WSL2) — a new sandboxed runtime would need its own from-scratch
-   feasibility check on the actual target host, not assumed to work.
+Given those constraints, the current nested-DinD design — Coder's own
+documented default for exactly this deployment shape — is treated as the
+accepted baseline, not a placeholder; revisiting it is only worthwhile if
+Sysbox is later verified compatible with the actual target host.
 
-3. **A purpose-built `devcontainer-docker-proxy` profile**, mirroring the
-   `build-docker-proxy` pattern but reviewed specifically against the
-   devcontainer CLI's actual HTTP call sequence, e.g. a starting point of
-   `BUILD=1 EXEC=1 VOLUMES=0 NETWORKS=0 SWARM=0 SYSTEM=0` — narrower than
-   the raw socket, but still needs verification (not guessed) against
-   what `devcontainer up`/`exec`/`down` really call, since an
-   under-scoped profile fails at runtime with a generic `403 Forbidden by
-   administrative rules` (per this repo's own `tecnativa/docker-socket-
-   proxy` lesson in `AGENTS.md`), not at template-authoring time.
+## Known remaining gaps (not blockers, tracked for follow-up)
 
-None of the above is implemented in this pass — this document exists so
-the tradeoff is visible and reviewable before a future issue picks one.
+- The dropped explicit fail-fast messages ("no devcontainer.json found",
+  "unsupported dockerComposeFile") from the old manual-script design are
+  not reproduced by `coder_devcontainer`'s own error surfacing — a
+  missing/invalid `devcontainer.json` now fails with the devcontainer
+  CLI's own (less custom-tailored, but still real) error output instead.
+- Startup ordering between the git-clone module's `coder_script`, the
+  agent's dockerd-start `startup_script`, and `coder_devcontainer`'s
+  internal build script has no explicit `depends_on` wiring (matching
+  Coder's own reference template, which doesn't wire this either) — not
+  observed to race in the live E2E runs performed so far, but not
+  exhaustively stress-tested across many concurrent workspace starts.
+- Any `devcontainer.json` referencing an image that only exists in a
+  *different* workspace's (or the host's) local Docker cache will fail to
+  resolve, by design — the nested daemon's cache is cold on every fresh
+  workspace. `examples/hello-service/.devcontainer/devcontainer.json` was
+  updated to reference a real, publicly-pullable image
+  (`mcr.microsoft.com/devcontainers/python:3`) instead of the repo-local
+  `cade/coder-workspace:latest` for exactly this reason.
 
-## Live E2E findings (2026-08-29) — two real bugs found and fixed, one architectural gap found and NOT fixed
-
-A full live E2E was run against a freshly-reset Coder instance (fresh admin
-user bootstrapped via `POST /api/v2/users/first`, since no cached session
-existed in this environment): `coder templates push devcontainer`,
-`coder create --template devcontainer`, inner/outer container inspection.
-
-**Fixed (real bugs, not hypothetical):**
-
-1. **Missing `docker` group GID passthrough.** The outer bootstrap
-   container's non-root `coder` user had no access to the bind-mounted
-   `/var/run/docker.sock` (`permission denied`, breaking every
-   `docker`/`devcontainer` CLI call, confirmed via `docker exec ... docker
-   ps` before/after). Fixed by adding a `docker_gid` Terraform variable
-   (default `988`, override via `--variable docker_gid=$(getent group
-   docker | cut -d: -f3)` per host) and `group_add` on
-   `docker_container.workspace` in `main.tf`.
-
-**Found, NOT fixed — genuine architectural gap, deferred to a follow-up issue:**
-
-2. **Named-volume home directory is incompatible with docker-outside-of-docker
-   bind-mounting the workspace into the *inner* container.**
-   `docker_volume.home_volume` mounts at `/home/coder` as a Docker *named
-   volume* (`coder-<id>-home`), which only exists inside the outer
-   container's mount namespace — its real host-filesystem location is
-   `/var/lib/docker/volumes/coder-<id>-home/_data`, not `/home/coder`.
-   When the `devcontainer` CLI (running *inside* the outer container)
-   asks the *host's* Docker daemon (via the shared socket) to bind-mount
-   `/home/coder/project` into the inner container, the host daemon
-   resolves that path against the **real host filesystem**, where it
-   does not exist — confirmed live: `ls /home/coder/project` inside the
-   outer container showed the cloned repo; `docker inspect
-   coder-admin-devcontainer-e2e --format '{{range .Mounts}}...'` showed
-   `/home/coder` mounted from `/var/lib/docker/volumes/coder-*-home/_data`
-   (not `/home/coder` literally); the resulting inner container's
-   `postCreateCommand` failed with `chdir to cwd ("/workspaces/project")
-   ... no such file or directory`, and the real host gained an empty,
-   spuriously-created `/home/coder/` directory as a side effect.
-   This is the same fundamental "docker-outside-of-docker needs
-   host-path-identity between outer and inner mounts" limitation that
-   most `devcontainer`/DinD tooling documents as a known constraint of
-   the *shared-socket* approach specifically (as opposed to a nested
-   Docker-in-Docker daemon, hardening option 1 above, which does not
-   have this problem since the sidecar's paths are its own).
-   **Not fixed here** because the correct fix (bind-mounting a real host
-   directory, e.g. `/var/lib/cade/devcontainer-workspaces/<workspace-id>`,
-   instead of a named Docker volume for `/home/coder`) breaks this
-   template's parity with the "docker volume, not directory" durability
-   convention used by every other Coder template in this repo (see
-   `AGENTS.md`'s Durability Test 3 guidance) and needs its own
-   design/review pass, not a one-line patch.
 

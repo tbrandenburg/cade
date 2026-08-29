@@ -312,19 +312,22 @@ investigator (M10) already documented. The two open `gh-aw` limitations
 above (docker-socket-proxy incompatibility, no AI engine credentials)
 remain open and unresolved at `0.1.0` — not silently worked around.
 
-## Issue #6 hardening pass — devcontainer template docker.sock mount
+## Issue #6 — devcontainer template: per-workspace privileged Docker-in-Docker
 
-`coder/templates/devcontainer/main.tf` bind-mounts the host's
-`/var/run/docker.sock` directly into the outer workspace container
-(docker-outside-of-docker), rather than routing through a socket-proxy
-like `runner-docker-proxy` or `build-docker-proxy`. This is a known,
-currently-accepted risk (equivalent to root on the Docker host for that
-workspace container), left unmitigated in the issue #6 MVP and its #6b
-hardening pass because narrowing it correctly requires an infra change
-(a new socket-proxy service or sandboxed runtime) out of scope for a
-docs-and-scripting-only pass. See `docs/devcontainer-security-notes.md`
-for the full blast-radius analysis and three concrete hardening options
-proposed for a future issue.
+`coder/templates/devcontainer/main.tf`'s workspace container runs
+`privileged = true` with its own nested, per-workspace `dockerd` (backed by
+a dedicated `docker_volume` at `/var/lib/docker`), replacing an earlier
+docker-outside-of-docker design (host `/var/run/docker.sock` bind-mount)
+that a live E2E found not just risky but functionally broken — see
+`docs/devcontainer-security-notes.md` for the full incident writeup and
+design rationale. `privileged = true` is still a real, accepted tradeoff
+(root-equivalent on the host kernel), but it's scoped per-workspace rather
+than sharing one host-wide Docker socket across every workspace. This
+matches Coder's own official reference template's documented default for
+Docker-only deployments without a Sysbox-capable host; live-verified
+working end-to-end (real clone, real nested daemon, real inner-container
+build, Durability Test 3 passing) on 2026-08-29.
+
 
 ## Issue #5 MVP — build-docker-proxy
 
