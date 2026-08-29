@@ -156,13 +156,14 @@ devcontainer-workspace-build:
 	fi
 
 ## templates-push: Push every Coder workspace template (docker-standard, embedded-linux,
-## devcontainer) to the running Coder server in one shot. Requires: the `coder` CLI on
-## PATH and an authenticated session (`coder login`/`coder whoami`), and the Coder
-## server itself already up (`make up`) and healthy (`make status`). Does NOT build the
-## workspace images those templates reference — run coder-workspace-build /
-## embedded-workspace-build / devcontainer-workspace-build first (or accept that
-## `coder create` will fail later if an image is missing).
-templates-push:
+## devcontainer) to the running Coder server in one shot. Depends on all three
+## *-workspace-build targets, so it also builds/refreshes cade/coder-workspace,
+## cade/embedded-linux-workspace, and cade/devcontainer-bootstrap first (cache-hit,
+## near-instant unless code changed) — and inherits their dirty-tree refusal check.
+## Requires: the `coder` CLI on PATH and an authenticated session
+## (`coder login`/`coder whoami`), and the Coder server itself already up (`make up`)
+## and healthy (`make status`).
+templates-push: embedded-workspace-build devcontainer-workspace-build
 	@coder templates push docker-standard -d coder/templates/docker-workspace --yes
 	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
 	@coder templates push devcontainer -d coder/templates/devcontainer --yes
