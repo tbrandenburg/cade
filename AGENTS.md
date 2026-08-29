@@ -181,6 +181,30 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   actually import/run new third-party-library code inside the real built artifact
   (`docker run --rm --entrypoint python <image> -c "import <lib>"`) before trusting a
   subagent's dependency assumption, even when its stated confidence is high.
+- 2026-08-29: Backgrounding a long-lived process (`git daemon &`) inside a persistent
+  shell-tool session without fully detaching it (`setsid ... </dev/null >file 2>&1 &`
+  plus `disown`) leaves it holding the tool's stdout pipe open — every subsequent command
+  in that same session then hangs for its full timeout with zero output, even though the
+  command itself actually completed (verifiable only by redirecting to a file and reading
+  that file separately). Always fully detach any backgrounded long-running process in a
+  persistent shell tool session, or run it in its own container instead.
+- 2026-08-29: A container on the default Docker bridge network could reach other
+  Docker-published host ports (e.g. Coder's `0.0.0.0:7080` via docker-proxy) but hung
+  indefinitely connecting to a bare `git daemon` process bound directly to the host
+  (no sudo available to inspect/fix the firewall rule). Workaround: run the ad-hoc
+  service as a sibling container on the same Docker network instead of a host process —
+  container-to-container traffic on the same bridge network bypasses the host's own
+  firewall entirely.
+- 2026-08-29: docker-outside-of-docker (bind-mounting the host's `/var/run/docker.sock`
+  into a container so it can create sibling containers) breaks silently if the mounting
+  container's own workspace directory is a named Docker volume rather than a real host
+  path — the shared host daemon resolves any bind-mount source path the inner process
+  requests against the *actual host filesystem*, not the calling container's view, so a
+  path like `/home/coder/project` (valid inside the outer container) resolves to nothing
+  on the real host. Verify with `docker inspect <container> --format
+  '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}'` before
+  assuming any devcontainer-CLI-style "create a sibling container with my files" flow
+  will work against a named-volume-backed workspace.
 
 ### Before trusting any "blocker" or "done" claim
 
