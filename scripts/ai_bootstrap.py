@@ -148,18 +148,31 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
         return None
 
     current = find_by_name(existing, name)
-    body = {
-        "name": name,
-        "display_name": provider["display_name"],
-        "type": provider["type"],
-        "base_url": provider["base_url"],
-        "enabled": provider.get("enabled", True),
-        "api_keys": [secret],
-    }
 
     if current is not None:
+        # NOTE: the PATCH endpoint's `api_keys` field expects a mutation
+        # object (add/remove), not the raw-string-array shape POST accepts
+        # — sending POST's shape on PATCH fails with a 400 ("cannot
+        # unmarshal string into ... AIProviderKeyMutation"), verified live
+        # against a real Coder server. We never re-send api_keys on PATCH:
+        # the only fields we can compare/reconcile idempotently here are
+        # the non-secret ones. If they already match, skip the PATCH call
+        # entirely (this is what makes reruns report "unchanged" instead
+        # of hitting the provider API at all).
+        non_secret_fields = {
+            "display_name": provider["display_name"],
+            "type": provider["type"],
+            "base_url": provider["base_url"],
+            "enabled": provider.get("enabled", True),
+        }
+        if all(current.get(k) == v for k, v in non_secret_fields.items()):
+            log(f"Provider '{name}': unchanged")
+            results.append({"kind": "provider", "name": name, "action": "unchanged"})
+            return current.get("id")
+
         status, updated = http_request(
-            "PATCH", f"/api/v2/ai/providers/{name}", token, body
+            "PATCH", f"/api/v2/ai/providers/{name}", token,
+            {"name": name, **non_secret_fields},
         )
         if status not in (200, 204):
             log(f"WARNING: PATCH provider '{name}' failed (status {status})")
@@ -169,6 +182,14 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
         results.append({"kind": "provider", "name": name, "action": "updated"})
         return (updated or current).get("id")
 
+    body = {
+        "name": name,
+        "display_name": provider["display_name"],
+        "type": provider["type"],
+        "base_url": provider["base_url"],
+        "enabled": provider.get("enabled", True),
+        "api_keys": [secret],
+    }
     status, created = http_request("POST", "/api/v2/ai/providers", token, body)
     if status not in (200, 201):
         log(f"WARNING: POST provider '{name}' failed (status {status})")

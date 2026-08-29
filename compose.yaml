@@ -46,14 +46,24 @@ services:
       # "Corporate TLS-intercepting proxy: trusting a CA for Coder itself".
       SSL_CERT_DIR: "${CODER_SSL_CERT_DIR:-}"
       # Task 0 (issue #13): GitHub external auth provider. Requires a
-      # manually-created GitHub OAuth App (out of scope for this step) -
-      # empty client id/secret leaves this provider configured but unusable,
-      # which only disables the CI-triggered agent path and does not block
-      # anything else.
-      CODER_EXTERNAL_AUTH_0_ID: "github"
-      CODER_EXTERNAL_AUTH_0_TYPE: "github"
-      CODER_EXTERNAL_AUTH_0_CLIENT_ID: "${GITHUB_OAUTH_CLIENT_ID:-}"
-      CODER_EXTERNAL_AUTH_0_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
+      # manually-created GitHub OAuth App (out of scope for this step).
+      # DELIBERATELY COMMENTED OUT, not merely defaulted-empty: verified
+      # live (docker logs coder, issue #13 E2E test T1) that Coder crashes
+      # at startup ("client_id must be provided", then "doesn't have a
+      # valid id") the moment CODER_EXTERNAL_AUTH_0_ID exists in its
+      # environment at all, even set to "" via `${VAR:-}`/`${VAR:+}`
+      # substitution — presence of the env var, not its value, triggers
+      # provider parsing. There is no compose-level conditional that
+      # avoids declaring the key entirely, so a fresh clone with no
+      # GitHub OAuth App must NOT declare this block by default (would
+      # break `make up` for everyone). Once you have created a GitHub
+      # OAuth App: uncomment these four lines, set GITHUB_OAUTH_CLIENT_ID
+      # / GITHUB_OAUTH_CLIENT_SECRET in .env, then `docker compose up -d
+      # coder` to apply.
+      # CODER_EXTERNAL_AUTH_0_ID: "github"
+      # CODER_EXTERNAL_AUTH_0_TYPE: "github"
+      # CODER_EXTERNAL_AUTH_0_CLIENT_ID: "${GITHUB_OAUTH_CLIENT_ID:-}"
+      # CODER_EXTERNAL_AUTH_0_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
