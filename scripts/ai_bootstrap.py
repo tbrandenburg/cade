@@ -292,23 +292,52 @@ def reconcile_model(
     results.append({"kind": "model", "name": label, "action": "created"})
 
 
-def handle_default_model(models: list[dict], token: str) -> None:
+def handle_default_model(models: list[dict], token: str, results: list[dict]) -> None:
+    """Set the deployment default model, verified live 2026-08-30: the
+    model-config object returned by GET /api/experimental/chats/model-configs
+    has an `is_default` boolean field, and PATCHing a target config's id with
+    `{"is_default": true}` both sets it and atomically clears the flag on
+    whichever config previously held it (server-enforced "exactly one
+    default", confirmed by re-GETting afterward) — no separate "unset old
+    default" call is needed.
+    """
     defaults = [m for m in models if m.get("default")]
     if not defaults:
         return
-    default_model = defaults[0]["model"]
-    status, observed = http_request("GET", "/api/experimental/chats/models", token)
-    if status != 200:
-        log(f"WARNING: could not read /api/experimental/chats/models (status {status})")
-        return
-    # No documented endpoint to explicitly set a default as of this writing.
-    # Log the actually observed default state and rely on first-created
-    # auto-default behavior instead of guessing at an unverified API.
-    log(
-        "NOTE: no verified API to explicitly set the default model; "
-        f"intended default is '{default_model}', observed models response: "
-        f"{redact(json.dumps(observed)) if observed is not None else 'n/a'}"
+    default_model = defaults[0]
+    label = f"{default_model['provider']}/{default_model['model']}"
+
+    status, configs = http_request(
+        "GET", "/api/experimental/chats/model-configs", token
     )
+    if status != 200 or not isinstance(configs, list):
+        log(f"WARNING: could not list model-configs (status {status}) — skipping default '{label}'")
+        results.append({"kind": "default", "name": label, "action": "skipped"})
+        return
+
+    match = next((c for c in configs if c.get("model") == default_model["model"]), None)
+    if match is None:
+        log(f"WARNING: model-config for '{label}' not found — skipping default")
+        results.append({"kind": "default", "name": label, "action": "skipped"})
+        return
+
+    if match.get("is_default"):
+        log(f"Default model: unchanged ('{label}' already default)")
+        results.append({"kind": "default", "name": label, "action": "unchanged"})
+        return
+
+    status, _ = http_request(
+        "PATCH",
+        f"/api/experimental/chats/model-configs/{match['id']}",
+        token,
+        {"is_default": True},
+    )
+    if status not in (200, 204):
+        log(f"WARNING: PATCH default model '{label}' failed (status {status})")
+        results.append({"kind": "default", "name": label, "action": "skipped"})
+        return
+    log(f"Default model: set to '{label}'")
+    results.append({"kind": "default", "name": label, "action": "updated"})
 
 
 def print_summary(results: list[dict]) -> None:
@@ -357,7 +386,7 @@ def main(argv: list[str]) -> int:
     for model in models:
         reconcile_model(model, provider_ids.get(model["provider"]), token, results)
 
-    handle_default_model(models, token)
+    handle_default_model(models, token, results)
     print_summary(results)
     return 0
 
