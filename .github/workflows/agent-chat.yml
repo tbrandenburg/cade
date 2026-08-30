@@ -96,13 +96,29 @@ jobs:
             "${CODER_URL}/api/v2/users/me" | jq -r '.username')"
 
           # Known limitation (documented, not engineered around here): this
-          # is a plain, non-idempotent create call. A repeat run creates a
-          # new workspace each time rather than reusing one keyed off the
-          # triggering issue. Idempotent reuse would need either a naming
-          # convention plus a GET-then-create-if-missing lookup, or relying
-          # on the action's own chat-reuse semantics with a fixed
-          # `workspace-id` — left as a follow-up, not solved in S4.
-          workspace_name="agent-chat-issue-${{ github.event.issue.number || github.run_id }}"
+          # is a plain, non-idempotent create call, so a repeat run always
+          # creates a NEW workspace rather than reusing one keyed off the
+          # triggering issue (workspace_name below includes github.run_id
+          # for exactly this reason: a fixed name keyed only on issue
+          # number would 409-conflict on a second labeling of the same
+          # issue, since the first run's workspace is never auto-deleted).
+          # Idempotent reuse would need a naming convention plus a
+          # GET-then-create-if-missing lookup — left as a follow-up.
+          #
+          # Verified live (Issue #17 S6): the action's own chat-reuse
+          # mechanism (a hidden tracking HTML comment keyed on
+          # `github-url` + workflow name) is NOT a safe alternative either
+          # — a second run against the same issue silently reused the
+          # prior run's chat and kept its OLD workspace_id, even though
+          # THIS step had just pre-created a brand-new workspace and
+          # passed its id as `workspace-id` below. If that old workspace
+          # had since been deleted, the reused chat was left pointing at
+          # a dead workspace (confirmed: GET on it returned 410). Passing
+          # `force-new-chat: true` below (added after this finding) is
+          # what actually makes the freshly pre-created `workspace-id` on
+          # this run take effect, at the cost of never reusing chat
+          # history across repeat runs against the same issue.
+          workspace_name="agent-chat-issue-${{ github.event.issue.number || 'dispatch' }}-run-${{ github.run_id }}"
 
           response="$(curl -sf -X POST \
             -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
@@ -120,6 +136,15 @@ jobs:
           coder-token: ${{ secrets.CODER_SESSION_TOKEN }}
           coder-organization: ${{ vars.CODER_ORGANIZATION }}
           workspace-id: ${{ steps.workspace.outputs.workspace_id }}
+          # Verified live (Issue #17 S6): without this, the action's own
+          # chat-reuse mechanism (tracking HTML comment keyed on
+          # github-url + workflow name) silently ignores workspace-id
+          # above and keeps reusing the prior run's chat/workspace,
+          # which breaks once that old workspace is deleted (410). Set
+          # true so this run's freshly pre-created workspace is always
+          # the one actually used, at the cost of chat history not
+          # persisting across repeat runs against the same issue.
+          force-new-chat: true
           chat-prompt: |
             ${{ github.event.issue.title || inputs.chat_prompt }}
 
