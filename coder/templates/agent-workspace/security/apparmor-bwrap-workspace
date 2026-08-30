@@ -145,6 +145,47 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   # listing both flags bwrap actually passes.
   mount options=(rslave,silent),
 
+  # BUGFIX #5 (found live 2026-08-30, re-verifying BUGFIX #4's own fix):
+  # after BUGFIX #4 finally let `bwrap` past its first mount(2) call, it
+  # progressed to (and failed on) a *second*, entirely different mount(2)
+  # call -- `bwrap` performs many more mount(2) calls after the initial
+  # rslave remount (constructing a tmpfs /tmp, recursively bind-mounting
+  # its new root, then remounting ~20 individual paths read-only/noexec
+  # inside it, then finally detaching its old root as private). Every one
+  # of these was still denied by this profile's implicit default-deny
+  # (no rule below granted any of these other mount(2) calls). Root cause
+  # identified via `strace -f -e trace=mount` against a real, fully
+  # successful (fully-`unconfined` seccomp+apparmor) baseline `bwrap` run
+  # -- see `coder/security-profiles/seccomp-bwrap-userns.json`'s matching
+  # BUGFIX #5 comment for the exact captured flag combinations. The four
+  # `mount options in (...)` rules below (using `in`, not `=`, so each
+  # rule tolerates any *subset* of its own listed flags rather than
+  # requiring an exact match -- more robust against minor variations,
+  # e.g. `silent`/`relatime` being present or absent across the ~20
+  # individual remount calls that otherwise share the same core intent)
+  # were derived directly from that real strace output, one rule per
+  # distinct logical mount step:
+  mount options in (nosuid,nodev),
+  mount options in (rbind,silent),
+  mount options in (ro,nosuid,nodev,noexec,remount,bind,silent,relatime),
+  mount options in (rprivate,silent),
+
+  # BUGFIX #6 (proactive, 2026-08-30, matching Issue #23's own seccomp
+  # profile BUGFIX #6/#7): bwrap also calls `pivot_root(2)` and
+  # `umount2(2)` after all its mount(2) calls succeed. `umount,` above
+  # (inherited, unqualified, from upstream `docker-default`) already
+  # unconditionally permits `umount2` here -- no change needed for that.
+  # `pivot_root` is its own distinct AppArmor-mediated rule type (see
+  # `apparmor.d(5)`'s `PIVOT_ROOT_RULE`) with no existing rule anywhere
+  # in this profile (upstream `docker-default` doesn't grant it either),
+  # so it would fall to this profile's implicit default-deny exactly like
+  # the mount(2) calls did before BUGFIX #5. Added proactively here,
+  # before a live re-test, based on the same reasoning as the matching
+  # seccomp-level fix: bwrap only calls this after already confining
+  # itself inside its own new user+mount namespace, so it can only ever
+  # affect that process's own private, already-isolated namespace.
+  pivot_root,
+
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
   deny /sys/fs/[^c]*/** wklx,

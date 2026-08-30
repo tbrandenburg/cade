@@ -900,7 +900,82 @@
 					"op": "SCMP_CMP_MASKED_EQ"
 				}
 			],
-			"comment": "issue-23: allow mount(2) when both MS_REC (0x4000) and MS_SLAVE (0x80000) flags are set (mask=valueTwo=0x84000), i.e. exactly the `mount --make-rslave` remount bwrap performs immediately after entering its new user+mount namespace -- the AppArmor profile in this same directory (coder/security-profiles/apparmor-bwrap-workspace) grants the matching `mount options=(make-rslave),` rule. Does not relax any other mount(2) flag combination (bind mounts, tmpfs, remounts, etc. remain blocked by seccomp here unless the container is also granted CAP_SYS_ADMIN via the pre-existing upstream rule) -- reaching bwrap's *next* step (actual bind-mount construction) is expected to require CAP_SYS_ADMIN or a real running container's own broader needs, and is out of scope for this profile, which targets exactly the two Docker confinement layers (seccomp here, AppArmor in the sibling file) identified as blocking the initial namespace + rslave-remount sequence in issue #23's diagnosis. Verified live 2026-08-30: with this fix and default (docker-default) AppArmor, `bwrap --unshare-user --unshare-pid --ro-bind / / echo ok` fails with `bwrap: Failed to make / slave: Permission denied` -- byte-for-byte the same error the issue's own `--security-opt seccomp=unconfined` (fully open seccomp) reference reproduction produced, confirming this scoped profile is exactly as permissive as `unconfined` for this specific call sequence, no more."
+			"comment": "issue-23: allow mount(2) when both MS_REC (0x4000) and MS_SLAVE (0x80000) flags are set (mask=valueTwo=0x84000), i.e. exactly the `mount --make-rslave` remount bwrap performs immediately after entering its new user+mount namespace -- the AppArmor profile in this same directory (coder/security-profiles/apparmor-bwrap-workspace) grants the matching `mount options=(rslave,silent),` rule (note: AppArmor's actual keyword is `rslave`, NOT `make-rslave` -- see BUGFIX #3 in the AppArmor profile for why this distinction mattered and cost several debugging rounds). Verified live 2026-08-30: with this fix and the corrected AppArmor profile (post-BUGFIX #4), `bwrap --unshare-user --unshare-pid --ro-bind / / echo ok` progresses past this step to bwrap's *next* mount(2) call (tmpfs construction) -- see the three additional mount rules below (BUGFIX #5) for what was needed to get past that and every subsequent step."
+		},
+		{
+			"names": [
+				"mount"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 3,
+					"value": 6,
+					"valueTwo": 6,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #5 (found live 2026-08-30 via strace -f -e trace=mount against a real, fully-working baseline bwrap run -- see AGENTS.md): allow mount(2) when both MS_NOSUID (0x2) and MS_NODEV (0x4) are set (mask=valueTwo=0x6), i.e. the tmpfs mount bwrap performs for its private /tmp inside the new sandbox root."
+		},
+		{
+			"names": [
+				"mount"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 3,
+					"value": 20480,
+					"valueTwo": 20480,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #5: allow mount(2) when both MS_BIND (0x1000) and MS_REC (0x4000) are set (mask=valueTwo=0x5000=20480), i.e. bwrap's recursive bind-mount construction of its new root (binding `newroot`/`/oldroot` into place). Mask deliberately ignores MS_SILENT and any legacy MS_MGC_VAL bits some libc mount() wrappers OR in (confirmed via strace both variants appear for this same logical step) -- this one rule covers both without needing a separate exact-match rule per variant."
+		},
+		{
+			"names": [
+				"mount"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 3,
+					"value": 4128,
+					"valueTwo": 4128,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #5: allow mount(2) when both MS_REMOUNT (0x20) and MS_BIND (0x1000) are set (mask=valueTwo=0x1020=4128), i.e. the many per-path remount-readonly/noexec bind mounts bwrap performs to lock down /proc, /dev, /sys, and select /etc/* files inside its constructed sandbox root. Mask deliberately ignores MS_RDONLY/MS_NOSUID/MS_NODEV/MS_NOEXEC/MS_SILENT/MS_RELATIME, all of which vary across the ~20 individual remount calls bwrap makes for different target paths -- confirmed via strace this single rule covers every variant observed."
+		},
+		{
+			"names": [
+				"mount"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 3,
+					"value": 278528,
+					"valueTwo": 278528,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #5: allow mount(2) when both MS_REC (0x4000) and MS_PRIVATE (0x40000) are set (mask=valueTwo=0x44000=278528), i.e. bwrap's final oldroot-detach step (`mount --make-rprivate`) immediately before unmounting it. Mask deliberately ignores MS_SILENT. This is the last mount(2) call observed in a complete bwrap invocation via strace against a fully-working (fully-unconfined seccomp+apparmor) baseline run -- these four mount rules together are intended to cover every mount(2) call in that same sequence; live re-verification with all four rules plus the corrected AppArmor profile applied (not yet performed as of authoring this rule) is required before treating Issue #23 as closed."
+		},
+		{
+			"names": [
+				"pivot_root"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"comment": "issue-23 BUGFIX #6 (found live 2026-08-30, re-verifying BUGFIX #5): with all four mount rules above applied and apparmor=unconfined, bwrap progressed past every mount(2) call and failed on a different syscall entirely -- pivot_root(2), returning EPERM. Confirmed via inspecting Docker's own unmodified default seccomp profile (docker inspect --format '{{.HostConfig.SecurityOpt}}' on a plain container): pivot_root is absent from every rule group in Docker's default profile, including the CAP_SYS_ADMIN-gated group that mount/clone/unshare/etc. belong to -- Docker's default profile unconditionally blocks pivot_root for every container regardless of capabilities, presumably an intentionally stricter default given how powerful it is (swaps a process's root filesystem). This is safe to unconditionally allow here because bwrap only calls it after already confining itself inside its own new user+mount namespace (via the CLONE_NEWUSER rule above) -- a pivot_root call at that point can only ever affect that process's own private, already-isolated mount namespace, never the host's real root or any other container's namespace. No argument-based scoping is possible for this rule (pivot_root(2) takes two path arguments, not an inspectable integer flags word the way mount(2) does)."
+		},
+		{
+			"names": [
+				"umount",
+				"umount2"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"comment": "issue-23 BUGFIX #7 (found live 2026-08-30, re-verifying BUGFIX #6): with the pivot_root rule above added, bwrap progressed further and failed on `umount2(2)` (\"unmount old root\": Operation not permitted). `umount`/`umount2` are both grouped in Docker's default profile's *same* CAP_SYS_ADMIN-gated rule as `mount`/`clone`/`unshare` -- Docker's seccomp profile GENERATOR evaluates that `includes.caps` condition once, at container-create time, against the container's assigned capability set (not dynamically per-syscall against the calling process's live/namespaced capability state) -- since these containers are never granted CAP_SYS_ADMIN in their outer capability set (by design, matching this whole issue's constraint), that gated rule is compiled out of the final BPF filter entirely for them, exactly like `mount` was before BUGFIX #5's dedicated rules. Same justification as pivot_root above: safe to unconditionally allow because bwrap only unmounts its own already-namespace-isolated `/oldroot`, not anything reachable outside its own mount namespace."
 		}
 	]
 }
