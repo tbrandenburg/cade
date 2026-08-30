@@ -66,10 +66,26 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   # issue-23: permit exactly the mount(2) flag combination bwrap needs
   # (MS_REC|MS_SLAVE, i.e. `mount --make-rslave`) once inside its own new
   # user+mount namespace. All other mount requests still fall through to
-  # `deny mount,` below, unmodified from upstream.
+  # `deny mount options!=(make-rslave),` below.
+  #
+  # BUGFIX (found live 2026-08-30, re-verifying issue #23's own fix): the
+  # original unqualified `deny mount,` rule below this one *always* wins
+  # over the `mount options=(make-rslave),` allow rule above for any
+  # access both rules match -- AppArmor evaluates explicit `deny` rules as
+  # taking precedence over `allow` rules for overlapping permissions,
+  # regardless of source-file ordering (this is *not* first-match-wins
+  # like a firewall chain). Since the unqualified `deny mount,` matches
+  # every mount(2) flag combination, including make-rslave, it silently
+  # subtracted the specific allow above, making it dead code -- with zero
+  # AppArmor audit log entry for the resulting denial (confirmed via
+  # `journalctl -k`: no DENIED entry appears at all for the exact failing
+  # `mount()` call, only for the unrelated already-tested case of an
+  # unknown profile name). The fix is to qualify the deny with
+  # `options!=(make-rslave)` so it no longer overlaps with the one
+  # combination we intentionally allow.
   mount options=(make-rslave),
 
-  deny mount,
+  deny mount options!=(make-rslave),
 
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
