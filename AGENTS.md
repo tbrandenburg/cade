@@ -558,6 +558,48 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   \"workspace_name\""). Keep generated workspace names short and check
   the actual character count, don't assume a "looks reasonable" name fits.
 
+- 2026-08-30 (Issue #45, cade-only reverse Unix-socket bridge): closed
+  the Issue #43 architectural blocker where `srt`'s `bwrap --unshare-net`
+  made a sandboxed `opencode serve`'s loopback port unreachable from the
+  unsandboxed `omnigent host` runner — fixed with a reverse Unix-socket
+  bridge (Direction 4: Unix sockets are filesystem objects and cross a
+  network-namespace boundary via a shared `/tmp` bind-mount, unlike TCP).
+  Full design/evidence in the issue itself and
+  `docs/milestone-reports/issue-45-bridge.md`; three durable, reusable
+  lessons from live verification of the fix:
+  (1) `srt-settings.json`'s `allowWrite` allowlist needed `~/.cache` and
+  `~/.config` added — `opencode serve` crashed with `EROFS` without them;
+  when sandboxing a long-running server process (not just a one-shot
+  CLI), enumerate every directory it writes to on startup, not just the
+  workspace/project paths an interactive session would touch.
+  (2) A `pgrep -f '<script-name>.sh'` idempotency check inside a script
+  that is itself invoked as `sh -c "<script text>"` (Coder's
+  `startup_script` mechanism, and likely any similar "run this script
+  body inline" launcher) can self-match its own already-running process,
+  because the full script text — including its own comments/heredocs
+  containing that literal string — *is* the running process's command
+  line. Fixed with a PID-file + `kill -0` check instead of `pgrep -f`
+  against a string. General rule: never `pgrep -f` for a script's own
+  name from within that same script when it might be running via an
+  inline `sh -c "<text>"` invocation rather than as a file on disk.
+  (3) A dead Unix domain socket special file is **not** automatically
+  removed from disk once its listener process exits — a watchdog reap
+  check written as `[ ! -e "$sock" ]` never fires for a stale/dead
+  socket. Fixed by actively probing liveness (`socat -u OPEN:/dev/null
+  UNIX-CONNECT:"$sock"`, which fails fast against a dead socket) instead
+  of trusting the file's mere existence. Separately, a process/testing
+  note: because this fix lived only on an unmerged branch, both the
+  isolated `docker exec` verification pass and the full live Stage B
+  chat-session pass had to manually overwrite `~/.srt-settings.json`
+  inside each throwaway container — the real `agent-workspace`
+  `startup_script` clones `origin/main` (not this branch), so a
+  Terraform-template-embedded fix and its companion repo-cloned config
+  file can drift apart pre-merge; any future template change with a
+  similar split (template logic changed, but a file the *cloned repo*
+  provides at runtime hasn't caught up yet) needs the same manual
+  workaround until merge, and should not be mistaken for the fix itself
+  being broken.
+
 ### Sandbox / security
 
 - **RESOLVED (2026-08-30) — Issue #23 fully closed with live, complete

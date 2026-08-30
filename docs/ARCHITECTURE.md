@@ -195,3 +195,23 @@ environment) — this ad-hoc `docker run`/`docker exec` proof is a scoped
 stand-in, per this repo's own documented practice for validating
 integration logic without a live Coder session.
 
+**Update (Issue #45, 2026-08-30) — reverse Unix-socket bridge:** the
+`coder create`-validated blocker this section's prior update deferred
+turned out to be architectural, not a config gap: `srt`'s
+`bwrap --unshare-net` gives the sandboxed `opencode serve` process its own
+private network namespace, so its TCP loopback port is unreachable from
+the unsandboxed `omnigent host` runner that needs to reach back into it —
+no CLI flag/escape hatch exists in `srt` for this. Fixed with a reverse
+Unix-socket bridge (Direction 4 of Issue #45's design space): Unix domain
+sockets are filesystem objects, not network endpoints, so a socket file
+under the shared `/tmp` bind-mount crosses the network-namespace boundary
+even though a TCP port cannot. The `agent-workspace` template's
+`startup_script` now runs an inside-sandbox `socat` relay (paired with
+`opencode serve` inside the same `srt`/`bwrap` invocation) and an
+outside-sandbox watchdog process that bridges a real TCP port back to
+that Unix socket for `omnigent host` to dial. Verified fully working
+end-to-end via a real omnigent chat session driving `opencode serve`
+through the bridge to completion, with Issue #23's sandbox properties
+(`denyRead`/`denyWrite`) confirmed not regressed. Full design rationale
+and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
+
