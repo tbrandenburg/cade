@@ -77,7 +77,7 @@ echo "Profile:      $PROFILE_NAME"
 echo "Source file:  $PROFILE_SRC"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[DRY-RUN] Would run: apparmor_parser -r -W \"$PROFILE_SRC\""
+  echo "[DRY-RUN] Would run: apparmor_parser -r -W -T \"$PROFILE_SRC\""
   echo "[DRY-RUN] Would then verify with: aa-status --json | grep -q \"$PROFILE_NAME\""
   exit 0
 fi
@@ -91,7 +91,20 @@ fi
 # -r: replace if already loaded (idempotent re-run-safe).
 # -W: warn (not fail) on unknown/obsolete rule syntax rather than aborting,
 #     while still failing hard on genuine parse errors.
-if apparmor_parser -r -W "$PROFILE_SRC"; then
+# -T: skip-read-cache -- force apparmor_parser to always recompile fresh
+#     from this source file rather than potentially reusing a stale
+#     compiled binary from /var/cache/apparmor/ keyed by an earlier
+#     version of this same profile name. Found live 2026-08-30 (Issue
+#     #32 follow-up): without -T, a `profile_replace` for an edited
+#     profile can report "info=same as current profile, skipping" and
+#     leave the kernel running the OLD compiled content, even though the
+#     source file on disk has genuinely different rules -- this made two
+#     consecutive real bug fixes (#30, #32) appear to have no effect
+#     after a successful, error-free reload, when the real problem was
+#     this script reusing a stale cache entry instead of the fix never
+#     working. Always force a fresh compile for a profile this size
+#     (recompiling is effectively free) rather than trust the cache.
+if apparmor_parser -r -W -T "$PROFILE_SRC"; then
   echo "[PASS] Loaded/replaced AppArmor profile: $PROFILE_NAME"
 else
   echo "[FAIL] apparmor_parser failed to load $PROFILE_SRC" >&2

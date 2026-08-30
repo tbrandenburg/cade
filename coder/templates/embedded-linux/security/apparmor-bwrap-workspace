@@ -129,7 +129,21 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   # and prior to the deny-precedence bug BUGFIX #1/#2 chased. The correct
   # keyword for `MS_REC|MS_SLAVE` (the recursive/`rslave` propagation
   # type bwrap's one mount(2) call requests) is simply `rslave`.
-  mount options=(rslave),
+  #
+  # BUGFIX #4 (found live 2026-08-30, re-verifying BUGFIX #3's own fix):
+  # after the profile finally loaded AND compiled with the corrected
+  # `rslave` keyword, `bwrap` *still* failed identically. Root cause,
+  # found via `strace -f -e trace=mount` against a real `bwrap` run
+  # (unprivileged, no host mutation needed): the actual syscall is
+  # `mount(NULL, "/", NULL, MS_REC|MS_SILENT|MS_SLAVE, NULL)` -- bwrap
+  # always ORs in `MS_SILENT` on every mount(2) call it makes (visible in
+  # every line of the strace output, not just this one). AppArmor's
+  # `options=(...)` with `=` (exact match) requires the *entire* effective
+  # option set to equal exactly what's listed -- `rslave` alone doesn't
+  # account for the separate `silent` flag bit also present, so the
+  # exact-match condition never actually matched the real call. Fixed by
+  # listing both flags bwrap actually passes.
+  mount options=(rslave,silent),
 
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
