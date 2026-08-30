@@ -238,7 +238,7 @@ MCP_JSON
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
-    GITHUB_TOKEN        = coalesce(data.coder_external_auth.github.access_token, data.coder_parameter.github_token.value, "")
+    GITHUB_TOKEN        = try(coalesce(data.coder_external_auth.github.access_token, data.coder_parameter.github_token.value), "")
     LAB_SIM_AGENT_TOKEN = data.coder_parameter.lab_sim_agent_token.value
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
