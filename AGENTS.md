@@ -86,6 +86,7 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make ai-bootstrap` | Issue #13 | Reconciles `coder/ai/{providers,models}.yaml` into the running Coder deployment (`scripts/ai-bootstrap.sh`). Also invoked best-effort at the end of `make up`. |
 | `make ai-token` | Issue #13 | Mints an admin session token for `make ai-bootstrap` (`scripts/ai-token.sh`). |
 | `make verify-ai` | Issue #13 | Proves the AI integration works end to end against the live stack (`scripts/verify-ai.sh`). |
+| `make omnigent-bootstrap` | Issue #43 | Creates the first `omnigent-server` admin account (`scripts/omnigent-bootstrap.sh`). |
 
 `examples/hello-service/Makefile` and `examples/embedded-sim/Makefile` each
 have their own `build`/`test`/`run`/`clean`(/`simulate`) targets — toolchain
@@ -167,6 +168,59 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
+
+- 2026-08-30 (Issue #43, omnigent host integration, live E2E verification
+  session, follow-up to the implementation-time entry above): bringing up
+  the real `omnigent-server`/`omnigent-db` pair live (scoped `docker
+  compose up -d omnigent-db omnigent-server` — not the full stack) and
+  exercising the actual startup-script logic against it (via `docker run`
+  + `docker exec`, not through a live Coder session) surfaced three more
+  real bugs no amount of source reading alone had caught:
+  (1) `compose.yaml`'s `omnigent-server` service never actually passed
+  `OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD` through to the container despite
+  three other files (`.env.example`, `scripts/omnigent-bootstrap.sh`,
+  `scripts/openbao-init.sh`) all depending on it reaching the server —
+  bootstrap would have silently never worked. (2) With no
+  `OMNIGENT_ACCOUNTS_INIT_ADMIN_USERNAME` set, the server's first-admin
+  bootstrap defaults the username to `getpass.getuser()` inside the
+  container, i.e. `"root"` (the image runs as root) — NOT `"admin"` as
+  every other script/Terraform default assumed; every `admin` login
+  attempt failed with a generic "invalid username or password" until this
+  was pinned explicitly. (3) The `OMNIGENT_HOST_ID`/`OMNIGENT_HOST_NAME`
+  env-var mechanism documented in `omnigent/host/identity.py`'s own
+  docstring (and used in the first implementation pass) does NOT actually
+  reach a `--background` remote host daemon — `omnigent.cli._build_host_daemon_env`
+  spawns that daemon subprocess through a strict environment ALLOWLIST that
+  excludes both vars, so they're silently dropped and the daemon falls back
+  to a random uuid4 + the container hostname every time. Reproduced live
+  (registered host_id/name matched neither value passed). Fixed by writing
+  `~/.omnigent/config.yaml`'s `host:` section directly instead, which
+  `load_or_create_host_identity` honors — with the added benefit that this
+  file lives on the persistent home volume, so identity survives `coder
+  stop`/`start` for free. General rule: reading a library's own docstrings/
+  source is necessary but not sufficient — an env var documented as
+  "the mechanism" in one code path (here, the identity *loader*) can still
+  be silently filtered out one layer up (the daemon *spawner*) by a
+  security-motivated allowlist. Always trace an env var all the way from
+  where you set it to where it's actually read, in a live process, not
+  just to the first function that appears to read it.
+
+- 2026-08-30 (Issue #43, omnigent host integration, implementation-time):
+  the real installed `omnigent==0.11.0` CLI has neither an `omnigent login
+  --token` flag nor an `omnigent host --name` flag — both were initially
+  assumed from adjacent naming conventions elsewhere in this repo (e.g.
+  `github_token`/named workspace parameters) without checking the actual
+  CLI first. Caught by running `omnigent login --help`/`omnigent host
+  --help` against the real installed package and reading its source
+  (`omnigent.cli_auth`, `omnigent/host/identity.py`) before writing the
+  Terraform startup script. Corrected to: replicate the real
+  `_accounts_login()` POST `/auth/login` + `store_token(...)` flow
+  directly for login, and the `OMNIGENT_HOST_ID`/`OMNIGENT_HOST_NAME` env
+  var pair (not CLI flags) for a disposable per-workspace host identity.
+  Always run `--help` (or read the source) against the *actual installed
+  version* of a new third-party CLI dependency before writing automation
+  around assumed flag names, even when a similar-looking flag exists
+  elsewhere in this same repo for a different tool.
 
 - 2026-08-30 (Issue #25, coordinator process note): after a subagent finished a single-issue
   fix in its own worktree/branch, the coordinator integrated it by running `git checkout main`

@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -198,3 +198,7 @@ ai-token:
 ## verify-ai: Prove the AI integration works end to end against the live stack.
 verify-ai:
 	@bash scripts/verify-ai.sh
+
+## omnigent-bootstrap: Create the first omnigent-server admin account (Issue #43).
+omnigent-bootstrap:
+	@bash scripts/omnigent-bootstrap.sh

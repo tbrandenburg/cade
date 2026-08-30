@@ -12,6 +12,11 @@ ARG USERNAME=coder
 ARG USER_UID=1000
 ARG USER_GID=1000
 ARG NODE_MAJOR=20
+# Pinned OpenCode CLI version (Issue #43). Must stay within Omnigent's
+# opencode-native harness supported range [1.17.7, 1.19.0) -- re-check this
+# range whenever Omnigent is upgraded, and bump with
+# `--build-arg OPENCODE_VERSION=<x.y.z>` rather than editing the Dockerfile.
+ARG OPENCODE_VERSION=1.18.25
 
 # Optional corporate/TLS-intercepting-proxy CA bundle. Passed as a BuildKit
 # secret (never a build arg or COPY) so it never lands in an image layer:
@@ -65,7 +70,7 @@ RUN apt-get update \
 # Installed system-wide (not per-user) so both are on PATH for the
 # non-root `coder` user created below.
 RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent \
-    && curl -fsSL https://opencode.ai/install | bash \
+    && curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} \
     && mv /root/.opencode/bin/opencode /usr/local/bin/opencode \
     && rm -rf /root/.opencode
 

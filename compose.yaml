@@ -665,6 +665,99 @@ services:
       - prometheus
       - loki
 
+  # omnigent-db: Issue #43 Step 1. PostgreSQL persistence for the shared,
+  # singleton Omnigent server (Coder Agents alternative host/UI) — same
+  # "own -db service, platform-control only, no host port" pattern as
+  # `coder-db`/`temporal-db` above.
+  omnigent-db:
+    image: postgres:16-alpine
+    container_name: omnigent-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${OMNIGENT_PG_USER:-omnigent}
+      POSTGRES_PASSWORD: ${OMNIGENT_PG_PASSWORD:-omnigent}
+      POSTGRES_DB: ${OMNIGENT_PG_DB:-omnigent}
+    volumes:
+      - omnigent_db_data:/var/lib/postgresql/data
+    networks:
+      - platform-control
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${OMNIGENT_PG_USER:-omnigent} -d ${OMNIGENT_PG_DB:-omnigent}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # omnigent-server: Issue #43 Step 1. Shared, singleton Omnigent server
+  # (github.com/omnigent-ai/omnigent, pinned v0.11.0 — matches the
+  # OPENCODE_VERSION=1.18.25 pin in coder/Dockerfile, within Omnigent's
+  # supported OpenCode range [1.17.7, 1.19.0)). Image + env var names
+  # verified against the real upstream reference stack
+  # (github.com/tbrandenburg/omnigent-sandbox deploy/docker/docker-compose.yaml
+  # + .env.example, and the published Dockerfile's own HEALTHCHECK) rather
+  # than guessed. Joined to BOTH networks (unlike coder-db-style singles)
+  # because workspace containers on platform-workspaces must reach it by
+  # its compose service name, same reasoning as `openbao` above.
+  omnigent-server:
+    image: ghcr.io/omnigent-ai/omnigent-server:v0.11.0
+    container_name: omnigent-server
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql+psycopg://${OMNIGENT_PG_USER:-omnigent}:${OMNIGENT_PG_PASSWORD:-omnigent}@omnigent-db:5432/${OMNIGENT_PG_DB:-omnigent}"
+      ARTIFACT_DIR: /data/artifacts
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      OMNIGENT_AUTH_ENABLED: "1"
+      # Public base URL where users/browsers reach the server - MUST be
+      # the URL the browser sees, not the omnigent-server:8000 internal
+      # address (see upstream .env.example's "Accounts" section).
+      OMNIGENT_ACCOUNTS_BASE_URL: "${OMNIGENT_ACCOUNTS_BASE_URL:-http://localhost:8000}"
+      OMNIGENT_ACCOUNTS_COOKIE_SECRET: "${OMNIGENT_ACCOUNTS_COOKIE_SECRET:-}"
+      # Read by omnigent-server itself at boot to create the first admin
+      # account (accounts auth mode); scripts/omnigent-bootstrap.sh and
+      # scripts/openbao-init.sh both depend on this var actually reaching
+      # the container - found missing here during Issue #43 live E2E
+      # verification (the var existed in .env.example/scripts but was never
+      # threaded through to the container, so bootstrap would have silently
+      # never worked).
+      OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD: "${OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD:-}"
+      # Without this, the first-admin username defaults to
+      # getpass.getuser() inside the container - which is "root" (the
+      # container runs as root), NOT "admin" as scripts/openbao-init.sh and
+      # coder/templates/agent-workspace's omnigent_admin_username default
+      # both assume. Found live during Issue #43 E2E verification: a fresh
+      # boot with only INIT_ADMIN_PASSWORD set created a "root" admin, and
+      # every subsequent "admin" login attempt failed. Pin it explicitly so
+      # the created account matches what the rest of this integration
+      # expects, rather than depending on the image's container-user
+      # incidentally being root.
+      OMNIGENT_ACCOUNTS_INIT_ADMIN_USERNAME: "admin"
+      OMNIGENT_OIDC_COOKIE_SECRET: "${OMNIGENT_OIDC_COOKIE_SECRET:-}"
+    volumes:
+      - omnigent_artifact_data:/data
+    ports:
+      - "127.0.0.1:${OMNIGENT_PORT:-8000}:8000"
+    networks:
+      - platform-control
+      - platform-workspaces
+    depends_on:
+      omnigent-db:
+        condition: service_healthy
+    healthcheck:
+      # Real upstream HEALTHCHECK (deploy/docker/Dockerfile): curl
+      # http://127.0.0.1:${PORT}/health - reproduced here rather than
+      # relying on the image's own baked-in HEALTHCHECK, matching every
+      # other app service's convention in this file.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 networks:
   platform-control:
     name: platform-control
@@ -681,3 +774,5 @@ volumes:
   prometheus_data:
   loki_data:
   grafana_data:
+  omnigent_db_data:
+  omnigent_artifact_data:
