@@ -92,8 +92,10 @@ jobs:
             exit 1
           fi
 
-          user="$(curl -sf -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
-            "${CODER_URL}/api/v2/users/me" | jq -r '.username')"
+          user="$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
+            "${CODER_URL}/api/v2/users/me")"
+          echo "DEBUG users/me response: ${user}" >&2
+          user="$(echo "${user}" | head -1 | jq -r '.username')"
 
           # Known limitation (documented, not engineered around here): this
           # is a plain, non-idempotent create call, so a repeat run always
