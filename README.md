@@ -433,6 +433,54 @@ sections and `docs/milestone-reports/M4-agent-host.md` for the full VS
 Code-Desktop-driven proof.
 </details>
 
+<details>
+<summary><strong>Journey 10 — Label a GitHub issue, get an AI agent to work on it</strong></summary>
+
+Trigger a real Coder Agents chat straight from GitHub: label an issue,
+and a self-hosted CI job pre-creates a fresh Coder workspace, starts an
+AI agent chat seeded with the issue's own title/body, and posts a
+comment back on the issue linking to the live chat.
+
+One-time setup (manual, per deployment):
+
+```bash
+# 1. Create a real GitHub OAuth App, then set in .env:
+#    GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET
+# 2. Uncomment CODER_EXTERNAL_AUTH_0_* in compose.yaml, then:
+docker compose up -d coder
+# 3. In the Coder UI: Account -> External Authentication -> link GitHub.
+# 4. Provision repo secrets/vars for .github/workflows/agent-chat.yml:
+gh secret set CODER_URL --body "http://coder:7080"       # internal hostname, not localhost
+gh secret set CODER_SESSION_TOKEN --body "<long-lived Coder API token>"
+gh variable set CODER_AGENT_WORKSPACE_TEMPLATE_ID --body "<agent-workspace template id>"
+gh variable set CODER_ORGANIZATION --body "<org name>"
+```
+
+Then, day to day:
+
+```bash
+# Runner is JIT/one-shot — start it right before triggering, not ahead of time.
+bash scripts/runner-jit-start.sh
+gh issue edit <n> --add-label agent-chat
+```
+
+A real Coder workspace (`agent-workspace` template) is created from
+inside the CI job, a real Coder Agents chat is started against it with
+the issue's title/body as its prompt, and a result comment (with a
+link to the live chat) is posted back on the issue automatically.
+
+**Verified 2026-08-29/30** against a live stack, real `issues:labeled`
+trigger (not just `workflow_dispatch`): the agent performed real,
+non-mocked tool-calling work (`start_workspace`, `read_file`) against a
+freshly pre-created workspace, and a real comment landed on the
+triggering issue. See `docs/ai-coder.md`'s "CI / unattended automation
+successor path (Task 8c)" section and `AGENTS.md`'s Issue #17 entry for
+the full evidence and the real bugs found (workspace name length cap,
+token lifetime units, chat-reuse footgun) while proving this live.
+**Known gap**: the agent did real investigative work in testing, not a
+full "fix it and open a PR" loop — that end-to-end path is not yet proven.
+</details>
+
 ## Makefile targets
 
 | Target | Milestone | Purpose |
