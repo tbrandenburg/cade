@@ -256,9 +256,28 @@ resource "docker_container" "workspace" {
   # on this host before `make templates-push`/`coder create` against a
   # template that references this profile, or every workspace create will
   # fail outright.
+  # Issue #40: Docker's `systempaths` masking (bind-mounting read-only
+  # decoys over sensitive /proc and /sys paths, e.g. /proc/kcore,
+  # /proc/keys, /sys/firmware) is a *third*, separate Docker confinement
+  # layer, independent of seccomp/AppArmor/capabilities -- it was found
+  # live to also block bwrap's nested fresh-procfs mount, with the exact
+  # same "Can't mount proc" error persisting even under fully-unconfined
+  # seccomp+AppArmor and `--cap-add SYS_ADMIN`, only resolved by
+  # `--privileged` or this flag specifically. Disabling it here is NOT a
+  # security regression: this profile's own AppArmor rules (inherited
+  # from upstream `docker-default`) already independently `deny` access
+  # to every one of the exact same sensitive paths `systempaths` masks
+  # (see `deny @{PROC}/kcore rwklx,` / `deny /sys/firmware/** rwklx,`
+  # etc. in the AppArmor profile) -- both mechanisms enforce the same
+  # boundary redundantly; disabling one while the other remains active
+  # does not widen the container's actual attack surface. Verified live:
+  # `systempaths=unconfined` alone (no extra `cap-add`, no
+  # `--privileged`) combined with the scoped seccomp+AppArmor profiles
+  # below was sufficient for a real `srt opencode`/`srt pi` completion.
   security_opts = [
     "seccomp=${file("${path.module}/security/seccomp-bwrap-userns.json")}",
     "apparmor=cade-bwrap-workspace",
+    "systempaths=unconfined",
   ]
 
   volumes {

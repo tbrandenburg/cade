@@ -181,6 +181,13 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   # filesystem type this specific call uses).
   mount fstype=devpts options in (nosuid,noexec),
 
+  # BUGFIX #8 (found live 2026-08-30, via strace against a standalone
+  # `srt -c 'echo ...'` reproduction): bwrap also performs a real, fresh
+  # procfs mount (distinct from the bind-remount-of-an-existing-/proc
+  # already covered above) -- `mount("proc", "/newroot/proc", "proc",
+  # MS_NOSUID|MS_NODEV|MS_NOEXEC, NULL)`.
+  mount fstype=proc options in (nosuid,nodev,noexec),
+
   # BUGFIX #6 (proactive, 2026-08-30, matching Issue #23's own seccomp
   # profile BUGFIX #6/#7): bwrap also calls `pivot_root(2)` and
   # `umount2(2)` after all its mount(2) calls succeed. `umount,` above
