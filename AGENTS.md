@@ -168,6 +168,17 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-30 (Issue #23, coordinator process note): a first subagent spawn for a
+  host-security-profile task (seccomp/AppArmor for `srt`/`bwrap`) was aborted mid-task by a
+  rejected permission prompt, most likely for a privileged/host-mutating command (`sudo`,
+  `apparmor_parser -r`, or similar) that is legitimately out of scope for an agent session on
+  a shared, non-sandboxed host running production-adjacent services. Retrying with an explicit
+  "HARD SAFETY RESTRICTIONS" section up front (no `sudo`, no loading/removing AppArmor profiles,
+  no `--privileged`, no touching already-running containers, plain unprivileged `docker run
+  --rm`/read-only `docker exec` only) let the same task complete cleanly and honestly report
+  which acceptance criteria were verified live vs. deferred as follow-up. When delegating any
+  task that plausibly touches host-level state, state the safety boundary explicitly in the
+  subagent prompt before the first attempt, rather than discovering it via a rejected tool call.
 - 2026-08-29: A one-off `docker run` client (`make temporal-build-demo-start`) can appear to
   hang past a short shell timeout on its very first invocation purely from a cold image
   pull/layer-cache warm-up, even though the Activity it triggers already completed
