@@ -33,7 +33,16 @@ name: agent-chat
 on:
   issues:
     types: [labeled]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    # For manual dry-runs (S6): a workflow_dispatch has no triggering
+    # issue, so github.event.issue.* is empty and the action's required
+    # github-url input has nothing to fall back to without this. Real
+    # issues:labeled runs ignore this input entirely.
+    inputs:
+      chat_prompt:
+        description: "chat-prompt to use for a manual workflow_dispatch dry-run only (ignored on a real issues:labeled trigger)"
+        required: false
+        default: "Manual dry-run test triggered via workflow_dispatch (Issue #17 S6)."
 
 permissions:
   contents: read
@@ -110,8 +119,8 @@ jobs:
           coder-organization: ${{ vars.CODER_ORGANIZATION }}
           workspace-id: ${{ steps.workspace.outputs.workspace_id }}
           chat-prompt: |
-            ${{ github.event.issue.title }}
+            ${{ github.event.issue.title || inputs.chat_prompt }}
 
             ${{ github.event.issue.body }}
-          github-url: ${{ github.event.issue.html_url }}
+          github-url: ${{ github.event.issue.html_url || github.event.repository.html_url }}
           github-token: ${{ github.token }}
