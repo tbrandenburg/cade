@@ -84,6 +84,8 @@ jobs:
           CODER_URL: ${{ secrets.CODER_URL }}
           CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
           TEMPLATE_ID: ${{ vars.CODER_AGENT_WORKSPACE_TEMPLATE_ID }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -92,20 +94,19 @@ jobs:
             exit 1
           fi
 
-          user="$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
-            "${CODER_URL}/api/v2/users/me")"
-          echo "DEBUG users/me response: ${user}" >&2
-          user="$(echo "${user}" | head -1 | jq -r '.username')"
+          user="$(curl -sf -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
+            "${CODER_URL}/api/v2/users/me" | jq -r '.username')"
 
           # Known limitation (documented, not engineered around here): this
           # is a plain, non-idempotent create call, so a repeat run always
           # creates a NEW workspace rather than reusing one keyed off the
-          # triggering issue (workspace_name below includes github.run_id
-          # for exactly this reason: a fixed name keyed only on issue
-          # number would 409-conflict on a second labeling of the same
-          # issue, since the first run's workspace is never auto-deleted).
-          # Idempotent reuse would need a naming convention plus a
-          # GET-then-create-if-missing lookup — left as a follow-up.
+          # triggering issue (workspace_name below includes a run id
+          # suffix for exactly this reason: a fixed name keyed only on
+          # issue number would 409-conflict on a second labeling of the
+          # same issue, since the first run's workspace is never
+          # auto-deleted). Idempotent reuse would need a naming
+          # convention plus a GET-then-create-if-missing lookup — left
+          # as a follow-up.
           #
           # Verified live (Issue #17 S6): the action's own chat-reuse
           # mechanism (a hidden tracking HTML comment keyed on
@@ -120,17 +121,28 @@ jobs:
           # what actually makes the freshly pre-created `workspace-id` on
           # this run take effect, at the cost of never reusing chat
           # history across repeat runs against the same issue.
-          workspace_name="agent-chat-issue-${{ github.event.issue.number || 'dispatch' }}-run-${{ github.run_id }}"
+          #
+          # Coder workspace names are capped at 32 chars total
+          # (verified live: a 36-char name was rejected with "Validation
+          # failed for tag \"workspace_name\""). Keep this short: "ac-"
+          # + issue number (or "wd" for a workflow_dispatch dry-run) +
+          # "-" + the run id's last 8 digits (run ids are large,
+          # monotonically-increasing integers — the tail is enough
+          # entropy to avoid collisions within any realistic window).
+          run_id_suffix="${RUN_ID: -8}"
+          workspace_name="ac-${ISSUE_NUMBER:-wd}-${run_id_suffix}"
 
-          response="$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+          response="$(curl -sf -X POST \
             -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
             -H "Content-Type: application/json" \
             "${CODER_URL}/api/v2/users/${user}/workspaces" \
             -d "{\"template_id\":\"${TEMPLATE_ID}\",\"name\":\"${workspace_name}\"}")"
-          echo "DEBUG workspace create response: ${response}" >&2
-          response="$(echo "${response}" | head -1)"
 
           workspace_id="$(echo "${response}" | jq -r '.id')"
+          if [ -z "${workspace_id}" ] || [ "${workspace_id}" = "null" ]; then
+            echo "::error::Workspace create response had no .id: ${response}" >&2
+            exit 1
+          fi
           echo "workspace_id=${workspace_id}" >> "$GITHUB_OUTPUT"
 
       - name: Create Coder Agents chat
