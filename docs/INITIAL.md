@@ -1861,6 +1861,28 @@ Because the workspace itself is already a Docker container, `srt`'s `bubblewrap`
 
    (or install a scoped AppArmor profile that grants `userns` to `bwrap`/`node` instead of disabling the restriction system-wide — prefer this on a host that runs other untrusted workloads).
 
+   **Status (Issue #23, 2026-08-30): fix implemented, host-level verification pending.**
+   The recommendation above ("install a scoped AppArmor profile") is now
+   actually implemented, for this repo's specific host/Docker-nested-sandbox
+   case: `coder/security-profiles/apparmor-bwrap-workspace` (an AppArmor
+   profile derived from Docker's own `docker-default`, adding only `userns,`
+   and a narrow `mount options=(make-rslave),` rule) plus a companion scoped
+   seccomp profile (`coder/security-profiles/seccomp-bwrap-userns.json`,
+   relaxing only `clone`/`unshare` for `CLONE_NEWUSER` and `mount` for
+   `MS_REC|MS_SLAVE`) are wired into all three affected templates'
+   `docker_container.workspace` resources. Fresh investigation also found
+   the *actual* blocker on this host was never `kernel.unprivileged_userns_clone`
+   (already `1`, permissive) — it was these two Docker confinement layers
+   stacked, not a genuine kernel-level restriction; see AGENTS.md's
+   "Sandbox / security" Lessons Learned for the full live evidence. What
+   remains **unverified**, because it requires host-level AppArmor profile
+   loading and a live Coder workspace rebuild (both explicitly out of scope
+   for the session that implemented this): the AppArmor profile has never
+   actually been loaded on a real host via `scripts/load-security-profiles.sh`,
+   and no real end-to-end `coder create` + `srt opencode -- ...` completion
+   has been observed. Do not claim this is fully resolved until both of
+   those are done in a follow-up session with host-level permission.
+
 3. Smoke-test nested sandboxing from inside the workspace container before relying on it:
 
    ```bash
