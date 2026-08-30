@@ -238,11 +238,14 @@ ships a mode that does not require any user namespace at all.
 > Issue #23 implements the scoped-AppArmor-profile fix this section's own
 > text already recommended ("a decision for whoever owns the Coder host")
 > via `coder/security-profiles/`, wired into all three affected templates.
-> A same-day follow-up live E2E session found and fixed a rule-precedence
-> bug in the AppArmor profile itself (Issue #27, PR #28) that made it a
-> no-op as shipped; that fix is merged but not yet reloaded on the host as
-> of this note. See `AGENTS.md`'s "Sandbox / security" Lessons Learned for
-> full details and current status — this section's own historical
+> **Final update, same day: fully resolved with live end-to-end evidence**
+> (chain of fixes: #27, #30, #32, #34, #36, #38, #40) — `srt opencode`/
+> `srt pi` now complete successfully, and a live filesystem-enforcement
+> denial check passed for the first time ever, proving the exact
+> defense-in-depth property this section originally noted "couldn't be
+> verified before because bwrap itself couldn't even start." See
+> `AGENTS.md`'s "Sandbox / security" Lessons Learned for the complete
+> chain, evidence, and process lessons — this section's own historical
 > narrative above is left unedited as a record of the original diagnosis.
 
 ## Lessons learned

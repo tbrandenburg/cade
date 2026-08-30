@@ -455,6 +455,87 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
 
 ### Sandbox / security
 
+- **RESOLVED (2026-08-30) — Issue #23 fully closed with live, complete
+  evidence.** After the AppArmor profile load succeeded (issue #27/#30's
+  fixes), `bwrap` progressed through its *entire* real invocation
+  sequence one gap at a time (issues #34, #36, #38, #40 — each found by
+  re-testing the real `srt opencode` command, not just a synthetic
+  `bwrap --ro-bind / /` smoke test, after the previous gap was fixed):
+  additional mount(2) flag combinations (tmpfs, recursive bind mounts,
+  remounts, private-detach, devpts, fresh procfs), `pivot_root`/`umount2`
+  (unconditionally blocked by Docker's default seccomp profile
+  regardless of capabilities), a second `unshare(CLONE_NEWPID|
+  CLONE_NEWNS)` call from `srt`'s own internal `apply-seccomp` helper,
+  and finally Docker's **`systempaths`** masking — a *third*, wholly
+  separate confinement layer (independent of seccomp/AppArmor/
+  capabilities) that bind-mounts read-only decoys over sensitive
+  `/proc`/`/sys` paths, reproduced even under fully-`unconfined`
+  seccomp+AppArmor and `--cap-add SYS_ADMIN`, resolved with
+  `--security-opt systempaths=unconfined` (verified safe: this profile's
+  own AppArmor rules already independently `deny` every path
+  `systempaths` masks, so disabling Docker's redundant copy of the same
+  restriction is not a security regression). One application-level fix
+  (unrelated to sandboxing) was also needed: `agent-host/srt-settings.json`'s
+  `allowWrite` was missing `~/.local`, needed by `opencode`'s own Bun
+  runtime.
+
+  **Final live verification, real, no mocks, through the actual Coder
+  pipeline** (fresh `coder create` + re-pushed templates, not just a
+  one-off `docker run`) for all three affected templates
+  (`docker-standard`, `embedded-linux`, `agent-workspace`):
+  ```
+  $ srt opencode -- --version   ->  1.18.25
+  $ srt pi -- --version         ->  0.74.2
+  $ srt -c "cat ~/.ssh/id_rsa"  ->  denied (secret readable outside the sandbox, not inside)
+  $ srt -c "echo x > .env"      ->  denied (Permission denied)
+  ```
+  No `--privileged`, no `apparmor=unconfined`/`seccomp=unconfined`, no
+  extra `cap-add` in the final template configuration — matching Issue
+  #23's own acceptance criteria exactly. This is the first time `srt`'s
+  filesystem defense-in-depth property (`denyRead`/`denyWrite`) has ever
+  been proven working end to end; M9's original milestone report
+  explicitly noted this couldn't be verified before because `bwrap`
+  itself couldn't even start.
+
+  **Process lessons from this final stretch, worth remembering for any
+  future Docker-sandboxing debugging:**
+  - Docker layers *at least four* independent confinement mechanisms:
+    seccomp, AppArmor, Linux capabilities, and `systempaths`
+    (masked-paths). A fix that "should" work per seccomp+AppArmor alone
+    can still fail due to a completely separate, easy-to-overlook fourth
+    layer. When stuck, set each layer *individually* to its most
+    permissive setting (`unconfined`/`--privileged`/extra `cap-add`) to
+    isolate which one is actually still responsible, rather than
+    assuming the most recently touched layer must be at fault.
+    `--privileged` succeeding where `--cap-add <specific-cap>` +
+    `unconfined` seccomp/AppArmor doesn't is a strong signal that a
+    *different* mechanism (not capabilities) is still involved.
+  - `--security-opt systempaths=unconfined` (and similar Docker-CLI-only
+    convenience flags) do not necessarily appear as a literal string in
+    `docker inspect --format '{{.HostConfig.SecurityOpt}}'` even when
+    correctly applied — check the actual underlying effect instead
+    (`{{json .HostConfig.MaskedPaths}}`/`{{json .HostConfig.ReadonlyPaths}}`
+    for this specific flag) rather than assuming a missing string means
+    the setting had no effect.
+  - A synthetic minimal reproduction command does not necessarily
+    exercise every flag/mount-type/syscall combination a *real* caller
+    actually uses — `srt`'s real invocation added `--dev /dev` and a
+    second internal `unshare` call that a bare `bwrap --ro-bind / /` test
+    never triggered. Always re-verify against the real-world command
+    before declaring an underlying issue closed.
+  - A stale, already-pushed Coder template version silently keeps using
+    old security-profile *content* (Terraform embeds it via `file()` at
+    push time) — always re-push (`coder templates push <name> -d
+    <dir> --yes`) and recreate the workspace before re-testing a
+    profile change against a live workspace, or you'll reproduce an
+    already-fixed bug and wrongly conclude the fix didn't work.
+  - Disabling one Docker confinement mechanism is not automatically a
+    security regression if a *different* mechanism already independently
+    enforces the same boundary — verify this explicitly (as done here,
+    cross-checking AppArmor's existing `deny` rules against the exact
+    paths `systempaths` masks) rather than assuming any `unconfined`-named
+    flag is inherently unsafe.
+
 - **Superseded by Issue #23 (2026-08-30), corrected root cause below** —
   the original M9-era diagnosis that `srt`'s `bwrap --unshare-user` fails
   because of a genuine kernel-level restriction
