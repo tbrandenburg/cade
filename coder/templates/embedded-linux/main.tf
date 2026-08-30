@@ -236,6 +236,31 @@ resource "docker_container" "workspace" {
     ip   = "host-gateway"
   }
 
+  # Issue #23: scoped seccomp + AppArmor profiles that permit `bwrap`
+  # (used by `srt`, which wraps `opencode`/`pi`, see the alias below) to
+  # create an unprivileged user namespace and its initial rslave remount,
+  # without widening the container's confinement any further than that
+  # (no `privileged = true`, no `apparmor=unconfined`/`seccomp=unconfined`).
+  # The seccomp value is the *content* of the profile (via `file()`), not a
+  # path -- Docker's API accepts "seccomp=<json>" directly, which avoids any
+  # dependency on this path still existing wherever `terraform apply`
+  # actually runs a real `coder templates push` from (see AGENTS.md's
+  # documented "templates push only uploads the template dir" gotcha).
+  # PREREQUISITE, not a soft fallback: `apparmor=cade-bwrap-workspace`
+  # requires that exact profile to already be loaded on the Docker host via
+  # `scripts/load-security-profiles.sh` (wired into `make doctor`/`make up`,
+  # not executed by this Terraform). Verified live 2026-08-30: referencing
+  # an unloaded/unknown AppArmor profile name is a HARD `docker run` failure
+  # ("unable to apply apparmor profile"), not a silent fallback to
+  # `docker-default` -- run the load script (or `make doctor`) at least once
+  # on this host before `make templates-push`/`coder create` against a
+  # template that references this profile, or every workspace create will
+  # fail outright.
+  security_opts = [
+    "seccomp=${file("${path.module}/security/seccomp-bwrap-userns.json")}",
+    "apparmor=cade-bwrap-workspace",
+  ]
+
   volumes {
     container_path = "/home/coder"
     volume_name    = docker_volume.home_volume.name
