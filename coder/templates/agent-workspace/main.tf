@@ -410,6 +410,20 @@ OMNIGENT_HOST_IDENTITY
     OMNIGENT_ADMIN_USERNAME = data.coder_parameter.omnigent_admin_username.value
     OMNIGENT_ADMIN_PASSWORD = data.coder_parameter.omnigent_admin_password.value
     OMNIGENT_SANDBOX_MODE   = var.omnigent_sandbox_mode
+    # Issue #43: OMNIGENT_SANDBOX_MODE is NOT in omnigent's own daemon/runner
+    # environment allowlist (`omnigent.host.connect._RUNNER_ENV_ALLOWLIST` +
+    # its prefixes LC_/MLFLOW_/OTEL_/OMNIGENT_OTEL_), so it is silently
+    # dropped before reaching the runner subprocess that actually spawns
+    # `opencode` via the ~/.omnigent-bin PATH shim — the same class of
+    # silently-filtered-env-var bug already hit with OMNIGENT_HOST_ID/NAME
+    # (see AGENTS.md Lessons Learned). Without this passthrough the shim
+    # sees an unset value: harmless for the shipped "srt" default (the shim
+    # falls through to `srt opencode --`, i.e. it fails SAFE), but it makes
+    # "plain" mode unreachable through the real omnigent daemon path, which
+    # is exactly the Stage A verification checkpoint. OMNIGENT_RUNNER_ENV_PASSTHROUGH
+    # is omnigent's own documented mechanism for this (a comma-separated list
+    # of extra var names to forward) and IS itself allowlisted.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
   }
