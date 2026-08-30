@@ -442,9 +442,21 @@ while true; do
     base=$(basename "$pidfile" .pid)
     port="$${base#opencode-bridge-}"
     sock="/tmp/opencode-bridge-$port.sock"
-    if [ ! -e "$sock" ]; then
+    # Issue #45 Step 3 (live E2E finding): a Unix socket special file is
+    # NOT automatically removed from disk when its listening process
+    # exits -- `[ -e "$sock" ]` alone stays true forever after the
+    # sandboxed srt session that created it has already ended, so this
+    # reaping check never fired and the outside bridge (and its stale
+    # pidfile/socket) leaked indefinitely. Reproduced live: killed the
+    # sandboxed `opencode serve`/socat pair, the .sock file remained on
+    # disk unchanged. Fixed by actively probing for a live listener
+    # (`socat -u OPEN:/dev/null UNIX-CONNECT:"$sock"` connects then
+    # immediately EOFs; a dead/no-listener socket fails fast with
+    # "Connection refused", confirmed live) instead of trusting mere
+    # file existence.
+    if [ ! -e "$sock" ] || ! socat -u OPEN:/dev/null UNIX-CONNECT:"$sock" >/dev/null 2>&1; then
       kill "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null || true
-      rm -f "$pidfile"
+      rm -f "$pidfile" "$sock"
     fi
   done
 
@@ -453,12 +465,25 @@ done
 BRIDGE_WATCHDOG
     chmod +x ~/.omnigent-bin/bridge-watchdog.sh
 
-    # Idempotent start: `pgrep -f` (not a PID file) since a PID file alone
-    # can't distinguish "watchdog still alive" from "stale file left by a
-    # container that no longer exists", same class of correctness issue the
-    # watchdog's own internal reaping logic above already has to handle.
-    if ! pgrep -f 'bridge-watchdog.sh' >/dev/null 2>&1; then
+    # Idempotent start: a PID-file + `kill -0` check, NOT `pgrep -f
+    # 'bridge-watchdog.sh'` -- verified live (Issue #45 Step 3) that a
+    # `pgrep -f` string match self-matches the CURRENTLY RUNNING
+    # startup_script shell process itself, because `coder_agent` executes
+    # this entire startup_script as a single `sh -c "<script text>"`
+    # invocation, and that script's own text (this very comment, the
+    # heredoc above, etc.) contains the literal substring
+    # "bridge-watchdog.sh" -- so the check always found a false-positive
+    # "match" against its own already-running parent shell and silently
+    # skipped starting the watchdog every single boot. A PID file avoids
+    # any text-matching self-reference entirely; it's also safe against
+    # the "stale file from a no-longer-existing container" case the prior
+    # comment worried about, since /tmp is NOT on the persistent home
+    # volume -- a freshly (re)created container always starts with an
+    # empty /tmp, so a leftover PID file can only ever refer to a process
+    # from THIS SAME still-running container.
+    if [ ! -f /tmp/omnigent-bridge-watchdog.pid ] || ! kill -0 "$(cat /tmp/omnigent-bridge-watchdog.pid 2>/dev/null)" 2>/dev/null; then
       nohup ~/.omnigent-bin/bridge-watchdog.sh >/tmp/omnigent-bridge-watchdog.log 2>&1 &
+      echo $! >/tmp/omnigent-bridge-watchdog.pid
     fi
 
     # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
