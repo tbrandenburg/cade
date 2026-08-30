@@ -408,6 +408,27 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   migrating the real infra they describe would make the docs lie about
   live state; a full OpenBao secret-path migration is a separate, higher-risk
   follow-up.
+- 2026-08-30 (Issue #17): Coder's `POST /api/v2/users/{user}/keys/tokens`
+  `lifetime` field is nanoseconds (Go `time.Duration`), not seconds — a
+  seconds-valued request (e.g. `7776000` meant as 90 days) is silently
+  accepted as ~0.0078 real seconds and expires before the token's first
+  real use, failing later with an opaque `401`. Server also caps the max
+  at `168h` (7 days) regardless of what's requested — verify by listing
+  the created key's `expires_at`, not just a `201`/non-error create response.
+- 2026-08-30 (Issue #17): `coder/agents-chat-action@v0`'s chat-reuse
+  mechanism (a hidden HTML tracking comment on the triggering issue,
+  keyed on `github-url` + workflow name) silently ignores a freshly
+  pre-created `workspace-id` input on a repeat run and keeps the prior
+  run's chat/workspace reference — breaks outright (`410`) once that old
+  workspace is deleted. Always set `force-new-chat: true` in any
+  automation that pre-creates a fresh workspace per run, or verify the
+  reuse behavior explicitly before relying on it.
+- 2026-08-30 (Issue #17): Coder workspace names are capped at 32
+  characters server-side; a naming scheme combining an issue number and
+  a full GitHub numeric run id can exceed this with no obvious warning
+  in the validation error message (just "Validation failed for tag
+  \"workspace_name\""). Keep generated workspace names short and check
+  the actual character count, don't assume a "looks reasonable" name fits.
 
 ### Sandbox / security
 
@@ -576,5 +597,71 @@ chat with no interactive client ever attached — this is not the same
 class of limitation as MCP `.mcp.json` discovery, and should not be
 assumed blocked by analogy to it. See `docs/ai-coder.md`'s "Explored
 Agents capabilities" table for the full evidence per item.
+
+## Issue #17 — 2026-08-30
+
+Closed both remaining gaps from #13: a real GitHub OAuth App now backs
+`CODER_EXTERNAL_AUTH_0_*` (uncommented in `compose.yaml`, verified live
+— `coder` stayed healthy, no repeat of the presence-triggers-crash-loop
+bug), wired into the `agent-workspace` template via
+`data.coder_external_auth.github` (falls back to the pre-existing manual
+`github_token` parameter for users who haven't linked GitHub), and the
+CI successor path (#13 Task 8c) went from documentation-only to a real,
+working `.github/workflows/agent-chat.yml`, proven end to end against a
+real `agent-chat`-labeled issue (#17 itself) with real LLM tool-calling
+work observed and a real result comment posted back to GitHub — see
+`docs/ai-coder.md`'s updated Task 8c section for full evidence.
+
+Six real bugs were found only by actually running the workflow live
+against the real stack, none of which would have surfaced from code
+review alone: (1) the self-hosted runner image (`cade/runner:latest`)
+has `jq` but no `python3` — the workflow's JSON parsing had to target
+what's actually installed, not assumed. (2) `workflow_dispatch` has no
+triggering issue, so the action's required `github-url` input needs an
+explicit dry-run fallback. (3) `coder/agents-chat-action` strictly
+rejects any `github-url` that isn't a real `github.com` issue/PR URL —
+by design, to stop a workflow templating untrusted content from being
+tricked into redirecting to an attacker-chosen repo — so a dry run must
+point at a real issue, not the bare repo URL. (4) The action's own
+chat-reuse mechanism (a hidden HTML tracking comment keyed on
+`github-url` + workflow name) silently ignored a freshly pre-created
+`workspace-id` on a second run against the same issue and kept the
+first run's now-deleted workspace reference (`410` on GET) — fixed with
+`force-new-chat: true`, at the cost of chat history not persisting
+across repeat runs. (5) Coder workspace names are capped at 32
+characters; a naming scheme embedding both the issue number and the
+full numeric GitHub run id was 4 characters over and rejected by
+server-side validation with a generic message that didn't state the
+limit — had to guess-and-check the actual cap. (6) Coder's
+`POST /api/v2/users/{user}/keys/tokens` `lifetime` field is
+**nanoseconds** (`time.Duration`), not seconds — a value intended as "90
+days" was actually ~0.0078 seconds, so the token it minted "succeeded"
+at creation time but failed on its very next real use with an opaque
+`401 access token has expired`, hours of apparent confusion before
+directly probing the field's real unit; the server additionally caps
+the max lifetime at `168h` (7 days) regardless of what's requested.
+
+This issue's own body claimed an "~8-hour external-auth token TTL
+limitation (already documented in docs/ai-coder.md)" — that claim does
+not actually exist anywhere in this repo's docs prior to this issue.
+Rather than restate an unverified premise as re-confirmed fact, this was
+flagged honestly in `docs/ai-coder.md` as an open, unverified item
+(re-verifying a real token's real-world TTL would require waiting out
+its actual lifetime, which this session did not do).
+
+**Process note, same lesson class as Issue #13's token-exposure
+incident:** `scripts/ai-token.sh` prints its minted token bare on its own
+line *before* its own copy-paste `.env` line — a redaction regex written
+against only the labeled line missed the bare occurrence immediately
+above it, briefly exposing a real (if throwaway) token in this session's
+tool output. Mitigated immediately: the exposed session was logged out
+(confirmed `401` on recheck) and the temp log file holding it shredded,
+before any further use. All subsequent tokens in this session were
+minted and consumed strictly inside a single shell pipeline (never
+echoed, captured directly into a variable, piped straight into
+`gh secret set`), per the prevention rule #13 already recorded — this
+incident is a reminder that the rule must also cover *tooling a repo
+already ships* (`scripts/ai-token.sh`), not only ad hoc commands.
+
 
 

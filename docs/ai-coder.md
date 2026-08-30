@@ -171,14 +171,87 @@ scheduling, retries, or event triggers. Temporal and gh-aw remain the
 workflow layer that would call into this successor action; Chats/the new
 action is only the execution surface.
 
-**Update (Issue #17 Task 4/5):** `.github/workflows/agent-chat.yml` now
-implements this path (label-gated `issues: labeled` trigger, pre-create
-workspace + chat-creation step). It uses the action's real, verified name
-`coder/agents-chat-action@v0` and real input names (`coder-url`,
-`coder-token`, `coder-organization`, `workspace-id`, `chat-prompt`,
-`github-url`, `github-token`) rather than the `create-agent-chat-action`
-name and `organization_id` input assumed above — see that workflow's
-header comment for the discrepancy.
+**Update (Issue #17, fully implemented and E2E-tested live):**
+`.github/workflows/agent-chat.yml` implements this path end to end — a
+real GitHub OAuth App (`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`
+in `.env`) enabled `CODER_EXTERNAL_AUTH_0_*` in `compose.yaml`, wired into
+the `agent-workspace` template's `data.coder_external_auth.github`
+(falls back to the pre-existing manual `github_token` parameter for
+unlinked users), triggering a real `coder/agents-chat-action@v0` run on
+a real `agent-chat`-labeled issue.
+
+Corrections to the assumptions above, found only by actually running it:
+- The real published action is **`coder/agents-chat-action@v0`**, not
+  `create-agent-chat-action@v0`.
+- Its real inputs are `coder-url`, `coder-token`, `coder-organization`
+  (an org **name**, not `organization_id`), `workspace-id`, `chat-prompt`,
+  `github-url`, `github-token`, `force-new-chat` — there is no
+  `organization_id` input at all; the action resolves the organization
+  by name (or the token owner's sole membership) internally.
+- **`github-url` must be a real issue/PR URL on `github.com`** — the
+  action explicitly rejects bare repo URLs and non-github.com hosts
+  (hardening against a workflow being tricked into redirecting to an
+  attacker-chosen repo via templated user content). A `workflow_dispatch`
+  dry-run therefore needs a real issue URL supplied via input, not the
+  repo's own URL.
+- **The action's chat-reuse mechanism is a real footgun.** It tracks a
+  chat via a hidden HTML comment (keyed on `github-url` + workflow name)
+  posted on the issue, and by default reuses that chat on a repeat run —
+  silently ignoring whatever `workspace-id` the run just freshly
+  pre-created. If the earlier run's workspace has since been deleted,
+  the reused chat is left pointing at a dead workspace (`410`, verified
+  live). `force-new-chat: true` is required to make each run's own
+  pre-created workspace actually take effect, at the cost of chat
+  history not persisting across repeat runs against the same issue.
+- **Coder workspace names are capped at 32 characters.** A naming scheme
+  that embeds both the issue number and the full numeric GitHub run id
+  (e.g. `agent-chat-issue-17-run-33297380726`, 36 chars) is rejected by
+  server-side validation; keep generated names short (the workflow uses
+  `ac-<issue-or-wd>-<last 8 digits of run id>`).
+- **Coder's `POST /api/v2/users/{user}/keys/tokens` `lifetime` field is
+  nanoseconds** (`time.Duration`), not seconds — passing a plain
+  seconds value (e.g. `7776000` for 90 days) silently creates a
+  near-instantly-expiring token that then fails on its very next real
+  use with an opaque `401`/"access token has expired", not an error at
+  creation time. The server also caps the max lifetime at `168h` (7
+  days) regardless of what's requested.
+- `permissions: issues: write` (not just `contents: read`) is required
+  for the action's own default `comment-on-issue: true` behavior to
+  actually post its result comment back to the triggering issue.
+
+**Real E2E evidence** (two full runs against this repo's real issue #17,
+2026-08-30, self-hosted JIT runner per `scripts/runner-jit-start.sh` —
+GitHub-hosted `ubuntu-latest` cannot reach `CODER_URL`, which is only
+routable on this host's Docker network):
+- Real `issues:labeled` trigger (not just `workflow_dispatch`) fired the
+  workflow using the real label `agent-chat`.
+- `chat-prompt` was built from the real issue's title + full body
+  (verified in the run log), pre-creating a real Coder workspace from
+  inside the CI job (`agent-workspace` template, build `succeeded`).
+- A real Coder Agents chat was created against that workspace and did
+  real, non-mocked LLM tool-calling work (`start_workspace`, `read_file`
+  tool calls observed via `GET
+  /api/experimental/chats/{id}/messages`, real token usage recorded).
+- A real result comment was posted back to issue #17
+  (`permissions: issues: write` + the action's `comment-on-issue`).
+- A second run against the same issue, after the `force-new-chat: true`
+  fix, was confirmed to create a genuinely new chat + new workspace
+  rather than reusing the first run's (verified via the run log's
+  `Agents chat created successfully` message and a differing chat id).
+- All test workspaces and the `agent-chat` label were cleaned up after
+  each run; the JIT runner auto-deregistered.
+
+**External-auth token TTL — not independently re-verified.** The
+issue's premise that an "~8-hour external-auth token TTL limitation" is
+"already documented" in this file could not be substantiated: no such
+claim exists anywhere in this repo prior to this update. GitHub OAuth
+App user-to-server tokens do not expire by default unless "Enable
+expiring user tokens" is turned on for the app (a setting only visible/
+changeable on the app's own GitHub settings page, not queryable via the
+API used in this session). Re-verifying the actual real-world TTL of a
+linked token would require waiting out its real lifetime (hours), which
+this session did not do — flagged here as an open, honestly-unverified
+item rather than restated as fact.
 
 ## Explored Agents capabilities (Issue #16)
 
