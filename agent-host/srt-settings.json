@@ -1,7 +1,8 @@
 {
   "network": {
     "allowedDomains": ["github.com", "*.github.com", "api.github.com", "copilot-proxy.githubusercontent.com"],
-    "deniedDomains": []
+    "deniedDomains": [],
+    "allowAllUnixSockets": true
   },
   "filesystem": {
     "denyRead": ["~/.ssh", "~/.aws", ".env", "~/.claude", "~/.copilot"],
