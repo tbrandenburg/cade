@@ -295,10 +295,24 @@ MCP_JSON
     # real binary at /usr/local/bin/opencode is the correct, minimal
     # integration point -- no omnigent-side config change needed.
     #
-    # "srt" mode (default): the shim execs `srt opencode --`, identical to
-    # the interactive `alias opencode='srt opencode --'` above, so there is
-    # only one (sandboxed) code path for actually running agent turns --
-    # omnigent never gets a second, unsandboxed way to spawn opencode.
+    # "srt" mode (default): the shim execs `srt /usr/local/bin/opencode --`,
+    # identical in effect to the interactive `alias opencode='srt opencode
+    # --'` above, so there is only one (sandboxed) code path for actually
+    # running agent turns -- omnigent never gets a second, unsandboxed way
+    # to spawn opencode. IMPORTANT (live E2E finding): pass srt the
+    # ABSOLUTE path, never the bare word "opencode" -- srt's own internal
+    # spawn of the target program re-resolves a bare command name via
+    # PATH too, and since this shim's directory is itself prepended onto
+    # PATH (see below), a bare "opencode" argument resolves right back to
+    # THIS SAME SHIM, causing srt to recursively re-invoke itself (a
+    # second nested bwrap sandbox launching a third, etc.), which
+    # manifested as `Error: listen EPERM: operation not permitted
+    # /tmp/claude/srt-mux-2-0.sock` (both nested sandbox layers landing on
+    # the same deterministic pid-in-namespace-derived mux socket path).
+    # Reproduced live in a real Coder workspace and confirmed by isolation
+    # (identical failure with `srt opencode --`, reliably fixed by
+    # `srt /usr/local/bin/opencode --`, with PATH held constant across
+    # both) -- this was a bug in this shim's own design, not in srt.
     # "plain" mode: the shim execs the real binary directly. Verification
     # only; must never be the default (enforced by
     # `variable.omnigent_sandbox_mode`'s validation + its own default).
@@ -309,12 +323,28 @@ set -e
 if [ "$OMNIGENT_SANDBOX_MODE" = "plain" ]; then
   exec /usr/local/bin/opencode "$@"
 fi
-exec srt opencode -- "$@"
+exec srt /usr/local/bin/opencode -- "$@"
 OMNIGENT_OPENCODE_SHIM
     chmod +x ~/.omnigent-bin/opencode
     if ! grep -q '.omnigent-bin' ~/.bashrc 2>/dev/null; then
       echo 'export PATH="$HOME/.omnigent-bin:$PATH"' >> ~/.bashrc
     fi
+    # Issue #43 (live E2E finding): the .bashrc line above only helps a
+    # FUTURE interactive shell -- it does NOT apply to the rest of THIS
+    # startup_script invocation (coder_agent runs it via a non-interactive
+    # `sh -c`, which never sources ~/.bashrc), and PATH is one of the vars
+    # omnigent's daemon-spawn env allowlist DOES forward verbatim (see the
+    # OMNIGENT_RUNNER_ENV_PASSTHROUGH comment on coder_agent.env below) --
+    # so `omnigent host --background` below was inheriting the ORIGINAL
+    # PATH with no ~/.omnigent-bin in it, and the omnigent-spawned
+    # opencode-native runner (which resolves the literal command name
+    # "opencode" via a plain PATH lookup) landed on the real
+    # /usr/local/bin/opencode binary directly, completely bypassing the
+    # shim and its srt wrapping. Reproduced live: `ps aux` inside a real
+    # Coder-created workspace showed `opencode serve ...` running with no
+    # bwrap/srt anywhere in its process tree. Export it into the CURRENT
+    # script's own environment too, not just future shells.
+    export PATH="$HOME/.omnigent-bin:$PATH"
 
     # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
     # "accounts" auth mode by replicating the real CLI's own
