@@ -24,6 +24,23 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# Load .env from repo root if present, without overwriting already-exported
+# variables (an explicit shell env always wins over the file). Same pattern
+# as scripts/omnigent-bootstrap.sh / scripts/ai-bootstrap.sh. Needed here
+# only to read OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD (see below) - none of
+# the other rotated credentials read from .env, they are generated fresh.
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+	while IFS= read -r line || [[ -n "${line}" ]]; do
+		[[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+		key="${line%%=*}"
+		key="${key%"${key##*[![:space:]]}"}"
+		[[ -z "${key}" ]] && continue
+		if [[ -z "${!key:-}" ]]; then
+			export "${line?}"
+		fi
+	done <"${REPO_ROOT}/.env"
+fi
+
 BAO_ADDR="https://127.0.0.1:8200"
 INIT_FILE="${REPO_ROOT}/governance/openbao/unseal/init.json"
 mkdir -p "$(dirname "${INIT_FILE}")"
@@ -96,10 +113,46 @@ CODER_PG_PASSWORD_NEW=$(rotate coder-pg)
 TEMPORAL_PG_PASSWORD_NEW=$(rotate temporal-pg)
 LAB_SIM_TOKEN_A_NEW=$(rotate lab-sim-a)
 LAB_SIM_TOKEN_B_NEW=$(rotate lab-sim-b)
+# Issue #43 (Omnigent host integration, Step 3, corrected): a shared
+# admin-equivalent account a Coder workspace's startup script uses to run
+# the real "accounts" auth login flow (POST /auth/login with
+# username+password - omnigent has no bearer-token CLI flag, see the Step
+# 5 handoff). This is deliberately the SAME first-admin account
+# scripts/omnigent-bootstrap.sh causes omnigent-server to create at boot
+# (username "admin"), not a separate service account - Omnigent has no
+# account-minting API yet to create one. To keep both scripts' view of
+# "the admin password" consistent without a second source of truth,
+# OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD in .env is treated as the single
+# authority: the server reads it directly at boot to create the account,
+# and this script just copies the same value into OpenBao rather than
+# generating an independent one (an independently-rotated value here would
+# never match what the server actually accepted at boot). Minting a real,
+# separate, per-workspace, non-admin credential is out of scope for this
+# step and tracked as a future enhancement (see Notes/Follow-up in the
+# Step 5 handoff).
+OMNIGENT_HOST_USERNAME="admin"
+if [[ -n "${OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD:-}" ]]; then
+	OMNIGENT_HOST_PASSWORD_NEW="${OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD}"
+	OMNIGENT_HOST_PASSWORD_SOURCE="OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD (.env)"
+else
+	OMNIGENT_HOST_PASSWORD_NEW=""
+	OMNIGENT_HOST_PASSWORD_SOURCE="unset - skipped"
+fi
 
 bao_cli kv put secret/devenv-cloud/coder-db password="${CODER_PG_PASSWORD_NEW}" >/dev/null
 bao_cli kv put secret/devenv-cloud/temporal-db password="${TEMPORAL_PG_PASSWORD_NEW}" >/dev/null
 bao_cli kv put secret/devenv-cloud/lab-sim tokens="agent-a:${LAB_SIM_TOKEN_A_NEW},agent-b:${LAB_SIM_TOKEN_B_NEW}" >/dev/null
+if [[ -n "${OMNIGENT_HOST_PASSWORD_NEW}" ]]; then
+	bao_cli kv put secret/devenv-cloud/omnigent/host-account \
+		url="http://omnigent-server:8000" \
+		username="${OMNIGENT_HOST_USERNAME}" \
+		password="${OMNIGENT_HOST_PASSWORD_NEW}" >/dev/null
+else
+	echo "    SKIP: secret/devenv-cloud/omnigent/host-account - set"
+	echo "    OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD in .env and re-run this"
+	echo "    script to seed it (must match the value omnigent-server used"
+	echo "    to create its first admin account at boot)."
+fi
 
 echo "==> Writing the lab.authz policy (governance/opa/policy) is served by OPA directly, not OpenBao - no action needed here"
 
@@ -128,6 +181,10 @@ echo "outside OpenBao's secret/devenv-cloud/* paths):"
 echo "  - coder-db password:      rotated -> secret/devenv-cloud/coder-db"
 echo "  - temporal-db password:   rotated -> secret/devenv-cloud/temporal-db"
 echo "  - lab-sim tokens (a & b): rotated -> secret/devenv-cloud/lab-sim"
+echo "  - omnigent host account:  ${OMNIGENT_HOST_PASSWORD_SOURCE} -> secret/devenv-cloud/omnigent/host-account"
+echo "    (shared first-admin account, username \"${OMNIGENT_HOST_USERNAME}\";"
+echo "    per-workspace credential minting is a future enhancement, not yet"
+echo "    implemented by Omnigent)"
 echo "Apply these new values to .env and 'docker compose up -d' the"
 echo "affected services to complete the rotation (out of scope for this"
 echo "script - .env is operator-owned and gitignored)."

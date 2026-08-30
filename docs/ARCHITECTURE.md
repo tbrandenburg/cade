@@ -62,6 +62,8 @@ C4Container
 
         Container(cache, "Artifact/Cache Services", "OCI registry, sccache", "L4 support. Speeds up fresh-workspace builds; registry is auth-protected/internal-only.")
 
+        Container(omnigent, "Omnigent Server", "Server + Postgres", "L2 Session Plane (Issue #43). Shared, singleton Coder Agents alternative host/UI — own -db service, platform-control only, no host port beyond a 127.0.0.1 loopback publish.")
+
         Container_Boundary(gov, "Governance (L7)") {
             Container(openbao, "OpenBao", "Secrets", "TLS, revoked root token, backed-up unseal keys.")
             Container(opa, "OPA", "Policy", "Rego policies + opa test suite; MCP lab-server queries its decision API.")
@@ -88,6 +90,7 @@ C4Container
     Rel(runner, openbao, "Reads secrets")
     Rel(otel, prom, "Exports metrics")
     Rel(grafana, prom, "Queries")
+    Rel(workspace, omnigent, "Outbound-only WSS tunnel: host login + chat, replicated via workspace startup script (Issue #43) — no inbound path into the platform, per L1 Rule 6")
 ```
 
 ---
@@ -107,6 +110,7 @@ C4Component
         Component(opencode, "opencode CLI", "harness", "Wrapped: srt opencode --")
         Component(pi, "pi CLI", "harness", "Wrapped: srt pi --")
         Component(srt, "srt (Sandbox Runtime)", "bubblewrap-based", "Filesystem/network allowlist; denies ~/.ssh, ~/.aws, ~/.claude, ~/.copilot, .env")
+        Component(omnigenthost, "omnigent host CLI", "harness", "Issue #43. Disposable host identity (OMNIGENT_HOST_ID/NAME); spawns opencode via a PATH shim, srt-wrapped by default")
         Component(home, "/home/coder", "persistent volume", "Survives container replace: repo, .config, .cache, agent session/memory state, .srt-settings.json")
     }
 
@@ -114,6 +118,7 @@ C4Component
     Rel(vscodeagent, pi, "Spawns / hosts session for")
     Rel(opencode, srt, "Runs wrapped in")
     Rel(pi, srt, "Runs wrapped in")
+    Rel(omnigenthost, srt, "Spawns opencode wrapped in (PATH shim; default sandbox mode)")
     Rel(srt, repo, "Filesystem-restricted access to")
     Rel(vscodeagent, home, "Session/memory state persisted to")
     Rel(toolchain, home, "Build cache, dependency state persisted to")
@@ -151,4 +156,42 @@ Activity once; `temporal/src/demo/build_starter.py` and
 the smallest useful slice of the issue's larger plan — no OPA policy gate,
 no workspace-template-specific image selection, no multi-step build
 pipeline — those remain follow-up work, not implemented here.
+
+## Issue #43 (2026-08-30) — Omnigent host integration
+
+Added the shared, singleton `omnigent-server` (+ its own `omnigent-db`
+Postgres) as a new L2 Container, and `omnigent host CLI` as a new L3
+Component inside the `agent-workspace` Docker Workspace, alongside
+`srt`/`opencode`/`pi`. The `agent-workspace` template's startup script logs
+in and runs `omnigent host ... --background --non-interactive` with a
+disposable per-workspace host identity, spawning `opencode` through a PATH
+shim that is `srt`-wrapped by default (`omnigent_sandbox_mode = "srt"`) —
+no second, unsandboxed way to run agent turns. The workspace→server traffic
+is an outbound-only WSS tunnel (workspace container dials out to
+`omnigent-server:8000` on `platform-workspaces`), which is why the diagram
+adds only a single `Rel(workspace, omnigent, ...)` arrow with no reverse
+edge — consistent with L1 Rule 6 ("every arrow into the platform is either
+the developer's own Tailscale/LAN connection, or GitHub's runner polling
+outbound — there is no inbound path that originates from outside").
+
+**Update, same day (live E2E verification):** brought up `omnigent-db` +
+`omnigent-server` for real (scoped `docker compose up -d`, not the full
+stack) and exercised the actual startup-script login/registration logic
+against it via `docker run`/`docker exec`. Confirmed working end to end:
+first-admin bootstrap (`OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD`/`_USERNAME`),
+the real `POST /auth/login` + `store_token(...)` replication, and
+`omnigent host --background --non-interactive` registering successfully
+(`GET /v1/hosts` showed the expected host_id/name, status `online`). Three
+real integration bugs surfaced and were fixed in the process (missing
+`compose.yaml` env passthrough, wrong default admin username, and the
+`OMNIGENT_HOST_ID`/`OMNIGENT_HOST_NAME` env-var mechanism being silently
+dropped by the daemon's own env allowlist — fixed by writing
+`~/.omnigent/config.yaml` directly instead) — see `AGENTS.md`'s Lessons
+Learned for the full detail. The diagram/architecture shape above is
+unchanged by these fixes; only the container's real env vars and the
+startup script's identity-setting mechanism changed. Not yet verified live
+through an actual `coder create` (no live Coder session in this
+environment) — this ad-hoc `docker run`/`docker exec` proof is a scoped
+stand-in, per this repo's own documented practice for validating
+integration logic without a live Coder session.
 

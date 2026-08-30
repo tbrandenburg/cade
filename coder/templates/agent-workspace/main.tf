@@ -13,6 +13,28 @@ locals {
   username      = data.coder_workspace_owner.me.name
   repo_url      = var.repo_url
   workspace_dir = "/home/coder/project"
+  # Issue #43 Step 5: legible per-workspace omnigent host name, e.g.
+  # "alice-my-workspace" — matches the naming scheme already discussed for
+  # the omnigent server's host list.
+  omnigent_host_name = "${data.coder_workspace_owner.me.name}-${data.coder_workspace.me.name}"
+
+  # Issue #43 Step 5 (corrected twice — see the startup_script block below
+  # for the final, live-verified mechanism): `omnigent host` has no `--name`
+  # flag, and the OMNIGENT_HOST_NAME/OMNIGENT_HOST_ID env var pair does NOT
+  # work either for a `--background` remote daemon (silently filtered out by
+  # the daemon subprocess's own environment allowlist — verified live
+  # against the real omnigent==0.11.0 source). The values below are instead
+  # written directly into ~/.omnigent/config.yaml's `host:` section before
+  # `omnigent host` is invoked. OMNIGENT_HOST_ID must be a bare 32-char hex
+  # string. `md5()` already returns exactly that (a 32-char hex digest) — no
+  # `substr()` truncation needed. Derived from the workspace's own stable
+  # Coder ID (not `uuid()`, which Coder templates disallow outside specific
+  # mechanisms and would change on every plan) so the SAME host_id persists
+  # across `coder stop`/`start` — though since ~/.omnigent/config.yaml
+  # itself already lives on the persistent home volume, this determinism is
+  # now a belt-and-suspenders property rather than the only thing making
+  # the identity stable.
+  omnigent_host_id = md5(data.coder_workspace.me.id)
 }
 
 provider "docker" {
@@ -76,6 +98,37 @@ data "coder_parameter" "lab_sim_agent_token" {
   default      = ""
   mutable      = true
   order        = 3
+}
+
+# Issue #43 Step 5 (corrected): omnigent has no `--token` login flag — its
+# "accounts" auth mode is username + password only (verified live against
+# the real CLI's `_accounts_login()`: prompts for both, POSTs
+# `/auth/login`). The real values are the shared first-admin account at
+# OpenBao path `secret/devenv-cloud/omnigent/host-account` (see
+# variables.tf's comment above `omnigent_server_url` for why this is a
+# coder_parameter rather than a live OpenBao read). Left empty, the
+# startup script skips both login and host registration entirely rather
+# than fail the whole workspace boot on a missing credential — same
+# "optional, default-empty, non-fatal" pattern as `lab_sim_agent_token`
+# above.
+data "coder_parameter" "omnigent_admin_username" {
+  name         = "omnigent_admin_username"
+  display_name = "Omnigent Admin Username"
+  description  = "Username for the shared omnigent-server first-admin account (OpenBao secret/devenv-cloud/omnigent/host-account)."
+  type         = "string"
+  default      = "admin"
+  mutable      = true
+  order        = 4
+}
+
+data "coder_parameter" "omnigent_admin_password" {
+  name         = "omnigent_admin_password"
+  display_name = "Omnigent Admin Password"
+  description  = "Password for the shared omnigent-server first-admin account (OpenBao secret/devenv-cloud/omnigent/host-account). Leave empty to skip omnigent host registration."
+  type         = "string"
+  default      = ""
+  mutable      = true
+  order        = 5
 }
 
 locals {
@@ -231,15 +284,176 @@ BOUNDARY_CONFIG
 }
 MCP_JSON
     fi
+
+    # Issue #43 Step 5: PATH shim so the omnigent-spawned harness resolves
+    # `opencode` the same way as the interactive alias above. The omnigent
+    # CLI's opencode-native runner spawns its native server by the literal
+    # command name "opencode" (verified against omnigent-ai/omnigent's own
+    # `_run_with_remote_server`, which passes `native_command="opencode"`
+    # -- resolved via a PATH lookup at spawn time, not a hardcoded absolute
+    # path or config field), so a directory prepended to PATH ahead of the
+    # real binary at /usr/local/bin/opencode is the correct, minimal
+    # integration point -- no omnigent-side config change needed.
+    #
+    # "srt" mode (default): the shim execs `srt /usr/local/bin/opencode --`,
+    # identical in effect to the interactive `alias opencode='srt opencode
+    # --'` above, so there is only one (sandboxed) code path for actually
+    # running agent turns -- omnigent never gets a second, unsandboxed way
+    # to spawn opencode. IMPORTANT (live E2E finding): pass srt the
+    # ABSOLUTE path, never the bare word "opencode" -- srt's own internal
+    # spawn of the target program re-resolves a bare command name via
+    # PATH too, and since this shim's directory is itself prepended onto
+    # PATH (see below), a bare "opencode" argument resolves right back to
+    # THIS SAME SHIM, causing srt to recursively re-invoke itself (a
+    # second nested bwrap sandbox launching a third, etc.), which
+    # manifested as `Error: listen EPERM: operation not permitted
+    # /tmp/claude/srt-mux-2-0.sock` (both nested sandbox layers landing on
+    # the same deterministic pid-in-namespace-derived mux socket path).
+    # Reproduced live in a real Coder workspace and confirmed by isolation
+    # (identical failure with `srt opencode --`, reliably fixed by
+    # `srt /usr/local/bin/opencode --`, with PATH held constant across
+    # both) -- this was a bug in this shim's own design, not in srt.
+    # "plain" mode: the shim execs the real binary directly. Verification
+    # only; must never be the default (enforced by
+    # `variable.omnigent_sandbox_mode`'s validation + its own default).
+    mkdir -p ~/.omnigent-bin
+    cat > ~/.omnigent-bin/opencode <<'OMNIGENT_OPENCODE_SHIM'
+#!/bin/sh
+set -e
+if [ "$OMNIGENT_SANDBOX_MODE" = "plain" ]; then
+  exec /usr/local/bin/opencode "$@"
+fi
+exec srt /usr/local/bin/opencode -- "$@"
+OMNIGENT_OPENCODE_SHIM
+    chmod +x ~/.omnigent-bin/opencode
+    if ! grep -q '.omnigent-bin' ~/.bashrc 2>/dev/null; then
+      echo 'export PATH="$HOME/.omnigent-bin:$PATH"' >> ~/.bashrc
+    fi
+    # Issue #43 (live E2E finding): the .bashrc line above only helps a
+    # FUTURE interactive shell -- it does NOT apply to the rest of THIS
+    # startup_script invocation (coder_agent runs it via a non-interactive
+    # `sh -c`, which never sources ~/.bashrc), and PATH is one of the vars
+    # omnigent's daemon-spawn env allowlist DOES forward verbatim (see the
+    # OMNIGENT_RUNNER_ENV_PASSTHROUGH comment on coder_agent.env below) --
+    # so `omnigent host --background` below was inheriting the ORIGINAL
+    # PATH with no ~/.omnigent-bin in it, and the omnigent-spawned
+    # opencode-native runner (which resolves the literal command name
+    # "opencode" via a plain PATH lookup) landed on the real
+    # /usr/local/bin/opencode binary directly, completely bypassing the
+    # shim and its srt wrapping. Reproduced live: `ps aux` inside a real
+    # Coder-created workspace showed `opencode serve ...` running with no
+    # bwrap/srt anywhere in its process tree. Export it into the CURRENT
+    # script's own environment too, not just future shells.
+    export PATH="$HOME/.omnigent-bin:$PATH"
+
+    # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
+    # "accounts" auth mode by replicating the real CLI's own
+    # `_accounts_login()` code path exactly (verified live against the
+    # installed omnigent==0.11.0 package: `omnigent login`/`omnigent host`
+    # have no --token/non-interactive credential flag at all) — POST
+    # /auth/login with {username, password}, then persist the session via
+    # `omnigent.cli_auth.store_token(...)`, using the omnigent package's
+    # own venv Python so this can never drift from the real persisted-file
+    # format if the CLI changes. Re-authenticates on every workspace start
+    # rather than checking ~/.omnigent/auth_tokens.json for an existing
+    # non-expired entry first — simpler, and one extra login call per
+    # workspace start is cheap; skipping it opportunistically is a
+    # possible future optimization, not required for correctness.
+    if [ -n "$${OMNIGENT_ADMIN_PASSWORD}" ] && command -v /opt/omnigent-venv/bin/python3 >/dev/null 2>&1; then
+      /opt/omnigent-venv/bin/python3 <<'OMNIGENT_LOGIN_PY' || true
+import os
+import time
+
+import httpx
+
+from omnigent.cli_auth import store_token
+
+server = os.environ["OMNIGENT_SERVER_URL"]
+username = os.environ["OMNIGENT_ADMIN_USERNAME"]
+password = os.environ["OMNIGENT_ADMIN_PASSWORD"]
+
+resp = httpx.post(
+    f"{server}/auth/login",
+    json={"username": username, "password": password},
+    timeout=10.0,
+)
+resp.raise_for_status()
+body = resp.json()
+store_token(
+    server_url=server,
+    token=body["token"],
+    user_id=body["user"]["id"],
+    expires_at=time.time() + body.get("expires_in", 8 * 3600),
+    refresh_token=body.get("refresh_token"),
+)
+print(f"omnigent: logged in as {body['user']['id']}")
+OMNIGENT_LOGIN_PY
+
+      # Issue #43 Step 5 (corrected AGAIN, live E2E finding): the
+      # OMNIGENT_HOST_ID/OMNIGENT_HOST_NAME env var pair does NOT reach the
+      # actual `--background` daemon process. Verified live against the
+      # real omnigent==0.11.0 source (`omnigent.cli._build_host_daemon_env`):
+      # a background/remote host daemon is spawned via `subprocess.Popen`
+      # with a strict environment ALLOWLIST (process essentials, TLS trust,
+      # proxy vars, Databricks auth) that does NOT include OMNIGENT_HOST_ID/
+      # OMNIGENT_HOST_NAME at all — those two vars are silently dropped
+      # before the daemon subprocess ever sees them, so `omnigent host`
+      # falls back to a random uuid4 + the container hostname every time,
+      # never the intended identity. Reproduced live: registered host_id
+      # and name both did NOT match what was set via env vars.
+      #
+      # The real, verified-working mechanism instead: `omnigent host`
+      # honors a pre-existing `host:` section in ~/.omnigent/config.yaml
+      # (read by `omnigent.host.identity.load_or_create_host_identity`
+      # inside the daemon subprocess itself, no env-var relay needed) if
+      # BOTH `host_id` and `name` are already present — write it directly,
+      # first-boot only (idempotent, same pattern as the srt-settings/MCP
+      # config blocks above), before ever invoking `omnigent host`. This
+      # also has a robustness upside over the (broken) env-var approach:
+      # ~/.omnigent lives on the persistent home volume, so the identity
+      # written here survives `coder stop`/`start` for free, with no
+      # reliance on Coder re-passing the same derived value on every boot.
+      if [ ! -f ~/.omnigent/config.yaml ]; then
+        mkdir -p ~/.omnigent
+        cat > ~/.omnigent/config.yaml <<OMNIGENT_HOST_IDENTITY
+host:
+  host_id: ${local.omnigent_host_id}
+  name: ${local.omnigent_host_name}
+OMNIGENT_HOST_IDENTITY
+      fi
+
+      # `--background` spawns the daemon detached and returns immediately
+      # (reusing a healthy daemon if already up), so no trailing shell `&`
+      # is needed here.
+      omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1 || true
+    fi
   EOT
 
   env = {
-    GIT_AUTHOR_NAME     = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
-    GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
-    GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
-    GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
-    GITHUB_TOKEN        = try(coalesce(data.coder_external_auth.github.access_token, data.coder_parameter.github_token.value), "")
-    LAB_SIM_AGENT_TOKEN = data.coder_parameter.lab_sim_agent_token.value
+    GIT_AUTHOR_NAME         = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+    GIT_AUTHOR_EMAIL        = "${data.coder_workspace_owner.me.email}"
+    GIT_COMMITTER_NAME      = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+    GIT_COMMITTER_EMAIL     = "${data.coder_workspace_owner.me.email}"
+    GITHUB_TOKEN            = try(coalesce(data.coder_external_auth.github.access_token, data.coder_parameter.github_token.value), "")
+    LAB_SIM_AGENT_TOKEN     = data.coder_parameter.lab_sim_agent_token.value
+    OMNIGENT_SERVER_URL     = var.omnigent_server_url
+    OMNIGENT_ADMIN_USERNAME = data.coder_parameter.omnigent_admin_username.value
+    OMNIGENT_ADMIN_PASSWORD = data.coder_parameter.omnigent_admin_password.value
+    OMNIGENT_SANDBOX_MODE   = var.omnigent_sandbox_mode
+    # Issue #43: OMNIGENT_SANDBOX_MODE is NOT in omnigent's own daemon/runner
+    # environment allowlist (`omnigent.host.connect._RUNNER_ENV_ALLOWLIST` +
+    # its prefixes LC_/MLFLOW_/OTEL_/OMNIGENT_OTEL_), so it is silently
+    # dropped before reaching the runner subprocess that actually spawns
+    # `opencode` via the ~/.omnigent-bin PATH shim — the same class of
+    # silently-filtered-env-var bug already hit with OMNIGENT_HOST_ID/NAME
+    # (see AGENTS.md Lessons Learned). Without this passthrough the shim
+    # sees an unset value: harmless for the shipped "srt" default (the shim
+    # falls through to `srt opencode --`, i.e. it fails SAFE), but it makes
+    # "plain" mode unreachable through the real omnigent daemon path, which
+    # is exactly the Stage A verification checkpoint. OMNIGENT_RUNNER_ENV_PASSTHROUGH
+    # is omnigent's own documented mechanism for this (a comma-separated list
+    # of extra var names to forward) and IS itself allowlisted.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
   }
@@ -279,6 +493,30 @@ module "code-server" {
   agent_id = coder_agent.main.id
   folder   = local.workspace_dir
   order    = 1
+}
+
+# Issue #43 Step 6: dashboard tile linking out to the omnigent chat UI.
+# `external = true` is the correct mechanism here (verified: no iframe
+# embedding exists for `coder_app` in this Coder version; Coder's own
+# Zed/VS Code Desktop/JetBrains Gateway reference examples all use this
+# same external-link pattern for a tool with no in-Coder embedded UI).
+resource "coder_app" "omnigent" {
+  agent_id     = coder_agent.main.id
+  slug         = "omnigent"
+  display_name = "Omnigent Chat"
+  icon         = "/icon/widgets.svg"
+  external     = true
+  # Uses omnigent_public_url (browser-reachable loopback), NOT
+  # omnigent_server_url (internal compose DNS name used by the startup
+  # script's own login/registration calls) — see variables.tf.
+  #
+  # The `?host=` query param is currently INERT: omnigent's shipped web UI
+  # ignores unrecognized query params and always lands on New Chat. This is
+  # intentional, forward-compatible plumbing pending upstream deep-link
+  # support (omnigent-ai/omnigent#5881) — do not "fix" this later without
+  # first checking whether that PR has merged and changed the UI's param
+  # handling.
+  url = "${var.omnigent_public_url}/?host=${local.omnigent_host_name}"
 }
 
 resource "docker_volume" "home_volume" {
