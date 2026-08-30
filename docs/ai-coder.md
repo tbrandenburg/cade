@@ -171,6 +171,15 @@ scheduling, retries, or event triggers. Temporal and gh-aw remain the
 workflow layer that would call into this successor action; Chats/the new
 action is only the execution surface.
 
+**Update (Issue #17 Task 4/5):** `.github/workflows/agent-chat.yml` now
+implements this path (label-gated `issues: labeled` trigger, pre-create
+workspace + chat-creation step). It uses the action's real, verified name
+`coder/agents-chat-action@v0` and real input names (`coder-url`,
+`coder-token`, `coder-organization`, `workspace-id`, `chat-prompt`,
+`github-url`, `github-token`) rather than the `create-agent-chat-action`
+name and `organization_id` input assumed above — see that workflow's
+header comment for the discrepancy.
+
 ## Explored Agents capabilities (Issue #16)
 
 Six additional, already-live Coder Agents features (v2.36.3, no new

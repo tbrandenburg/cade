@@ -1,0 +1,111 @@
+name: agent-chat
+
+# Issue #17 Task 4/5 — real, GitHub-event-triggered Coder Agents chat
+# against a pre-created `agent-workspace` workspace. This is the "build
+# it" half of the successor path already documented (documentation-only,
+# Issue #13 Task 8c) in docs/ai-coder.md's "CI / unattended automation
+# successor path (Task 8c)" section (see that section for the required
+# deviations from Coder's own migration guide before touching this file).
+#
+# Trigger: `issues` `labeled`, gated to a specific label via the job's
+# `if:` condition (not every issue event), plus `workflow_dispatch` for
+# manual testing. Deliberately NOT `pull_request`/`pull_request_target`
+# from forks — that would expose `secrets.CODER_TOKEN` (a high-value
+# secret: whoever holds it acts as that Coder user, see the action's own
+# "Security model" docs) to untrusted fork content. This repo is public
+# (see AGENTS.md Lessons Learned), so treat any public trigger surface as
+# adversarial per the action's own "Indirect prompt injection" guidance.
+#
+# Required repo secrets/vars (provisioned separately, NOT by this
+# workflow — see S5):
+#   - secrets.CODER_URL                        Coder deployment URL.
+#   - secrets.CODER_SESSION_TOKEN               Coder API session token
+#     (chat owner == whoever this token belongs to).
+#   - vars.CODER_AGENT_WORKSPACE_TEMPLATE_ID    template_id of the
+#     `agent-workspace` Coder template (see coder/templates/agent-workspace).
+#   - vars.CODER_ORGANIZATION (optional)        Coder org name, only
+#     needed if the token owner belongs to more than one organization.
+#
+# This workflow cannot be exercised end to end in this step: no live
+# Coder deployment/secrets exist in this authoring environment. Authoring
+# + static YAML validation only, per S4's scope.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  # issues: write is NOT enabled yet — the create-agent-chat-action can
+  # post a result comment itself (comment-on-issue input) using its own
+  # github-token, but whether/how results get posted back to this repo
+  # is still undecided (see docs/ai-coder.md). Widen only once that's
+  # decided; comment-on-issue defaults to true upstream, so leaving this
+  # at `contents: read` will make the action's own comment step fail
+  # loudly (visible in the job log) rather than silently posting.
+
+jobs:
+  agent-chat:
+    # Only fire for the `agent-chat` label, not every `labeled` event.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-chat'
+    runs-on: ubuntu-latest
+    steps:
+      # Note: verified against the action's real README (fetched live in
+      # this step) rather than guessed. The actual published action is
+      # `coder/agents-chat-action@v0`, not `coder/create-agent-chat-action@v0`
+      # as named in the assigned step's brief — see this handoff's
+      # "Follow-up issues found" for the discrepancy against
+      # docs/ai-coder.md. Real inputs used below (coder-url, coder-token,
+      # chat-prompt, github-url, github-token, coder-organization,
+      # workspace-id) are the action's actual documented inputs, not the
+      # `organization_id` name docs/ai-coder.md predicted for the
+      # underlying API call.
+      - name: Pre-create agent-workspace workspace
+        id: workspace
+        env:
+          CODER_URL: ${{ secrets.CODER_URL }}
+          CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
+          TEMPLATE_ID: ${{ vars.CODER_AGENT_WORKSPACE_TEMPLATE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TEMPLATE_ID:-}" ]; then
+            echo "::error::vars.CODER_AGENT_WORKSPACE_TEMPLATE_ID is not set. Provision it (S5) before running this workflow." >&2
+            exit 1
+          fi
+
+          user="$(curl -sf -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
+            "${CODER_URL}/api/v2/users/me" | python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])')"
+
+          # Known limitation (documented, not engineered around here): this
+          # is a plain, non-idempotent create call. A repeat run creates a
+          # new workspace each time rather than reusing one keyed off the
+          # triggering issue. Idempotent reuse would need either a naming
+          # convention plus a GET-then-create-if-missing lookup, or relying
+          # on the action's own chat-reuse semantics with a fixed
+          # `workspace-id` — left as a follow-up, not solved in S4.
+          workspace_name="agent-chat-issue-${{ github.event.issue.number || github.run_id }}"
+
+          response="$(curl -sf -X POST \
+            -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${CODER_URL}/api/v2/users/${user}/workspaces" \
+            -d "{\"template_id\":\"${TEMPLATE_ID}\",\"name\":\"${workspace_name}\"}")"
+
+          workspace_id="$(echo "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          echo "workspace_id=${workspace_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Coder Agents chat
+        uses: coder/agents-chat-action@v0
+        with:
+          coder-url: ${{ secrets.CODER_URL }}
+          coder-token: ${{ secrets.CODER_SESSION_TOKEN }}
+          coder-organization: ${{ vars.CODER_ORGANIZATION }}
+          workspace-id: ${{ steps.workspace.outputs.workspace_id }}
+          chat-prompt: |
+            ${{ github.event.issue.title }}
+
+            ${{ github.event.issue.body }}
+          github-url: ${{ github.event.issue.html_url }}
+          github-token: ${{ github.token }}
