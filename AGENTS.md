@@ -168,6 +168,18 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-30 (Issue #25, coordinator process note): after a subagent finished a single-issue
+  fix in its own worktree/branch, the coordinator integrated it by running `git checkout main`
+  then `git merge --no-ff <branch>` directly on the shared local `main` — instead of creating
+  a separate `integrate/<issue>` branch first, as had correctly been done for the prior issue
+  in the same session. Because this repo's `main` has no GitHub branch-protection rule
+  (confirmed via `gh api repos/<owner>/<repo>/branches/main/protection` → 404 "Branch not
+  protected"), an unrelated already-configured push path pushed that merge straight to
+  `origin/main`, bypassing the requested branch → push → PR → merge workflow entirely — the
+  fix was correct and is verified live, but no PR/review record exists for it. Always merge a
+  finished subagent's branch into a fresh coordinator-owned integration branch
+  (`git checkout -b integrate/<issue> main`), never directly onto a local `main` that already
+  tracks `origin/main`, regardless of whether the remote branch is known to be protected.
 - 2026-08-30 (Issue #23, coordinator process note): a first subagent spawn for a
   host-security-profile task (seccomp/AppArmor for `srt`/`bwrap`) was aborted mid-task by a
   rejected permission prompt, most likely for a privileged/host-mutating command (`sudo`,
