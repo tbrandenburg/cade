@@ -170,6 +170,17 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   mount options in (ro,nosuid,nodev,noexec,remount,bind,silent,relatime),
   mount options in (rprivate,silent),
 
+  # BUGFIX #7 (found live 2026-08-30, first found against a *real* Coder
+  # workspace running `srt opencode`, not just a synthetic `bwrap
+  # --ro-bind / /` test): `srt` invokes `bwrap` with `--dev /dev` (a
+  # fresh, isolated `/dev` including a pty), which the minimal
+  # reproduction command used through BUGFIX #6 never exercised. This
+  # mounts a `devpts` filesystem specifically -- scoped here by `fstype=`
+  # in addition to `options=` (tighter than the other mount rules above,
+  # which don't restrict by fstype, since we now know exactly which
+  # filesystem type this specific call uses).
+  mount fstype=devpts options in (nosuid,noexec),
+
   # BUGFIX #6 (proactive, 2026-08-30, matching Issue #23's own seccomp
   # profile BUGFIX #6/#7): bwrap also calls `pivot_root(2)` and
   # `umount2(2)` after all its mount(2) calls succeed. `umount,` above
