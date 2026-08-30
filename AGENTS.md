@@ -169,6 +169,57 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-30 (Issue #43, omnigent host integration, Stage B live E2E
+  session against a real `coder create`d workspace, host security
+  profiles loaded via `sudo scripts/load-security-profiles.sh`): three
+  more real, live-reproduced bugs, two fixed, one found to be a hard
+  architectural blocker requiring its own follow-up issue.
+  (1) The `~/.omnigent-bin` PATH shim was only appended to `~/.bashrc`
+  — `coder_agent`'s `startup_script` never sources `.bashrc` itself
+  (non-interactive `sh -c`), so `omnigent host --background` inherited
+  the *original* PATH with no shim in it, and the omnigent-spawned
+  `opencode-native` runner (a plain PATH lookup for the literal command
+  `opencode`) launched the real, unwrapped binary directly — confirmed
+  live via `ps aux` inside a real workspace: no `bwrap`/`srt` anywhere
+  in the process tree. Fixed by exporting PATH in the *same*
+  `startup_script` invocation, not only writing it into `.bashrc`.
+  (2) Once PATH was fixed, `exec srt opencode -- "$@"` broke a
+  different way (`Error: listen EPERM ... /tmp/claude/srt-mux-2-0.sock`):
+  `srt` itself resolves its *target* program via the same (now-shimmed)
+  PATH, so the bare word `opencode` passed to `srt` recursed back into
+  our own shim — a sandbox launching a second, nested sandbox of itself,
+  both colliding on the same deterministic pid-in-namespace mux socket
+  path. Isolated by direct A/B comparison (bare name fails, absolute
+  path succeeds, PATH held identical) and fixed by always passing `srt`
+  an absolute path, never a bare command name that might resolve
+  through a shim shadowing that same command on PATH. General rule:
+  **never let a PATH-shadowing shim's own directory remain on PATH when
+  that shim itself invokes something that does its own internal PATH
+  resolution** — pass absolute paths through, or the shim can recurse
+  into itself.
+  (3) **Open architectural blocker, not fixed**: even with both of the
+  above fixed and the sandboxed `opencode serve` process launching
+  correctly (verified: `node /usr/bin/srt <path> -- serve ...` → `bwrap`
+  → `apply-seccomp` → `opencode serve`, the full chain), the real
+  omnigent chat turn still failed with `opencode serve did not become
+  ready: ConnectError('All connection attempts failed')`. Root cause:
+  `srt` always applies `bwrap --unshare-net` on Linux (confirmed no CLI
+  flag/settings-file escape hatch exists — checked `srt --help` and the
+  installed package's own `linux-sandbox-utils.js`), giving the
+  sandboxed process its own private network namespace with only an
+  outbound HTTP/SOCKS proxy for the sandboxed program's own traffic.
+  Omnigent's `opencode-native` harness needs the *opposite*: an
+  **external, unsandboxed** runner process reaching *back into* the
+  sandboxed `opencode serve`'s TCP loopback port for orchestration —
+  that port is invisible outside the sandbox's private netns. This is a
+  genuine design mismatch between `srt`'s all-or-nothing network
+  isolation model and omnigent's supervisor-reaches-into-harness
+  architecture, not fixable from a Coder template/startup-script alone.
+  Needs its own scoped follow-up issue (e.g. a port-forward/exception
+  mechanism in `srt`, or a different IPC channel omnigent could use
+  through the same outbound proxy already in place) before Stage B can
+  be considered fully closed.
+
 - 2026-08-30 (Issue #43, omnigent host integration, live E2E verification
   session, follow-up to the implementation-time entry above): bringing up
   the real `omnigent-server`/`omnigent-db` pair live (scoped `docker
