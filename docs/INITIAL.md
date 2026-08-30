@@ -1891,6 +1891,28 @@ Because the workspace itself is already a Docker container, `srt`'s `bubblewrap`
    real `srt opencode -- run ...` completion plus a live enforcement-denial
    check have been observed post-reload.
 
+   **Final update (2026-08-30): fully resolved, with live end-to-end
+   evidence.** Four more real bugs were found and fixed chasing the
+   actual `srt opencode`/`srt pi` acceptance test to a full pass (issues
+   #30, #32, #34, #36, #38, #40 — see AGENTS.md's "Sandbox / security"
+   Lessons Learned for the complete chain and process lessons). The last
+   and most surprising: Docker's **`systempaths`** masking (a *third*,
+   wholly separate confinement layer from seccomp/AppArmor/capabilities)
+   was also blocking `bwrap`'s nested fresh-procfs mount — resolved with
+   `--security-opt systempaths=unconfined`, verified safe because this
+   profile's own AppArmor rules already independently deny every path
+   `systempaths` masks. Final live verification, through the real Coder
+   pipeline (fresh `coder create` + re-pushed templates) for all three
+   affected templates:
+   ```
+   $ srt opencode -- --version   ->  1.18.25
+   $ srt pi -- --version         ->  0.74.2
+   $ srt -c "cat ~/.ssh/id_rsa"  ->  denied (real enforcement, not simulated)
+   $ srt -c "echo x > .env"      ->  denied
+   ```
+   No `--privileged`, no `unconfined` seccomp/AppArmor, no extra
+   `cap-add` in the final template configuration.
+
 3. Smoke-test nested sandboxing from inside the workspace container before relying on it:
 
    ```bash
