@@ -17,10 +17,13 @@ include <tunables/global>
 #      gate `bwrap --unshare-user` needs; matches Anthropic's own documented
 #      fix for Ubuntu 24.04+'s `kernel.apparmor_restrict_unprivileged_userns`
 #      restriction, see docs/INITIAL.md's srt section).
-#   2. `mount options=(make-rslave),` replacing the upstream blanket
+#   2. `mount options=(rslave),` replacing the upstream blanket
 #      `deny mount,` for exactly this one mount flag combination — bwrap's
 #      only mount(2) call once inside its new user+mount namespace is
-#      `mount(NULL, "/", NULL, MS_REC|MS_SLAVE, NULL)` (`mount --make-rslave`)
+#      `mount(NULL, "/", NULL, MS_REC|MS_SLAVE, NULL)` (`mount --make-rslave`
+#      at the mount(8) CLI level; AppArmor's own policy keyword for this
+#      MS_REC|MS_SLAVE flag combination is `rslave`, NOT `make-rslave` --
+#      see BUGFIX #3 further down for why this distinction matters)
 #      to make its private mount namespace's propagation slave-of-root before
 #      it starts constructing the sandboxed root via bind mounts. This is
 #      *not* scoped further to a single target path (upstream bwrap performs
@@ -28,8 +31,9 @@ include <tunables/global>
 #      not fixed at profile-authoring time), so it is the widest single rule
 #      in this profile — everything else upstream `docker-default` denies
 #      (real filesystem mounts, remounts, binds of host paths, etc. via any
-#      *other* mount flag combination) remains denied by the unmodified
-#      `deny mount,` catch-all still present at the bottom of this profile.
+#      *other* mount flag combination) remains denied by AppArmor's
+#      implicit default-deny (see BUGFIX #2/#3 further down for why there
+#      is no explicit `deny mount,` catch-all statement in this file).
 #
 # Every other line below is unmodified from upstream `docker-default`.
 profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
@@ -103,7 +107,29 @@ profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
   # rules are typically audit-suppressed by default; implicit denials are
   # not). Verified: `apparmor_parser -S` now compiles this profile
   # without error.
-  mount options=(make-rslave),
+  #
+  # BUGFIX #3 (found live 2026-08-30, re-verifying BUGFIX #2's own fix):
+  # `sudo scripts/load-security-profiles.sh` succeeded this time (BUGFIX
+  # #2's syntax fix worked), but `bwrap --unshare-user --unshare-pid
+  # --ro-bind / / echo ok` (with the scoped seccomp profile applied)
+  # *still* failed with the exact same `Failed to make / slave:
+  # Permission denied` error as before any of these fixes. Root cause:
+  # `make-rslave` was never a valid AppArmor mount-rule option keyword at
+  # all -- confirmed against the upstream `apparmor.d(5)` policy grammar
+  # (`MOUNT FLAGS = ( ... | 'private' | 'rprivate' | 'slave' | 'rslave' |
+  # 'shared' | 'rshared' | ... )`, no `make-*` variants exist; those are
+  # `mount(8)` CLI subcommand names, not AppArmor policy keywords). The
+  # AppArmor mount-rule grammar's `MOUNT EXPRESSION` production accepts
+  # any alphanumeric token without validating it against the known-flag
+  # list, so `apparmor_parser` silently accepted `make-rslave` as
+  # syntactically valid (which is why neither BUGFIX #1 nor #2 caught
+  # this) while it could never actually match any real mount(2) flag
+  # combination -- the allow rule was dead code from the very first
+  # version of this profile (Issue #23's original PR #24), independent of
+  # and prior to the deny-precedence bug BUGFIX #1/#2 chased. The correct
+  # keyword for `MS_REC|MS_SLAVE` (the recursive/`rslave` propagation
+  # type bwrap's one mount(2) call requests) is simply `rslave`.
+  mount options=(rslave),
 
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
