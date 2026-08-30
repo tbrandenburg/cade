@@ -238,9 +238,11 @@ ships a mode that does not require any user namespace at all.
 > Issue #23 implements the scoped-AppArmor-profile fix this section's own
 > text already recommended ("a decision for whoever owns the Coder host")
 > via `coder/security-profiles/`, wired into all three affected templates.
-> See Issue #23's handoff and `AGENTS.md`'s "Sandbox / security" Lessons
-> Learned for full details, including what remains unverified (host-level
-> AppArmor load + a live workspace rebuild) — this section's own historical
+> A same-day follow-up live E2E session found and fixed a rule-precedence
+> bug in the AppArmor profile itself (Issue #27, PR #28) that made it a
+> no-op as shipped; that fix is merged but not yet reloaded on the host as
+> of this note. See `AGENTS.md`'s "Sandbox / security" Lessons Learned for
+> full details and current status — this section's own historical
 > narrative above is left unedited as a record of the original diagnosis.
 
 ## Lessons learned

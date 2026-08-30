@@ -492,6 +492,39 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   `unconfined` for this call sequence, no more. See Issue #23's handoff
   for the full evidence, including a real, non-obvious seccomp-profile
   authoring bug found and fixed along the way (below).
+- **Update (2026-08-30, live E2E verification session, host `sudo` access
+  now available)**: `sudo scripts/load-security-profiles.sh` was run for
+  the first time on the real Coder host, confirmed active via `aa-status`.
+  All three affected templates (`docker-standard`, `embedded-linux`,
+  `agent-workspace`) were pushed live and each successfully created a real
+  throwaway workspace with `security_opts` (scoped seccomp content +
+  `apparmor=cade-bwrap-workspace`) applied — `docker inspect
+  --format '{{.HostConfig.SecurityOpt}}'` confirmed both were actually in
+  effect on the running container, ruling out a silent fallback. This
+  surfaced **Issue #27**: the shipped AppArmor profile's unqualified `deny
+  mount,` rule always overrides the narrower `mount
+  options=(make-rslave),` allow rule directly above it (AppArmor's
+  explicit `deny` rules take precedence over `allow` rules for overlapping
+  permissions, regardless of source-file ordering — not first-match-wins
+  like a firewall chain), with **zero AppArmor audit log entry** for the
+  resulting denial (`journalctl -k` showed nothing for the exact failing
+  call), making the profile look identical to "not loaded at all." Fixed
+  in PR #28 (`deny mount options!=(make-rslave),`) and merged — but the
+  corrected profile still needs a second `sudo
+  scripts/load-security-profiles.sh` re-run (host-mutating, restricted
+  from agent execution per this repo's safety policy) before it takes
+  effect; the live container test above still showed the pre-fix
+  behavior (`bwrap: Failed to make / slave: Permission denied`), which is
+  now understood as **this specific known bug**, not an unexplained
+  failure. **Still not done, pending that reload + a follow-up session**:
+  a real `srt opencode -- run ...` completion and a live enforcement-denial
+  check (issue #23's own acceptance criteria). Workspace-creation-level
+  regression testing (no crash, no silent security-profile fallback) is
+  fully verified live for all three templates; deep `bwrap` functional
+  correctness is not yet, pending Issue #27's fix taking effect on the
+  host. Three ad-hoc throwaway workspaces and one ad-hoc admin Coder
+  account (`issue23verify`) created for this verification were deleted
+  afterward.
 - **Do not trust an `op: SCMP_ACT_MASKED_EQ` rule with only `value` set and
   no `valueTwo`** in a Docker/moby-style seccomp JSON profile: `value` is
   the *mask*, and `valueTwo` (not `value`) is the comparison target —
