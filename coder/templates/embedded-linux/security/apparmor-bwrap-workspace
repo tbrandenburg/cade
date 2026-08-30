@@ -1,0 +1,86 @@
+abi <abi/3.0>,
+include <tunables/global>
+
+# Scoped AppArmor profile for issue #23 — permits bubblewrap's unprivileged
+# user-namespace sandboxing (as used by `srt`/`opencode`/`pi`) while keeping
+# every other Docker `docker-default` confinement rule intact.
+#
+# Derived from Docker's own default container profile:
+#   https://github.com/moby/profiles/blob/main/apparmor/template.go
+# (the `baseTemplate` Go template daemon/dockerd renders per-container as
+# "docker-default", fetched 2026-08-30). This file is that same template with
+# its Go templating placeholders resolved to fixed values (profile name
+# `cade-bwrap-workspace`, no imports/inner-imports needed for this use case)
+# and exactly two additions, both marked below with an "issue-23" comment:
+#
+#   1. `userns,` — permits creating a new user namespace at all (the LSM-level
+#      gate `bwrap --unshare-user` needs; matches Anthropic's own documented
+#      fix for Ubuntu 24.04+'s `kernel.apparmor_restrict_unprivileged_userns`
+#      restriction, see docs/INITIAL.md's srt section).
+#   2. `mount options=(make-rslave),` replacing the upstream blanket
+#      `deny mount,` for exactly this one mount flag combination — bwrap's
+#      only mount(2) call once inside its new user+mount namespace is
+#      `mount(NULL, "/", NULL, MS_REC|MS_SLAVE, NULL)` (`mount --make-rslave`)
+#      to make its private mount namespace's propagation slave-of-root before
+#      it starts constructing the sandboxed root via bind mounts. This is
+#      *not* scoped further to a single target path (upstream bwrap performs
+#      this against whichever root the caller passed to `--ro-bind`, which is
+#      not fixed at profile-authoring time), so it is the widest single rule
+#      in this profile — everything else upstream `docker-default` denies
+#      (real filesystem mounts, remounts, binds of host paths, etc. via any
+#      *other* mount flag combination) remains denied by the unmodified
+#      `deny mount,` catch-all still present at the bottom of this profile.
+#
+# Every other line below is unmodified from upstream `docker-default`.
+profile cade-bwrap-workspace flags=(attach_disconnected,mediate_deleted) {
+  network,
+  # Disallow AF_ALG (Linux kernel crypto API); see https://copy.fail/
+  deny network alg,
+  # Disallow AF_VSOCK to prevent host/guest communication.
+  deny network vsock,
+  capability,
+  file,
+  umount,
+  # Host (privileged) processes may send signals to container processes.
+  signal (receive) peer=unconfined,
+  # runc may send signals to container processes (for "docker stop").
+  signal (receive) peer=runc,
+  # crun may send signals to container processes (for "docker stop" when used with crun OCI runtime).
+  signal (receive) peer=crun,
+  # dockerd may send signals to container processes (for "docker kill").
+  signal (receive) peer=dockerd,
+  # Container processes may send signals amongst themselves.
+  signal (send,receive) peer=cade-bwrap-workspace,
+
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9/],[^1-9/][^0-9/],[^1-9s/][^0-9y/][^0-9s/],[^1-9/][^0-9/][^0-9/][^0-9/]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  # issue-23: permit user-namespace creation (bwrap --unshare-user).
+  userns,
+
+  # issue-23: permit exactly the mount(2) flag combination bwrap needs
+  # (MS_REC|MS_SLAVE, i.e. `mount --make-rslave`) once inside its own new
+  # user+mount namespace. All other mount requests still fall through to
+  # `deny mount,` below, unmodified from upstream.
+  mount options=(make-rslave),
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # allow processes within the container to trace each other,
+  # provided all other LSM and yama setting allow it.
+  ptrace (trace,tracedby,read,readby) peer=cade-bwrap-workspace,
+}

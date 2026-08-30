@@ -231,6 +231,18 @@ permit unprivileged user namespaces for this container (a decision for
 whoever owns the Coder host, being a security-posture change) or `srt`
 ships a mode that does not require any user namespace at all.
 
+> **Update (Issue #23, 2026-08-30):** the diagnosis above attributing this
+> to a genuine kernel-level restriction was later found to be incomplete —
+> the real blockers are exactly the two Docker confinement layers
+> identified in this same section (seccomp + AppArmor), not the kernel.
+> Issue #23 implements the scoped-AppArmor-profile fix this section's own
+> text already recommended ("a decision for whoever owns the Coder host")
+> via `coder/security-profiles/`, wired into all three affected templates.
+> See Issue #23's handoff and `AGENTS.md`'s "Sandbox / security" Lessons
+> Learned for full details, including what remains unverified (host-level
+> AppArmor load + a live workspace rebuild) — this section's own historical
+> narrative above is left unedited as a record of the original diagnosis.
+
 ## Lessons learned
 
 See `AGENTS.md` "Lessons Learned" for the M9-specific pitfall (`srt`/`bwrap`

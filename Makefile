@@ -10,6 +10,10 @@ CACERT ?=
 .PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
+## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
+## AppArmor profile is loaded -- required for `srt`/bwrap to work in the
+## agent-workspace/docker-standard/embedded-linux templates; if missing, run
+## `sudo scripts/load-security-profiles.sh` (not run automatically by `make`).
 doctor:
 	@bash scripts/doctor.sh
 

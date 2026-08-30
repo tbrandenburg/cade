@@ -168,6 +168,17 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-30 (Issue #23, coordinator process note): a first subagent spawn for a
+  host-security-profile task (seccomp/AppArmor for `srt`/`bwrap`) was aborted mid-task by a
+  rejected permission prompt, most likely for a privileged/host-mutating command (`sudo`,
+  `apparmor_parser -r`, or similar) that is legitimately out of scope for an agent session on
+  a shared, non-sandboxed host running production-adjacent services. Retrying with an explicit
+  "HARD SAFETY RESTRICTIONS" section up front (no `sudo`, no loading/removing AppArmor profiles,
+  no `--privileged`, no touching already-running containers, plain unprivileged `docker run
+  --rm`/read-only `docker exec` only) let the same task complete cleanly and honestly report
+  which acceptance criteria were verified live vs. deferred as follow-up. When delegating any
+  task that plausibly touches host-level state, state the safety boundary explicitly in the
+  subagent prompt before the first attempt, rather than discovering it via a rejected tool call.
 - 2026-08-29: A one-off `docker run` client (`make temporal-build-demo-start`) can appear to
   hang past a short shell timeout on its very first invocation purely from a cold image
   pull/layer-cache warm-up, even though the Activity it triggers already completed
@@ -431,6 +442,60 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   the actual character count, don't assume a "looks reasonable" name fits.
 
 ### Sandbox / security
+
+- **Superseded by Issue #23 (2026-08-30), corrected root cause below** —
+  the original M9-era diagnosis that `srt`'s `bwrap --unshare-user` fails
+  because of a genuine kernel-level restriction
+  (`kernel.unprivileged_userns_clone`) was **wrong**: that sysctl is
+  actually `1` (permissive) on this host, both on the host and inside a
+  live workspace container. The real blockers are two of *Docker's own*
+  default confinement layers, stacked: (1) Docker's default seccomp
+  profile filters the `clone`/`unshare` syscall arguments needed for
+  `CLONE_NEWUSER`; (2) Docker's default `docker-default` AppArmor profile
+  then blocks the `mount --make-rslave` remount `bwrap` performs
+  immediately after entering the new user namespace. `--privileged` alone
+  (or both `seccomp=unconfined` + `apparmor=unconfined` together) fixes
+  it, proving there is no genuine kernel-level block — but per
+  `docs/INITIAL.md`'s own guidance, `--privileged`/`unconfined` widens the
+  *whole* container's attack surface and is not an acceptable fix.
+  Issue #23 instead ships two narrowly-scoped replacement profiles under
+  `coder/security-profiles/` (a seccomp JSON relaxing exactly
+  `clone`/`unshare` for `CLONE_NEWUSER` plus `mount` for
+  `MS_REC|MS_SLAVE`, and an AppArmor profile adding exactly `userns,` and
+  `mount options=(make-rslave),` on top of Docker's own `docker-default`
+  template), wired into all three affected templates'
+  `docker_container.workspace` via `security_opts`. **What's still
+  unverified as of Issue #23** (out of scope for that session's safety
+  restrictions, real host-level AppArmor loading and a live Coder
+  workspace rebuild): the AppArmor profile has never actually been loaded
+  on any real host (`scripts/load-security-profiles.sh` exists but must be
+  run manually, as root, by a human operator — never automatically), and
+  no real `coder create`/`srt opencode -- ...` end-to-end completion has
+  been observed. The seccomp half of the fix *was* verified live: with the
+  scoped seccomp profile and default (unmodified) AppArmor, `bwrap
+  --unshare-user --unshare-pid --ro-bind / / echo ok` now fails with
+  `bwrap: Failed to make / slave: Permission denied` — byte-for-byte the
+  same error the fully-`unconfined`-seccomp reference reproduction
+  produces, proving the scoped seccomp profile is exactly as permissive as
+  `unconfined` for this call sequence, no more. See Issue #23's handoff
+  for the full evidence, including a real, non-obvious seccomp-profile
+  authoring bug found and fixed along the way (below).
+- **Do not trust an `op: SCMP_ACT_MASKED_EQ` rule with only `value` set and
+  no `valueTwo`** in a Docker/moby-style seccomp JSON profile: `value` is
+  the *mask*, and `valueTwo` (not `value`) is the comparison target —
+  omitting `valueTwo` silently defaults it to `0`, so a rule intended as
+  "ALLOW when bit X is set" (`(arg & mask) == mask`) actually compiles to
+  "ALLOW when bit X is *unset*" (`(arg & mask) == 0`), the exact opposite
+  of what was likely intended, with no parse error or warning of any kind
+  — confirmed live 2026-08-30 while authoring Issue #23's scoped
+  `clone`/`unshare` rule for `CLONE_NEWUSER`: the buggy version reproduced
+  the *exact same* baseline failure as no seccomp relaxation at all, and
+  was silently masking its own ineffectiveness until isolated with
+  `--security-opt apparmor=unconfined` (to rule out AppArmor as the actual
+  blocker) and a raw `ctypes`-based `unshare(2)` call (to rule out
+  `bwrap`-specific behavior) — always test a new/modified `MASKED_EQ` rule
+  in isolation against the literal syscall+flags it's meant to allow
+  before trusting it "should" work from the JSON alone.
 
 - `srt`'s `bwrap --unshare-user` fails in this Docker/WSL2 environment (blocked unprivileged
   userns, not a host `sysctl` issue). Do not fix with `--privileged` or loosened

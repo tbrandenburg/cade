@@ -168,6 +168,21 @@ check_https() {
   fi
 }
 
+# ── Issue #23: scoped bwrap AppArmor profile loaded? ─────────────────────
+# Read-only check only -- never loads/replaces the profile itself (see
+# scripts/load-security-profiles.sh, which must be run manually as root).
+check_security_profiles() {
+  if ! command -v apparmor_parser >/dev/null 2>&1; then
+    warn "apparmor_parser not found -- cannot check/load the Issue #23 scoped bwrap profile (srt/bwrap in agent-workspace, docker-standard, embedded-linux will fail to start until this is resolved)"
+    return
+  fi
+  if command -v aa-status >/dev/null 2>&1 && aa-status 2>/dev/null | grep -q "cade-bwrap-workspace"; then
+    pass "Issue #23 AppArmor profile 'cade-bwrap-workspace' is loaded"
+  else
+    warn "Issue #23 AppArmor profile 'cade-bwrap-workspace' is NOT loaded -- run 'sudo scripts/load-security-profiles.sh' before pushing/using agent-workspace, docker-standard, or embedded-linux templates (they will fail workspace creation outright otherwise, see AGENTS.md)"
+  fi
+}
+
 # ── Port availability ──────────────────────────────────────────────────────
 check_ports() {
   local port in_use
@@ -205,6 +220,7 @@ main() {
   check_https "github.com"
   check_https "update.code.visualstudio.com"
   check_https "vscode.download.prss.microsoft.com"
+  check_security_profiles
   check_ports
 
   echo
