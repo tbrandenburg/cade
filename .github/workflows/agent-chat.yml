@@ -49,7 +49,13 @@ jobs:
   agent-chat:
     # Only fire for the `agent-chat` label, not every `labeled` event.
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-chat'
-    runs-on: ubuntu-latest
+    # Must run on the self-hosted runner, not ubuntu-latest: secrets.CODER_URL
+    # (http://localhost:7080) is only reachable from this host's own Docker
+    # network, not from GitHub-hosted infra. Same label set as
+    # embedded-build.yml. This runner is JIT/one-shot (see
+    # scripts/runner-jit-start.sh) — it must be started to service this job
+    # before triggering the workflow; it does not sit idle waiting for work.
+    runs-on: [self-hosted, linux, private-lab, docker]
     steps:
       # Note: verified against the action's real README (fetched live in
       # this step) rather than guessed. The actual published action is
