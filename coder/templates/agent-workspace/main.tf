@@ -23,6 +23,19 @@ data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
+# Issue #17: real GitHub external auth wiring, using the "github" external
+# auth provider that S1 already configured server-side in the repo-root
+# compose.yaml (CODER_EXTERNAL_AUTH_0_ID = "github"). `optional = true` so
+# a workspace can still be created/started by a user who has not linked
+# their GitHub identity yet — in that case `access_token` resolves to an
+# empty string and the coalesce() below falls back to the pre-existing
+# manual-paste `github_token` coder_parameter, kept unchanged for that
+# reason (not a duplicate — genuine fallback for unlinked users).
+data "coder_external_auth" "github" {
+  id       = "github"
+  optional = true
+}
+
 # Optional token for cloning `repo_url` when it is not publicly readable.
 # Left empty, `git clone` behaves exactly as before (anonymous HTTPS clone).
 # When set, the startup script clones non-interactively via GIT_ASKPASS
@@ -225,7 +238,7 @@ MCP_JSON
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
-    GITHUB_TOKEN        = data.coder_parameter.github_token.value
+    GITHUB_TOKEN        = coalesce(data.coder_external_auth.github.access_token, data.coder_parameter.github_token.value, "")
     LAB_SIM_AGENT_TOKEN = data.coder_parameter.lab_sim_agent_token.value
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
