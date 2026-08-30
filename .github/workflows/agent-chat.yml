@@ -43,16 +43,18 @@ on:
         description: "chat-prompt to use for a manual workflow_dispatch dry-run only (ignored on a real issues:labeled trigger)"
         required: false
         default: "Manual dry-run test triggered via workflow_dispatch (Issue #17 S6)."
+      github_url:
+        description: "github-url to use for a manual workflow_dispatch dry-run only (must be a real issue/PR URL on this repo — the action rejects bare repo URLs and non-github.com hosts). Ignored on a real issues:labeled trigger."
+        required: false
+        default: "https://github.com/tbrandenburg/cade/issues/17"
 
 permissions:
   contents: read
-  # issues: write is NOT enabled yet — the create-agent-chat-action can
-  # post a result comment itself (comment-on-issue input) using its own
-  # github-token, but whether/how results get posted back to this repo
-  # is still undecided (see docs/ai-coder.md). Widen only once that's
-  # decided; comment-on-issue defaults to true upstream, so leaving this
-  # at `contents: read` will make the action's own comment step fail
-  # loudly (visible in the job log) rather than silently posting.
+  # Decided (Issue #17 S6 live test): results ARE posted back to GitHub
+  # as an issue comment, using the action's own comment-on-issue input
+  # (default true) and github.token. Needs issues: write, not just
+  # contents: read.
+  issues: write
 
 jobs:
   agent-chat:
@@ -122,5 +124,5 @@ jobs:
             ${{ github.event.issue.title || inputs.chat_prompt }}
 
             ${{ github.event.issue.body }}
-          github-url: ${{ github.event.issue.html_url || github.event.repository.html_url }}
+          github-url: ${{ github.event.issue.html_url || inputs.github_url }}
           github-token: ${{ github.token }}
