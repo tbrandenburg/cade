@@ -82,7 +82,7 @@ jobs:
           fi
 
           user="$(curl -sf -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
-            "${CODER_URL}/api/v2/users/me" | python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])')"
+            "${CODER_URL}/api/v2/users/me" | jq -r '.username')"
 
           # Known limitation (documented, not engineered around here): this
           # is a plain, non-idempotent create call. A repeat run creates a
@@ -99,7 +99,7 @@ jobs:
             "${CODER_URL}/api/v2/users/${user}/workspaces" \
             -d "{\"template_id\":\"${TEMPLATE_ID}\",\"name\":\"${workspace_name}\"}")"
 
-          workspace_id="$(echo "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          workspace_id="$(echo "${response}" | jq -r '.id')"
           echo "workspace_id=${workspace_id}" >> "$GITHUB_OUTPUT"
 
       - name: Create Coder Agents chat
