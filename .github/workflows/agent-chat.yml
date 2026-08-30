@@ -122,11 +122,13 @@ jobs:
           # history across repeat runs against the same issue.
           workspace_name="agent-chat-issue-${{ github.event.issue.number || 'dispatch' }}-run-${{ github.run_id }}"
 
-          response="$(curl -sf -X POST \
+          response="$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
             -H "Coder-Session-Token: ${CODER_SESSION_TOKEN}" \
             -H "Content-Type: application/json" \
             "${CODER_URL}/api/v2/users/${user}/workspaces" \
             -d "{\"template_id\":\"${TEMPLATE_ID}\",\"name\":\"${workspace_name}\"}")"
+          echo "DEBUG workspace create response: ${response}" >&2
+          response="$(echo "${response}" | head -1)"
 
           workspace_id="$(echo "${response}" | jq -r '.id')"
           echo "workspace_id=${workspace_id}" >> "$GITHUB_OUTPUT"
