@@ -991,6 +991,37 @@
 				}
 			],
 			"comment": "issue-23 BUGFIX #8 (found live 2026-08-30, first found against a *real* Coder workspace running `srt opencode`, not just a synthetic `bwrap --ro-bind / /` test): `srt` invokes `bwrap` with `--dev /dev` (to provide a fresh, isolated `/dev` including a pty), which the minimal reproduction command used through BUGFIX #7 never exercised. `strace -f -e trace=mount` against `bwrap --unshare-user --unshare-pid --dev /dev --ro-bind / /` (matching srt's real invocation shape) found one more distinct mount(2) call: `mount(\"devpts\", \"/newroot/dev/pts\", \"devpts\", MS_NOSUID|MS_NOEXEC, \"newinstance,ptmxmode=0666,mode=...\")` -- allow mount(2) when both MS_NOSUID (0x2) and MS_NOEXEC (0x8) are set (mask=valueTwo=0xa=10)."
+		},
+		{
+			"names": [
+				"clone",
+				"unshare"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 537001984,
+					"valueTwo": 537001984,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #9 (found live 2026-08-30, against a real `srt opencode` run in a live Coder workspace, one BUGFIX #8's devpts fix let bwrap's own sandbox construction finally complete): srt's own internal `apply-seccomp` helper (its own nested sandboxing layer, run *inside* bwrap's already-constructed sandbox) makes a *second*, separate unshare(2) call -- error message: `apply-seccomp: unshare(CLONE_NEWPID|CLONE_NEWNS) after userns: Operation not permitted`. Unlike the first unshare(CLONE_NEWUSER) call (BUGFIX in the very first rule of this file), this second call does NOT set CLONE_NEWUSER (the process already has a user namespace from the first call) -- it only sets CLONE_NEWPID (0x20000000) and CLONE_NEWNS (0x00020000), so it did not match the existing CLONE_NEWUSER-scoped rule at all. Allow clone/unshare when both CLONE_NEWPID and CLONE_NEWNS are set (mask=valueTwo=0x20020000=537001984), regardless of any other flags. Safe for the same reason as the original CLONE_NEWUSER rule: this call only ever affects namespaces nested *within* the process's own already-created user namespace, never anything outside it."
+		},
+		{
+			"names": [
+				"mount"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 3,
+					"value": 14,
+					"valueTwo": 14,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"comment": "issue-23 BUGFIX #10 (found live 2026-08-30, via strace against a standalone `srt -c 'echo ...'` reproduction, installing @anthropic-ai/sandbox-runtime directly rather than a full Coder workspace, to iterate faster): after BUGFIX #9's unshare fix, bwrap progressed to `mount(\"proc\", \"/newroot/proc\", \"proc\", MS_NOSUID|MS_NODEV|MS_NOEXEC, NULL)` -- a real fresh procfs mount (distinct from the earlier bind-remount-of-an-existing-/proc combo covered by BUGFIX #5's third rule, which lacks MS_NOEXEC). Allow mount(2) when MS_NOSUID (0x2), MS_NODEV (0x4), and MS_NOEXEC (0x8) are all set (mask=valueTwo=0xe=14)."
 		}
 	]
 }
