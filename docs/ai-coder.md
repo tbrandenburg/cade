@@ -71,10 +71,11 @@ inputs:
    names, dirty-tree template builds).
 2. **Instruction determinism** — the prompt passed to Chats is versioned
    (checked into this repo or the calling automation), not typed ad hoc.
-   A `.agents/skills/` directory (reusable, named prompt/instruction
-   fragments) is a plausible future extension point for this but is
-   **out of scope and not implemented** in this step — noted here only
-   so it isn't rediscovered as a surprise later.
+   `.agents/skills/` (reusable, named prompt/instruction fragments,
+   `SKILL.md` with YAML frontmatter) is a real, working extension point
+   for this — confirmed live in Issue #16 (see "Explored Agents
+   capabilities" below). One committed example skill
+   (`.agents/skills/repo-orientation/SKILL.md`) exists in this repo.
 3. **Tool bounding** — what the agent can reach is constrained by
    `.mcp.json` (which MCP servers it can call) and OPA policy (what
    those servers actually allow it to do), not by trusting the model's
@@ -169,6 +170,33 @@ Coder Agents/Chats provides none of the following on its own:
 scheduling, retries, or event triggers. Temporal and gh-aw remain the
 workflow layer that would call into this successor action; Chats/the new
 action is only the execution surface.
+
+## Explored Agents capabilities (Issue #16)
+
+Six additional, already-live Coder Agents features (v2.36.3, no new
+infra/template changes) tested against a real, throwaway `agent-workspace`
+workspace (`issue16-test`, deleted after testing) with a real chat, `content`
+message parts, uploaded files, and a real `OPENAI_API_KEY` reaching `gpt-4o`/
+`gpt-4o-mini`. All calls used `POST/GET /api/experimental/chats` with a
+Coder admin session token (`bash scripts/ai-token.sh`); no mocks.
+
+| Feature | Status | Evidence |
+|---|---|---|
+| Sub-agent delegation (`spawn_agent`) | **Works** | Prompted a root chat to delegate three reports (backend/frontend/infra) to parallel sub-agents. `GET /api/experimental/chats/{id}` returned `status: "waiting"` with `children: [...]` containing 3 real child chats — `"Backend Structure Report"`, `"Frontend Structure Report"`, `"Infrastructure Structure Report"` — each with its own `id`, `parent_chat_id`/`root_chat_id` pointing at the parent, and its own `summary`. All three `created_at` timestamps are within the same second (`2026-08-30T05:14:24.70{4,6,8}Z`), confirming they ran in parallel, not sequentially. The root chat's own `summary` combined all three. No dedicated `list_agents`/`wait_agent` REST endpoint exists (`GET /api/experimental/agents` → `404`); `children` on the parent chat resource is the actual polling surface. |
+| Plan mode | **Works** | Created a chat with `"plan_mode":"plan"` (the only accepted enum value found by probing; `on`/`enabled`/`always`/`true`/`"plan_first"` field name all rejected with `{"message":"Invalid plan_mode value."}`) and a prompt to edit `README.md`. Tool trace showed only `write_file` to `/home/coder/.coder/plans/PLAN-<chat-id>.md` (a `propose_plan` tool-result confirmed `path` under `.coder/plans/`); `docker exec <container> head -1 /home/coder/project/README.md` showed the file was **unmodified** afterward. Then `PATCH /api/experimental/chats/{id}` with `{"plan_mode":""}` → `204`, followed by a new user message "Implement the plan now." — the agent then actually edited `README.md` (`docker exec ... head -2 README.md` showed the new comment line present), proving normal-mode tool access resumed. |
+| `.agents/skills/` | **Works** | Created `.agents/skills/repo-orientation/SKILL.md` (YAML frontmatter: `name`, `description`) — see that file in this PR's diff. Copied it into the running workspace's `/home/coder/project/.agents/skills/repo-orientation/` (via `docker cp`, since a real `agent-workspace` clones from `origin`, not this worktree — pushing was out of scope for this spike). Prompted a chat to look up the skill; tool trace showed a real `read_skill` tool-call with `args: {"name": "repo-orientation"}` and a tool-result `{"dir": "/home/coder/project/.agents/skills/repo-orientation", "body": "<the file's markdown body>", "name": "repo-orientation", "files": []}`; the assistant's final answer correctly quoted the skill's content verbatim. Unlike #13's T13 MCP-auto-discovery gap, this worked fully over the headless REST API with no interactive client needed. |
+| `web_search` | **Entitlement gap (not available; deployment falls back to `execute`)** | Prompted a chat to "use your web_search tool" to look up a real, verifiable fact (the latest `coder/coder` GitHub release tag). The agent had no such tool available and instead emitted a `tool-call` for `execute` running `curl -s https://api.github.com/repos/coder/coder/releases/latest` from inside the workspace container, correctly reporting the real result (`v2.35.6`). No `web_search` tool-call ever appeared in the message trace — this deployment/provider config has no provider-native search tool wired up; the model substitutes its general-purpose shell `execute` tool instead. Recorded as an entitlement/configuration gap alongside the others below, not a Coder platform limitation per se — no first-party search-tool config was found in `coder/ai/providers.yaml`/`models.yaml` or the deployment config (`GET /api/v2/deployment/config`, grepped for `search`: no match). |
+| `computer_use` sub-agent type | **Not entitled** | `GET /api/v2/entitlements` lists no `computer_use`/virtual-desktop feature flag at all (full `features` key list: `access_control, advanced_template_scheduling, ai_governance_user_limit, aibridge, appearance, audit_log, boundary, browser_only, connection_log, control_shared_ports, custom_roles, external_provisioner_daemons, external_token_encryption, high_availability, managed_agent_limit, multiple_external_auth, multiple_organizations, scim, service_accounts, task_batch_actions, template_rbac, user_limit, user_role_management, workspace_batch_actions, workspace_external_agent, workspace_prebuilds, workspace_proxy`); `GET /api/v2/experiments` returns only `["oauth2","mcp-server-http"]`. Confirmed directly and precisely by actually asking a chat to spawn one: the agent's own `spawn_agent` tool-call with `{"type":"computer_use", ...}` returned the exact error `{"error": "type \"computer_use\" is unavailable because the chat-virtual-desktop experiment is not enabled"}` — the agent then reported this limitation back verbatim in its final answer. This is the `chat-virtual-desktop` experiment (not currently in the enabled-experiments list above), a distinct gate from the entitlement-flag pattern used by `aibridge`/`boundary`/AI-Governance. |
+| Image attachments | **Works** | Uploaded a real PNG (rendered via ImageMagick `convert`, containing the unique embedded string `ISSUE16-VISION-TEST-7f3a9c`, not present anywhere else in this repo or prompt) via `POST /api/experimental/chats/files?organization=<org-id>` with `Content-Disposition: attachment; filename="test.png"` → `{"id":"<file_id>"}`. Created a chat with `content: [{"type":"text","text":"What text do you see..."},{"type":"file","file_id":"<file_id>","media_type":"image/png"}]` (the `{"type":"image",...}` shape is rejected: `"content[1].type \"image\" is not supported"` — `"file"` with an image `media_type` is the correct part type). The model's real response was exactly `"ISSUE16-VISION-TEST-7f3a9c"` — proof the vision-capable model (`gpt-4o-mini`, `model_config_id: 30c462e7-ee28-4b4a-8bd6-8a40d6b97f6d`) actually received and read the pixel content of the attached image, not a hallucination or coincidence. |
+
+Two REST-API mechanics discovered along the way, not previously documented
+in this file: `POST /api/experimental/chats`'s `content` field is
+`[]codersdk.ChatInputPart`, each part needs an explicit `"type":"text"` (a
+bare string body is rejected with a Go-struct unmarshal error naming the
+field/type); and file uploads for chats go through
+`/api/experimental/chats/files?organization=<org-id>` (not the generic
+`/api/v2/files` endpoint, which rejects non-tar content types), requiring
+a `Content-Disposition: attachment; filename="..."` header.
 
 ## Known limitation restated
 

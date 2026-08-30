@@ -539,4 +539,42 @@ bearer token — `list_devices`/`reserve_device`/`run_test` all succeeded,
 the updated `docs/milestone-reports/issue-13-ai-coder.md` for full
 evidence of both passes.
 
+## Issue #16 — 2026-08-30
+
+Spike exploring 6 already-live Coder Agents features beyond #13's core
+integration (sub-agents, plan mode, `.agents/skills/`, `web_search`,
+`computer_use`, image attachments) — no template/infra changes, tested
+live against a throwaway `agent-workspace` workspace, deleted afterward.
+All 6 items got real, non-mocked evidence; two (`web_search`,
+`computer_use`) confirmed real entitlement/config gaps rather than bugs.
+Notable, non-obvious findings for future work against this Chats API:
+(1) `POST /api/experimental/chats`'s `content` field is
+`[]codersdk.ChatInputPart`, not a plain string — every part needs an
+explicit `"type"` (`"text"` or `"file"`; `"image"` is rejected outright
+with `content[N].type "image" is not supported"`), discovered only by
+reading the Go-struct-unmarshal error message the API returns for a bad
+shape, not from any public docs found. (2) `plan_mode` is a
+`codersdk.ChatPlanMode` string enum, not a boolean — `"plan"` is the only
+accepted value found by brute-force probing (`on`/`enabled`/`always`/
+`true`/`"plan_first"` as a field name were all rejected); clearing it
+back to normal mode is `PATCH .../chats/{id}` with `{"plan_mode":""}` →
+`204`, not a documented `"none"`/`"off"` value (both rejected). (3) File
+uploads for chat attachments are a *separate* endpoint from the general
+`/api/v2/files` API (`POST /api/experimental/chats/files?organization=
+<org-id>`, needs `Content-Disposition: attachment; filename="..."` — the
+general endpoint 400s any non-tar `Content-Type`). (4) There is no
+dedicated `GET /api/v2/entitlements`-style flag for `computer_use`/
+virtual-desktop — it's gated by an *experiment* name
+(`chat-virtual-desktop`, absent from `GET /api/v2/experiments`'s enabled
+list `["oauth2","mcp-server-http"]`), a different mechanism from the
+`aibridge`/`boundary`/AI-Governance entitlement-flag pattern already
+documented in `docs/ai-coder.md` — checking only `/entitlements` for a
+feature gate is not sufficient; check `/experiments` too. (5) Unlike
+#13's T13 MCP-tool-auto-discovery gap, `.agents/skills/` auto-discovery
+(`read_skill` tool) **does** work over a fully headless, API-created
+chat with no interactive client ever attached — this is not the same
+class of limitation as MCP `.mcp.json` discovery, and should not be
+assumed blocked by analogy to it. See `docs/ai-coder.md`'s "Explored
+Agents capabilities" table for the full evidence per item.
+
 
