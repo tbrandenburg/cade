@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap
+.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -119,6 +119,27 @@ temporal-build-demo-start:
 		-e DEMO_TASK_QUEUE=demo-durable-workflow \
 		--entrypoint python \
 		cade/temporal-worker:latest -m demo.build_starter --wait
+
+## coder-svc-token: Mint a scoped Coder API token for the temporal-svc user (Issue #50).
+coder-svc-token:
+	@bash scripts/coder-svc-token.sh
+
+## temporal-workspace-demo-start: Start one execution of the Issue #50 persistent-workspace demo workflow.
+temporal-workspace-demo-start:
+	@docker run --rm --network platform-control \
+		-e TEMPORAL_ADDRESS=temporal:7233 \
+		-e DEMO_TASK_QUEUE=demo-durable-workflow \
+		--entrypoint python \
+		cade/temporal-worker:latest -m demo.workspace_starter --name tw-demo --wait
+
+## temporal-reaper-schedule: Create/update the Temporal Schedule that runs WorkspaceReaperWorkflow every 15m (Issue #50).
+temporal-reaper-schedule:
+	@docker run --rm --network platform-control \
+		-e TEMPORAL_ADDRESS=temporal:7233 \
+		-e DEMO_TASK_QUEUE=demo-durable-workflow \
+		-v $(CURDIR)/scripts/temporal-schedule-reaper.py:/tmp/temporal-schedule-reaper.py:ro \
+		--entrypoint python \
+		cade/temporal-worker:latest /tmp/temporal-schedule-reaper.py
 
 ## governance-bootstrap: Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token (Milestone M12).
 governance-bootstrap:

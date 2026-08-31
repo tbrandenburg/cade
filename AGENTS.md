@@ -87,6 +87,9 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make ai-token` | Issue #13 | Mints an admin session token for `make ai-bootstrap` (`scripts/ai-token.sh`). |
 | `make verify-ai` | Issue #13 | Proves the AI integration works end to end against the live stack (`scripts/verify-ai.sh`). |
 | `make omnigent-bootstrap` | Issue #43 | Creates the first `omnigent-server` admin account (`scripts/omnigent-bootstrap.sh`). |
+| `make coder-svc-token` | Issue #50 | Mints a narrowly-scoped Coder API token for the dedicated `temporal-svc` user (`scripts/coder-svc-token.sh`) — used for Temporal-owned persistent workspace lifecycle (create/operate, not admin). |
+| `make temporal-workspace-demo-start` | Issue #50 | Starts one execution of `PersistentWorkspaceBuildWorkflow` against a demo `tw-demo` workspace, resolved-or-created entirely through the Coder API. |
+| `make temporal-reaper-schedule` | Issue #50 | Creates/updates the 15-minute Temporal Schedule that runs `WorkspaceReaperWorkflow` (idempotent — safe to re-run from `make up`). |
 
 `examples/hello-service/Makefile` and `examples/embedded-sim/Makefile` each
 have their own `build`/`test`/`run`/`clean`(/`simulate`) targets — toolchain
@@ -168,6 +171,36 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
+
+- 2026-08-31 (Issue #50, Temporal-owned persistent Coder workspaces,
+  live E2E verification against the real stack — full round trip:
+  `scripts/coder-svc-token.sh` mints a real `temporal-svc` token, a real
+  `temporal-worker` picks up `PersistentWorkspaceBuildWorkflow`, creates a
+  real `tw-*` Coder workspace via the API, `run_build_command` execs a
+  real command in it, and `WorkspaceReaperWorkflow` really stops it once
+  idle): two corrections to this issue's own draft plan, both found only
+  by calling the real API, not from reading Coder's docs/source first.
+  (1) A token scoped to only the composite `coder:workspaces.create`/
+  `.operate` scopes cannot resolve an organization id or a template's
+  `active_version_id` — `GET /api/v2/organizations` silently returns
+  `200 []` (not 403) and `GET .../templates/{name}` 404s, with nothing in
+  either response distinguishing "scope-denied" from "genuinely empty" —
+  this produced a confusing `"no organizations returned"` error on the
+  very first live attempt. Fixed by adding the low-level, read-only
+  `organization:read` and `template:read` scopes alongside the composite
+  ones (see docs/security.md for the exact, current scope list this
+  broadens to — still nowhere near "all": no user read, no template
+  write, no audit-log read). (2) `GET /api/v2/users/{owner}/workspaces`
+  (this issue's own draft plan, for the reaper's scoped listing) does not
+  exist on Coder v2.36.3 — `405 Method Not Allowed`. The real endpoint is
+  `GET /api/v2/workspaces?q=owner:<owner>` (the same query-filter syntax
+  the Coder Web UI's workspace search box uses). General rule, same class
+  as several prior entries here: a `200`/`201` response from a
+  scope-restricted Coder API caller is not proof the caller actually
+  received the data it expected — verify by calling the *specific*
+  downstream endpoint a new Activity depends on with the *actual* minted
+  token before trusting any scope name (composite or low-level) "should"
+  cover it.
 
 - 2026-08-31 (Issue #49, Temporal exec into a pre-existing Coder
   workspace): confirmed live, real container naming convention —

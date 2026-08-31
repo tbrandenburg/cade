@@ -61,3 +61,34 @@ BUILD_DOCKER_HOST = os.environ.get("BUILD_DOCKER_HOST", "unix:///var/run/docker.
 # override for local/out-of-container testing.
 OPA_URL = os.environ.get("OPA_URL", "http://opa:8181")
 
+# Issue #50: Temporal-owned persistent Coder workspaces (`coder_client.py`
+# / `workspace_activity.py`). CODER_URL defaults to the in-compose
+# service hostname (see `compose.yaml`'s `coder` service); override for
+# local/out-of-container testing.
+#
+# NAMING NOTE (deliberate deviation from the issue's own draft plan): this
+# module intentionally does NOT reuse `CODER_SESSION_TOKEN` — that name is
+# already used above (implicitly, via `.env.example`) for
+# `scripts/ai-token.sh`/`ai_bootstrap.py`'s admin-scoped, host-side
+# AI-bootstrap token. Reusing it here would either collide with or
+# accidentally inherit that unrelated, more-privileged admin token into
+# `temporal-worker`. `CODER_WORKSPACE_API_TOKEN` is a distinctly-named,
+# narrowly-scoped (`coder:workspaces.create`/`.operate`[/`.delete`])
+# token minted by `scripts/coder-svc-token.sh` for the dedicated
+# `temporal-svc` Coder user — see docs/security.md.
+CODER_URL = os.environ.get("CODER_URL", "http://coder:7080")
+CODER_WORKSPACE_API_TOKEN = os.environ.get("CODER_WORKSPACE_API_TOKEN", "")
+CODER_WORKSPACE_OWNER = os.environ.get("CODER_WORKSPACE_OWNER", "temporal-svc")
+# NOTE: the Terraform template *directory* in this repo is
+# `coder/templates/docker-workspace`, but `make templates-push` registers
+# it on the Coder server under the *template name* `docker-standard`
+# (`coder templates push docker-standard -d coder/templates/docker-workspace
+# --yes`) — verified directly against the Makefile rather than assuming
+# dir name == template name. The Coder API's
+# `/organizations/{org}/templates/{template_name}` endpoint needs the
+# registered name, so the default here is `docker-standard`.
+CODER_WORKSPACE_TEMPLATE = os.environ.get("CODER_WORKSPACE_TEMPLATE", "docker-standard")
+CODER_WORKSPACE_TTL_MINUTES = int(os.environ.get("CODER_WORKSPACE_TTL_MINUTES", "120"))
+CODER_WORKSPACE_REAP_ACTION = os.environ.get("CODER_WORKSPACE_REAP_ACTION", "stop")
+CODER_CREATE_TIMEOUT_SECONDS = int(os.environ.get("CODER_CREATE_TIMEOUT_SECONDS", "600"))
+
