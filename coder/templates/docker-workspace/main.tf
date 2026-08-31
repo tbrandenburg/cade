@@ -57,6 +57,24 @@ data "coder_parameter" "agent_capable" {
   order        = 2
 }
 
+# Issue #50 §10: gates a dashboard tile linking this workspace to the
+# Temporal Workflows UI (see coder_app.temporal below), filtered to the
+# workflows this workspace itself is associated with. Only Temporal's own
+# `PersistentWorkspaceBuildWorkflow` (temporal/src/demo/workspace_activity.py)
+# should ever set this true when creating a `tw-*` workspace — an explicit
+# boolean parameter is used instead of sniffing the workspace name prefix,
+# so the gating is not silently coupled to a naming convention that could
+# change independently of this template.
+data "coder_parameter" "temporal_owned" {
+  name         = "temporal_owned"
+  display_name = "Temporal-owned workspace"
+  description  = "Set true only for workspaces created/managed by Temporal (Issue #50) — adds a dashboard tile linking to the Temporal Workflows UI filtered to this workspace. Human-created workspaces should leave this false."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 3
+}
+
 locals {
   # M4: JSON-RPC/Agent Host security-baseline settings. Kept in sync by hand
   # with the human-readable copy at repository root, `agent-host/settings.json`
@@ -178,6 +196,31 @@ module "code-server" {
   agent_id = coder_agent.main.id
   folder   = local.workspace_dir
   order    = 1
+}
+
+# Issue #50 §10: dashboard tile linking a Temporal-owned (`tw-*`) workspace
+# to its own filtered Temporal Workflows UI view. `count` makes this a
+# true no-op (zero resources) for the default/human-dev flow where
+# `temporal_owned` stays false — this deliberately does not opportunistically
+# render for every docker-standard workspace, only ones Temporal itself
+# creates via PersistentWorkspaceBuildWorkflow. `external = true` is
+# required here for the same reason as coder_app.omnigent in
+# agent-workspace/main.tf: no iframe/embedded-UI mechanism exists for
+# coder_app in this Coder version. Unlike that omnigent tile, this icon is
+# referenced directly by URL (no `data:` URI needed) since temporal-ui
+# already serves a real, verified-decodable favicon.ico over plain HTTP —
+# no `workspace_apps.icon` varchar(256) column-limit workaround applies.
+# The `?query=` deep-link param is real and supported by Temporal UI
+# 2.53.3 (verified live), unlike the still-inert `?host=` param on the
+# omnigent tile above.
+resource "coder_app" "temporal" {
+  count        = data.coder_parameter.temporal_owned.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "temporal"
+  display_name = "Temporal Workflows"
+  external     = true
+  icon         = "${var.temporal_ui_public_url}/favicon.ico"
+  url          = "${var.temporal_ui_public_url}/namespaces/default/workflows?query=WorkflowId%20STARTS_WITH%20%22${data.coder_workspace.me.name}%22"
 }
 
 resource "docker_volume" "home_volume" {
