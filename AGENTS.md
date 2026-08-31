@@ -172,6 +172,30 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #50 §10 follow-up, Temporal Workflows dashboard tile,
+  live browser verification): a `compose.yaml`/template change already
+  committed (widened `CODER_ADDITIONAL_CSP_POLICY` for the tile's icon,
+  `demo.workspace_activity.py` now passing `temporal_owned="true"`) is
+  **not** live until the container(s) actually consuming it are
+  recreated — `docker inspect coder --format '{{.Config.Env}}'` still
+  showed the pre-change CSP value hours after the commit landed, because
+  neither `coder` nor `temporal-worker` had been restarted since. This
+  reproduced a real CSP violation in a live browser session (broken tile
+  icon, `img-src` denial in the console) purely from stale container
+  state, not a code defect — indistinguishable from a real bug until
+  `docker inspect ... Config.Env` was checked directly. Fixed with a
+  scoped `docker compose up -d coder`/`up -d temporal-worker` (recreates
+  only the two containers whose own config/image actually changed, not a
+  full-stack restart) before re-testing. General rule: after any
+  `compose.yaml` env-var or template change, verify the *running*
+  container's actual env/image reflects it (`docker inspect`), not just
+  that the file on disk is correct — a committed change and a live
+  effect are two different claims, and this repo's own prior lessons
+  already document the container-image half of this same class of gap
+  (`openbao` needing re-init after restart, templates needing re-push);
+  this extends it to plain `docker compose`-managed service containers
+  picking up `compose.yaml` env-var edits.
+
 - 2026-08-31 (Issue #50, Temporal-owned persistent Coder workspaces,
   live E2E verification against the real stack — full round trip:
   `scripts/coder-svc-token.sh` mints a real `temporal-svc` token, a real
