@@ -17,6 +17,7 @@ import asyncio
 import re
 from datetime import datetime, timezone
 
+import httpx
 from temporalio import activity
 
 from demo.coder_client import CoderAPIError, CoderClient
@@ -28,7 +29,29 @@ from demo.config import (
     CODER_WORKSPACE_REAP_ACTION,
     CODER_WORKSPACE_TEMPLATE,
     CODER_WORKSPACE_TTL_MINUTES,
+    OPA_URL,
 )
+
+OPA_DECISION_PATH = "/v1/data/workspace/authz/allow"
+
+
+def _opa_allows(
+    action: str, workspace_name: str, owner: str, reap_action: str | None = None
+) -> bool:
+    """Query OPA's decision API for `workspace.authz.allow`. Fails closed:
+    any transport error, timeout, or non-boolean-true result is treated
+    as a denial (mirrors `build_activity.py`'s `_opa_allows`)."""
+    input_payload: dict = {"action": action, "workspace_name": workspace_name, "owner": owner}
+    if reap_action is not None:
+        input_payload["reap_action"] = reap_action
+    payload = {"input": input_payload}
+    try:
+        response = httpx.post(f"{OPA_URL}{OPA_DECISION_PATH}", json=payload, timeout=5.0)
+        response.raise_for_status()
+        result = response.json().get("result")
+    except httpx.HTTPError:
+        return False
+    return result is True
 
 # Coder workspace names are capped at 32 characters server-side (a
 # generic validation error otherwise — see AGENTS.md's recorded Issue #17
@@ -104,6 +127,26 @@ async def ensure_coder_workspace(name: str) -> dict:
 
     owner = CODER_WORKSPACE_OWNER
     container_name = container_name_for(owner, name)
+
+    # Issue #54 gap-fill: OPA `workspace.authz` gates create/start before any
+    # Coder API call. This Activity may end up either creating or starting
+    # the workspace depending on its resolved state (not known yet at this
+    # point) — `workspace_authz.rego`'s allow conditions are identical for
+    # both actions, so a single upfront "create" check covers both.
+    if not _opa_allows("create", name, owner):
+        activity.logger.warning(
+            "ensure_coder_workspace: denied by OPA workspace.authz policy "
+            "name=%s owner=%s",
+            name,
+            owner,
+        )
+        return {
+            "ok": False,
+            "workspace_id": None,
+            "container_name": container_name,
+            "created": False,
+            "error": f"denied by workspace.authz policy for name={name!r} owner={owner!r}",
+        }
 
     async with CoderClient(CODER_URL, CODER_WORKSPACE_API_TOKEN) as client:
         try:
@@ -223,6 +266,20 @@ async def reap_coder_workspaces() -> dict:
                     continue
 
                 workspace_id = workspace["id"]
+
+                # Issue #54 gap-fill: OPA `workspace.authz` gates the
+                # actual privileged action before it's issued, passing the
+                # configured reap mode so the policy (not this Activity)
+                # decides whether a real delete is permitted.
+                gate_action = "delete" if CODER_WORKSPACE_REAP_ACTION == "delete" else "stop"
+                if not _opa_allows(
+                    gate_action, name, owner, reap_action=CODER_WORKSPACE_REAP_ACTION
+                ):
+                    skipped.append(
+                        {"name": name, "reason": f"denied by workspace.authz for action={gate_action!r}"}
+                    )
+                    continue
+
                 if CODER_WORKSPACE_REAP_ACTION == "delete":
                     if latest_status == "running":
                         await client.stop_workspace(workspace_id)

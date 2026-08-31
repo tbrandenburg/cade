@@ -172,6 +172,27 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #54, parallel subagent worktree workflow): a subagent
+  reported a complete, passing handoff (`opa test` 23/23, `py_compile`
+  clean) but had never actually run `git commit` in its worktree — all six
+  changed files were left staged-but-uncommitted. The coordinator's
+  `git merge --no-ff <branch>` silently no-oped ("Already up to date")
+  because the branch tip had no new commits, which could easily be
+  mistaken for "nothing to integrate" rather than "the subagent forgot to
+  commit." Always run `git log --oneline -3 <branch>` (not just `git
+  status` in the worktree) before trusting a merge's "up to date" result,
+  and treat an uncommitted-but-complete worktree as an integration step,
+  not a subagent failure — commit on the subagent's behalf before merging.
+  Separately, the same subagent correctly flagged that it could not get a
+  genuine live OPA decision-API confirmation from inside its own isolated
+  worktree: the shared `opa` container bind-mounts `governance/opa/policy`
+  from the coordinator's main tree, not any worktree, so
+  `scripts/reload-opa-policy.sh` only ever reloads whatever is on disk at
+  the main tree's path — a worktree-local `opa test` (containerized,
+  policy-dir-only) is the correct evidence for a subagent to gather;
+  the live decision-API round trip must be re-run by the coordinator
+  after merging, not delegated to the subagent.
+
 - 2026-08-31 (Issue #50 §10 follow-up, Temporal Workflows dashboard tile,
   live browser verification): a `compose.yaml`/template change already
   committed (widened `CODER_ADDITIONAL_CSP_POLICY` for the tile's icon,
