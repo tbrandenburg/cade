@@ -15,3 +15,9 @@ variable "workspace_image" {
   description = "Pre-built workspace image tag. Build it first with `make coder-workspace-build` (optionally CACERT=<path> behind a MITM proxy) — Coder templates only upload this directory, not the repository root, so the image cannot be built inline from ../../Dockerfile."
   type        = string
 }
+
+variable "temporal_ui_public_url" {
+  description = "Browser-reachable Temporal UI URL (external=true coder_app, so the browser resolves it directly, not compose DNS)."
+  type        = string
+  default     = "http://localhost:8088"
+}

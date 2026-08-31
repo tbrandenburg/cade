@@ -527,4 +527,19 @@ on v2.36.3. The real scoped-listing endpoint is
 `GET /api/v2/workspaces?q=owner:<owner>` (the same query-filter syntax
 the Coder Web UI's workspace search box uses).
 
+**§10 follow-up (2026-08-31): "Temporal Workflows" dashboard tile.**
+`coder/templates/docker-workspace/main.tf` adds a conditional
+`coder_app.temporal` tile, gated by the `temporal_owned` `coder_parameter`
+(default `false`; `demo/workspace_activity.py` now passes `"true"` for
+every `tw-`-prefixed workspace it creates). It is a pure UI convenience
+link (`external = true`) deep-linking to Temporal UI's own workflow list,
+filtered to the owning workspace's name — it grants no new backend
+capability and does not widen `temporal-svc`'s token scope (above) or any
+other token's. Verified live in a real browser: the tile and its icon
+render with zero CSP violations once `coder`'s `CODER_ADDITIONAL_CSP_POLICY`
+(`compose.yaml`) includes `http://localhost:${TEMPORAL_UI_PORT:-8088}`
+under `img-src`, the tile's link correctly opens Temporal UI filtered to
+the workspace, and the tile is absent entirely on a workspace created with
+`temporal_owned=false` (the default).
+
 

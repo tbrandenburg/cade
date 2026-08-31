@@ -79,7 +79,11 @@ services:
       # type character varying(256)` for any real encoding tested. Widening
       # img-src for exactly this one already-trusted internal origin is the
       # narrowest fix; see coder/templates/agent-workspace/assets/README.md.
-      CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000}"
+      # Issue #50 §10: same silent-CSP-failure precedent (Issue #47) applies
+      # to the new `coder_app.temporal` dashboard tile's icon, which points
+      # at the plain-http temporal_ui_public_url — widen img-src for that
+      # already-trusted internal origin too.
+      CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000} http://localhost:${TEMPORAL_UI_PORT:-8088}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder

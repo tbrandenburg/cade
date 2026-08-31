@@ -63,11 +63,15 @@ def container_name_for(owner: str, name: str) -> str:
 # (dir `coder/templates/docker-workspace/main.tf`) must be passed
 # explicitly, or workspace creation hangs with an opaque "prepare build:
 # EOF" (documented in AGENTS.md and Issue #17). Verified directly against
-# that Terraform file: exactly two parameters, `github_token` (default
-# "") and `agent_capable` (default "false").
+# that Terraform file: exactly three parameters, `github_token` (default
+# ""), `agent_capable` (default "false"), and `temporal_owned` (default
+# "false"). This Activity only ever creates Temporal-owned `tw-*`
+# workspaces, so `temporal_owned` is always set to "true" here (Issue
+# #50 §10) to render the Temporal Workflows UI dashboard tile.
 DEFAULT_RICH_PARAMETER_VALUES = [
     {"name": "github_token", "value": ""},
     {"name": "agent_capable", "value": "false"},
+    {"name": "temporal_owned", "value": "true"},
 ]
 
 
