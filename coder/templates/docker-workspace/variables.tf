@@ -21,3 +21,9 @@ variable "temporal_ui_public_url" {
   type        = string
   default     = "http://localhost:8088"
 }
+
+variable "nodered_icon" {
+  description = "Icon for the Node-RED tile (Issue #60). Defaults to a Coder-bundled, same-origin icon (no external dependency, no CSP impact). Set to \"https://cdn.simpleicons.org/nodered\" for the brand-accurate icon if outbound Internet from the browser is acceptable."
+  type        = string
+  default     = "/icon/node.svg"
+}

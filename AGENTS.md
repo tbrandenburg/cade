@@ -172,6 +172,39 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #60, JupyterLab/Node-RED workspace apps,
+  `docker-workspace` template): Coder v2.36.3's real path-based
+  `coder_app` proxy **strips** the `/@owner/workspace.../apps/<slug>`
+  prefix before forwarding to the app's `url` — it does not preserve the
+  full request path, and sends no `X-Forwarded-Prefix` header. Confirmed
+  unambiguously with a raw Python `http.server` echo endpoint swapped in
+  for the real app (logged the exact bare path/headers Coder forwarded).
+  This directly contradicts the conventional JupyterHub-style
+  reverse-proxy assumption (that the proxy preserves the full path and
+  the backend's own `--ServerApp.base_url`/equivalent must match it) —
+  an app configured that way 404s on **every** request through the real
+  dashboard proxy, even though it works perfectly against a direct
+  `docker exec ... curl` to the container using the identical full path.
+  That direct-container test is exactly what initially masked the bug
+  during implementation, matching this repo's own already-documented
+  "verify through the real thing, not a synthetic reproduction" pattern
+  (see the Issue #23 sandbox section above) — extend that rule
+  explicitly to `coder_app` path-mode integrations: always curl through
+  the actual Coder dashboard/API proxy (`Coder-Session-Token` header
+  against the deployment's real access URL), never only a direct
+  container-internal request, before trusting any base-path/prefix
+  design for a proxied app. Fix: mount the app at root (no base path at
+  all) and let the proxy's stripping do the rest. This works completely
+  for apps whose own HTML emits *relative* asset paths (Node-RED, full
+  round trip incl. asset loading verified) but only partially for apps
+  using *domain-absolute* asset paths (JupyterLab: main page and API
+  routes work, but its own JS/CSS bundle does not load in a real browser
+  once navigated to the tile's prefixed URL) — see
+  `docs/operations.md`/`docs/security.md`'s Issue #60 sections and
+  `.agents/skills/coder-app-tile/SKILL.md` for the full evidence,
+  workaround (`coder port-forward`), and possible future fixes (wildcard
+  DNS + `subdomain = true`, or an in-workspace path-rewriting shim).
+
 - 2026-08-31 (Issue #54, parallel subagent worktree workflow): a subagent
   reported a complete, passing handoff (`opa test` 23/23, `py_compile`
   clean) but had never actually run `git commit` in its worktree — all six

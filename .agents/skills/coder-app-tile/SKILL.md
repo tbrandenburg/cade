@@ -205,3 +205,40 @@ lessons, not a replacement for them.
 - Click through the tile's external link and confirm it lands where
   expected; if it carries a deep-link param, confirm the param actually
   has an effect (see point 4).
+
+## Issue #60 — first `external = false` + `healthcheck` integration in this repo
+
+JupyterLab and Node-RED (`docker-workspace/main.tf`) were the first real
+use of this skill's point 1's "reconsider `external = false`" guidance —
+both are processes the workspace agent itself starts/reaches on
+`localhost`, matching the official code-server/JupyterLab/RStudio
+examples exactly. `external = false` (the default) + `healthcheck` was
+confirmed the correct choice: no `CODER_ADDITIONAL_CSP_POLICY` change was
+needed at all (same-origin icons, `/icon/jupyter.svg` and `/icon/node.svg`
+both live-verified 200; Node-RED has no bundled icon of its own —
+`/icon/node-red.svg`/`/icon/nodered.svg` both 404).
+
+**Critical addendum, found only by testing through the REAL dashboard
+proxy (not a direct container curl) — add this to point 1's checklist for
+any future path-mode (no wildcard DNS) `external = false` integration**:
+Coder's real path-based proxy (v2.36.3, confirmed with a raw Python
+echo-server test) **strips** the `/@owner/ws.../apps/<slug>` prefix
+before forwarding to the app's `url` — it does not preserve the full
+path, and does not send `X-Forwarded-Prefix`. An app configured to
+recognize/require that same prefix (e.g. JupyterLab's
+`--ServerApp.base_url`, the conventional JupyterHub-style reverse-proxy
+pattern) will 404 on **every** request through the real proxy, even
+though it works perfectly against a direct container curl using the same
+full path — this is exactly the trap the "always verify through the real
+proxy, not a direct container curl" rule exists to catch. The correct
+config for this Coder version's path-mode is to mount the app at root (no
+base path at all) and let the proxy's stripping do the rest — this works
+completely for apps whose own HTML uses *relative* asset paths (Node-RED,
+verified full round trip incl. asset loading) but only partially for apps
+using *domain-absolute* asset paths (JupyterLab: main page/API routes
+work, but its own JS/CSS bundle does not load in a real browser) — see
+`docs/security.md`/`docs/operations.md`'s Issue #60 sections for the full
+evidence and workaround. Do not assume a `--base_url`/`--prefix`-style
+flag "should" work with Coder's path-mode proxy without testing the
+*specific* request path through the real dashboard, not just the
+container.

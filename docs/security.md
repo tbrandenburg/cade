@@ -610,4 +610,51 @@ re-runs `scripts/reload-opa-policy.sh` against the merged tree — the
 containerized `opa test` run against this worktree's own policy files
 (23/23 passing) is what actually proves the new policy's logic.
 
+## Issue #60 — JupyterLab/Node-RED workspace apps: auth model and confinement
+
+Both apps run as plain, unprivileged processes inside the
+`docker-standard` (`docker-workspace`) template's already-confined
+container (Issue #23's `security_opts` — untouched by this issue), bound
+explicitly to `127.0.0.1` inside that container. Neither has its own
+login/password/token:
+
+- JupyterLab: `--IdentityProvider.token='' --ServerApp.password=''`.
+- Node-RED: no `adminAuth` in `coder/workspace-apps/node-red-settings.js`.
+
+This is deliberate, not an oversight: the *only* network path to either
+listener is Coder's own agent-proxy, which already requires a valid
+Coder session (the same mechanism gating every other `coder_app` in this
+template, e.g. code-server). Nothing is published to the host, to
+`compose.yaml`'s platform networks, or to any other workspace's
+container — each is a private, per-workspace, per-user process on a
+private loopback interface. A second login on top would be redundant
+security theater, not a real additional boundary, and would break the
+proxied deep-link (Coder's proxy does not forward interactive
+login-prompt flows).
+
+Both `coder_app` tiles reference same-origin, Coder-bundled icons
+(`/icon/jupyter.svg`, `/icon/node.svg`) — **no**
+`CODER_ADDITIONAL_CSP_POLICY` change was needed (verified live:
+`docker inspect coder --format '{{.Config.Env}}'` showed
+`CODER_ADDITIONAL_CSP_POLICY` byte-identical before/after this issue),
+unlike Issue #47/#50's plain-http external-origin icon tiles.
+
+The reference architecture this issue was scoped from
+(`tbrandenburg/jupyter-nodered-sandbox`) runs `srt`/bubblewrap with
+`cap_add: [SYS_ADMIN, NET_ADMIN]` + `seccomp=unconfined` +
+`apparmor=unconfined` for its own separate purposes — **none of that was
+adopted here**. `coder/templates/docker-workspace/security/*` (Issue
+#23/#40's narrowly-scoped seccomp/AppArmor profiles) was not touched by
+this issue at all; JupyterLab and Node-RED run under the exact same
+confinement every other in-workspace process already does.
+
+**Live-verified limitation, not a security issue**: Coder's own real
+path-based `coder_app` proxy (v2.36.3) strips the app's URL prefix before
+forwarding to the app, rather than preserving the full path. This breaks
+JupyterLab's own domain-absolute static-asset loading in a real browser
+(see `docs/operations.md`'s "Known limitation" for the full write-up) —
+purely a usability gap, not an auth/confinement gap: the underlying
+process is exactly as reachable (only via the authenticated proxy) either
+way.
+
 
