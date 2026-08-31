@@ -323,6 +323,59 @@ set -e
 if [ "$OMNIGENT_SANDBOX_MODE" = "plain" ]; then
   exec /usr/local/bin/opencode "$@"
 fi
+
+# Issue #45 (Direction 4): srt's `bwrap --unshare-net` puts a sandboxed
+# `opencode serve` in a private network namespace, so its loopback port is
+# unreachable from the unsandboxed omnigent runner polling
+# http://127.0.0.1:<port> from outside the sandbox -- reproduced live in
+# Issue #45's own investigation. Verified live fix (Issue #45, "Direction 4"
+# comment): a Unix socket created inside the sandbox is still a filesystem
+# object under the shared /tmp bind-mount, so it (unlike TCP) IS reachable
+# from outside -- bridge the sandboxed TCP port to a Unix socket in here,
+# and bridge that same Unix socket back to the identical TCP port from
+# OUTSIDE the sandbox via the bridge-watchdog started in startup_script
+# below. Only applies to a `serve --port <N>` invocation (omnigent's
+# opencode-native harness's long-lived orchestration server) -- every other
+# invocation (interactive attach, etc.) is unaffected.
+is_serve=""
+port=""
+prev=""
+for arg in "$@"; do
+  if [ "$arg" = "serve" ]; then
+    is_serve=1
+  fi
+  case "$prev" in
+  --port)
+    port="$arg"
+    ;;
+  esac
+  case "$arg" in
+  --port=*)
+    port="$${arg#--port=}"
+    ;;
+  esac
+  prev="$arg"
+done
+
+if [ -n "$is_serve" ] && [ -n "$port" ]; then
+  # Stale-socket removal happens OUTSIDE srt, in this plain shell, before
+  # srt ever starts -- /tmp is a shared bind-mount (see Issue #45 evidence
+  # point 1), so this is safe/effective here, and a leftover socket file
+  # from a prior session would otherwise make socat's UNIX-LISTEN below
+  # fail with "Address already in use" inside the sandbox.
+  rm -f "/tmp/opencode-bridge-$port.sock"
+  # `srt -c "..."` runs the whole quoted string as ONE shell command inside
+  # the sandbox, so both the bridge listener and the real server must be
+  # started here, backgrounding the former and `exec`ing the latter so the
+  # server (not the shell) becomes srt's actual foreground/PID-1-under-srt
+  # process. `$*` (not "$@") is intentional here: it re-joins the shim's
+  # own original arguments into the single string `srt -c` expects -- same
+  # trade-off already accepted by the shim's own comments elsewhere in this
+  # file (no embedded spaces expected in omnigent's own `serve --hostname
+  # 127.0.0.1 --port <N>` invocation).
+  exec srt -c "socat UNIX-LISTEN:/tmp/opencode-bridge-$port.sock,fork,reuseaddr TCP:127.0.0.1:$port & exec /usr/local/bin/opencode $*"
+fi
+
 exec srt /usr/local/bin/opencode -- "$@"
 OMNIGENT_OPENCODE_SHIM
     chmod +x ~/.omnigent-bin/opencode
@@ -345,6 +398,93 @@ OMNIGENT_OPENCODE_SHIM
     # bwrap/srt anywhere in its process tree. Export it into the CURRENT
     # script's own environment too, not just future shells.
     export PATH="$HOME/.omnigent-bin:$PATH"
+
+    # Issue #45 (Direction 4): outside-sandbox half of the reverse
+    # Unix-socket bridge -- pairs with the ~/.omnigent-bin/opencode shim
+    # above, which starts (inside srt) a `socat UNIX-LISTEN:<sock>
+    # TCP:127.0.0.1:<port>` bridge for any `opencode serve --port <N>`
+    # invocation. This watchdog runs OUTSIDE the sandbox (plain container
+    # namespace) and mirrors that bridge in the other direction --
+    # `socat TCP-LISTEN:<port> UNIX-CONNECT:<sock>` -- so the unsandboxed
+    # omnigent runner can reach 127.0.0.1:<port> exactly as if `opencode
+    # serve` were not network-namespace-isolated at all, without weakening
+    # srt's actual filesystem/process sandboxing. See Issue #45's
+    # "Direction 4" comment for the full live-verified design/evidence.
+    #
+    # Written unconditionally (always overwritten, not just-if-missing) on
+    # every boot, unlike the user-editable config blocks elsewhere in this
+    # script (e.g. .vscode/settings.json) -- this file is never meant to be
+    # hand-edited, so there's nothing to preserve across a rewrite.
+    mkdir -p ~/.omnigent-bin
+    cat > ~/.omnigent-bin/bridge-watchdog.sh <<'BRIDGE_WATCHDOG'
+#!/bin/sh
+# Polls for opencode-bridge-<N>.sock files created by the srt-side shim and
+# keeps a matching plain (unsandboxed) socat TCP<->UNIX bridge running for
+# each one, reaping the bridge process once its socket disappears (the
+# owning srt session ended). Runs forever; intended to be started once as a
+# detached background process by startup_script, guarded against
+# double-spawning on a workspace restart (see the pgrep check below it).
+while true; do
+  for sock in /tmp/opencode-bridge-*.sock; do
+    [ -e "$sock" ] || continue
+    base=$(basename "$sock" .sock)
+    port="$${base#opencode-bridge-}"
+    pidfile="/tmp/opencode-bridge-$port.pid"
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
+      continue
+    fi
+    socat TCP-LISTEN:"$port",fork,reuseaddr UNIX-CONNECT:"$sock",retry &
+    echo $! >"$pidfile"
+  done
+
+  for pidfile in /tmp/opencode-bridge-*.pid; do
+    [ -e "$pidfile" ] || continue
+    base=$(basename "$pidfile" .pid)
+    port="$${base#opencode-bridge-}"
+    sock="/tmp/opencode-bridge-$port.sock"
+    # Issue #45 Step 3 (live E2E finding): a Unix socket special file is
+    # NOT automatically removed from disk when its listening process
+    # exits -- `[ -e "$sock" ]` alone stays true forever after the
+    # sandboxed srt session that created it has already ended, so this
+    # reaping check never fired and the outside bridge (and its stale
+    # pidfile/socket) leaked indefinitely. Reproduced live: killed the
+    # sandboxed `opencode serve`/socat pair, the .sock file remained on
+    # disk unchanged. Fixed by actively probing for a live listener
+    # (`socat -u OPEN:/dev/null UNIX-CONNECT:"$sock"` connects then
+    # immediately EOFs; a dead/no-listener socket fails fast with
+    # "Connection refused", confirmed live) instead of trusting mere
+    # file existence.
+    if [ ! -e "$sock" ] || ! socat -u OPEN:/dev/null UNIX-CONNECT:"$sock" >/dev/null 2>&1; then
+      kill "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null || true
+      rm -f "$pidfile" "$sock"
+    fi
+  done
+
+  sleep 1
+done
+BRIDGE_WATCHDOG
+    chmod +x ~/.omnigent-bin/bridge-watchdog.sh
+
+    # Idempotent start: a PID-file + `kill -0` check, NOT `pgrep -f
+    # 'bridge-watchdog.sh'` -- verified live (Issue #45 Step 3) that a
+    # `pgrep -f` string match self-matches the CURRENTLY RUNNING
+    # startup_script shell process itself, because `coder_agent` executes
+    # this entire startup_script as a single `sh -c "<script text>"`
+    # invocation, and that script's own text (this very comment, the
+    # heredoc above, etc.) contains the literal substring
+    # "bridge-watchdog.sh" -- so the check always found a false-positive
+    # "match" against its own already-running parent shell and silently
+    # skipped starting the watchdog every single boot. A PID file avoids
+    # any text-matching self-reference entirely; it's also safe against
+    # the "stale file from a no-longer-existing container" case the prior
+    # comment worried about, since /tmp is NOT on the persistent home
+    # volume -- a freshly (re)created container always starts with an
+    # empty /tmp, so a leftover PID file can only ever refer to a process
+    # from THIS SAME still-running container.
+    if [ ! -f /tmp/omnigent-bridge-watchdog.pid ] || ! kill -0 "$(cat /tmp/omnigent-bridge-watchdog.pid 2>/dev/null)" 2>/dev/null; then
+      nohup ~/.omnigent-bin/bridge-watchdog.sh >/tmp/omnigent-bridge-watchdog.log 2>&1 &
+      echo $! >/tmp/omnigent-bridge-watchdog.pid
+    fi
 
     # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
     # "accounts" auth mode by replicating the real CLI's own

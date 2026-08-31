@@ -1,11 +1,12 @@
 {
   "network": {
     "allowedDomains": ["github.com", "*.github.com", "api.github.com", "copilot-proxy.githubusercontent.com"],
-    "deniedDomains": []
+    "deniedDomains": [],
+    "allowAllUnixSockets": true
   },
   "filesystem": {
     "denyRead": ["~/.ssh", "~/.aws", ".env", "~/.claude", "~/.copilot"],
-    "allowWrite": [".", "/tmp", "~/.local"],
+    "allowWrite": [".", "/tmp", "~/.local", "~/.cache", "~/.config"],
     "denyWrite": [".env", "**/secrets/**"]
   },
   "enableWeakerNestedSandbox": true
