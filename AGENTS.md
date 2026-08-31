@@ -169,6 +169,39 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #49, Temporal exec into a pre-existing Coder
+  workspace): confirmed live, real container naming convention —
+  `coder-<owner>-<workspace-name-lowercased>` (e.g. a workspace
+  `issue49verify` owned by `issue45verify` produced exactly
+  `coder-issue45verify-issue49verify`, matching `coder/templates/*/main.tf`'s
+  `name = "coder-${owner}-${lower(workspace)}"` byte-for-byte). Three
+  gotchas found only by running the real thing: (1) `build-docker-proxy`
+  (`tecnativa/docker-socket-proxy`) had `EXEC=0` from Issue #5's original
+  MVP scope (only `docker run` was ever needed) — docker-py's
+  `container.exec_run(...)` against it needs `EXEC=1` explicitly widened;
+  proven necessary, not assumed, by testing the exec call first with the
+  old config (denied) then after widening (worked), mirroring the same
+  minimal-widening pattern already documented here for
+  `runner-docker-proxy`'s `BUILD=1` fix. (2) A real Coder workspace
+  container has no `/workspace` directory (unlike `cade/coder-workspace:
+  latest`, the ephemeral path's image) — `docker exec ... --workdir
+  /workspace` against it fails with `OCI runtime exec failed: ... chdir
+  to cwd ("/workspace") ... no such file or directory`; any
+  persistent-container Activity caller must pass a `workdir` that
+  actually exists in *that specific* container (e.g. `/` or `/home/coder`
+  once the agent has created it), never assume the ephemeral path's
+  default. (3) `coder stop --yes` does not leave the container behind in
+  an `exited` state to test a "not running" code path against — it fully
+  destroys `docker_container.workspace` (keeping only
+  `docker_volume.home_volume`, consistent with the existing Coder/
+  Terraform/Docker lesson already recorded here), so `docker exec`
+  against a stopped-via-`coder-stop` workspace's old name returns
+  "container not found", not "container not running" — a
+  `run_build_command(container_name=...)` caller must handle *both*
+  outcomes as the same class of user-facing error (it does, via a single
+  fail-closed `{"ok": false, "error": ...}` shape), and should not assume
+  "not found" only ever means "typo'd the name".
+
 - 2026-08-31 (Issue #47, `coder_app` custom icon): a `coder_app.icon` set to
   a plain-`http` URL is silently blocked by Coder's own default
   Content-Security-Policy (`img-src 'self' https: data: blob:`) — the
