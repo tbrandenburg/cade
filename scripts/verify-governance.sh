@@ -41,6 +41,56 @@ echo "${FLASH_DENY_DECISION}" | grep -q '"result":false' || {
 	exit 1
 }
 
+# Issue #54: workspace.authz round trip (Temporal-owned tw-* Coder
+# workspace create/start/stop/delete gate).
+WS_CREATE_ALLOW=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"create","workspace_name":"tw-demo","owner":"temporal-svc"}}')
+echo "    workspace create (valid temporal-svc + tw-*) -> ${WS_CREATE_ALLOW}"
+echo "${WS_CREATE_ALLOW}" | grep -q '"result":true' || {
+	echo "FAIL: expected valid temporal-svc create of tw-demo to be ALLOWed" >&2
+	exit 1
+}
+
+WS_CREATE_DENY_OWNER=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"create","workspace_name":"tw-demo","owner":"some-other-user"}}')
+echo "    workspace create (wrong owner) -> ${WS_CREATE_DENY_OWNER}"
+echo "${WS_CREATE_DENY_OWNER}" | grep -q '"result":false' || {
+	echo "FAIL: expected wrong-owner create to be DENIED" >&2
+	exit 1
+}
+
+WS_CREATE_DENY_NAME=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"create","workspace_name":"not-tw-prefixed","owner":"temporal-svc"}}')
+echo "    workspace create (malformed name) -> ${WS_CREATE_DENY_NAME}"
+echo "${WS_CREATE_DENY_NAME}" | grep -q '"result":false' || {
+	echo "FAIL: expected malformed-name create to be DENIED" >&2
+	exit 1
+}
+
+WS_STOP_ALLOW=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"stop","workspace_name":"tw-demo","owner":"temporal-svc"}}')
+echo "    workspace stop (temporal-svc) -> ${WS_STOP_ALLOW}"
+echo "${WS_STOP_ALLOW}" | grep -q '"result":true' || {
+	echo "FAIL: expected temporal-svc stop to be ALLOWed" >&2
+	exit 1
+}
+
+WS_DELETE_ALLOW=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"delete","workspace_name":"tw-demo","owner":"temporal-svc","reap_action":"delete"}}')
+echo "    workspace delete (reap_action=delete) -> ${WS_DELETE_ALLOW}"
+echo "${WS_DELETE_ALLOW}" | grep -q '"result":true' || {
+	echo "FAIL: expected delete with reap_action=delete to be ALLOWed" >&2
+	exit 1
+}
+
+WS_DELETE_DENY=$(curl -s -X POST http://127.0.0.1:8181/v1/data/workspace/authz/allow \
+	-d '{"input":{"action":"delete","workspace_name":"tw-demo","owner":"temporal-svc","reap_action":"stop"}}')
+echo "    workspace delete (reap_action=stop) -> ${WS_DELETE_DENY}"
+echo "${WS_DELETE_DENY}" | grep -q '"result":false' || {
+	echo "FAIL: expected delete with reap_action!=delete to be DENIED" >&2
+	exit 1
+}
+
 echo ""
 echo "==> [3/3] Live MCP round trip through lab-sim (reserve -> run_test -> flash_device x2 -> release)"
 (

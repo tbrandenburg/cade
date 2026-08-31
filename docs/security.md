@@ -542,4 +542,72 @@ under `img-src`, the tile's link correctly opens Temporal UI filtered to
 the workspace, and the tile is absent entirely on a workspace created with
 `temporal_owned=false` (the default).
 
+## Issue #54 — OPA gate on Temporal-owned workspace lifecycle (`workspace.authz`)
+
+Issue #50 shipped `demo/workspace_activity.py`'s `ensure_coder_workspace`
+(create/start) and `reap_coder_workspaces` (stop/delete) with no
+authorization gate of their own — only Coder's own RBAC (via the scoped
+`temporal-svc` token above) as a backstop. This closes that gap with a
+new policy, `governance/opa/policy/workspace_authz.rego` (package
+`workspace.authz`, decision path `POST /v1/data/workspace/authz/allow`),
+mirroring `build.authz`'s pattern/fail-closed philosophy exactly.
+
+**Exact rule set** (pinned by `governance/opa/policy/workspace_authz_test.rego`):
+
+- `create`/`start`: allowed only if `input.owner == "temporal-svc"` **and**
+  `input.workspace_name` matches `^tw-[a-z0-9-]{1,29}$` — byte-for-byte
+  the same pattern `workspace_activity.py`'s own `NAME_PATTERN` already
+  validates in Python (the Rego rule does not invent a new constraint).
+- `stop`: allowed unconditionally for `input.owner == "temporal-svc"`.
+- `delete`: allowed only if `input.reap_action == "delete"` — the actual
+  configured value of `CODER_WORKSPACE_REAP_ACTION` is passed through as
+  part of the decision input, so the policy (not the Activity) decides
+  whether a real delete is permitted; `reap_action` set to anything else
+  (including the default `"stop"`, or missing entirely) denies delete.
+- Default is `allow := false` for any other action, wrong owner, malformed
+  name, or missing/empty input — same fail-closed default as `build.authz`.
+
+**Wiring** (`temporal/src/demo/workspace_activity.py`): a `_opa_allows`
+helper mirrors `build_activity.py`'s existing one (same `OPA_URL` config
+source, same `httpx.post` pattern, same fail-closed-on-exception/
+non-200/non-`true`-result behavior — deliberately duplicated rather than
+extracted into shared code, consistent with this repo's existing
+one-`_opa_allows`-per-activity-file style).
+
+- `ensure_coder_workspace` calls it once, up front, with `action="create"`
+  before any Coder API call — at that point in the flow it is not yet
+  known whether the Activity will end up creating or starting the
+  workspace (that depends on Coder's resolved state), but
+  `workspace_authz.rego`'s allow conditions for `create` and `start` are
+  identical, so a single upfront check with `action="create"` covers both
+  outcomes. A deny (or an unreachable/erroring OPA) returns the same
+  fail-closed `{"ok": false, "error": "denied by workspace.authz policy
+  for name=... owner=..."}` shape `ensure_coder_workspace` already used
+  for other error paths — never a silent pass-through.
+- `reap_coder_workspaces`'s per-item loop calls it immediately before
+  issuing the real stop/delete API call, passing the actual configured
+  `CODER_WORKSPACE_REAP_ACTION` as `reap_action` and using it (mapped to
+  `"stop"` or `"delete"`) as the gated action. A denial is recorded in the
+  existing `skipped` list (`reason: "denied by workspace.authz for
+  action=..."`) — consistent with how every other per-item failure in
+  this loop is already handled (fail-closed per item, never abandoning
+  the rest of the reaper run).
+
+**Verification**: `opa test governance/opa/policy/` (23/23, including 12
+new `workspace.authz_test` cases, no regressions to `build_authz_test`/
+`lab_authz_test`) passes. `scripts/verify-governance.sh` was extended
+with the same live-decision-API round trip pattern already used for
+`lab.authz`: ALLOW for a valid `temporal-svc` create/start/stop and a
+delete with `reap_action=delete`; DENY for a wrong-owner create, a
+malformed-name create, and a delete with `reap_action=stop`. Because the
+live `opa` container (shared across the whole repo, restarted by
+`scripts/reload-opa-policy.sh`) bind-mounts `governance/opa/policy` from
+the coordinator's own working tree rather than this issue's isolated
+worktree, the live decision-API portion of `verify-governance.sh` could
+only be confirmed to return the expected shape (not yet the new
+policy's content) until this branch is merged and the coordinator
+re-runs `scripts/reload-opa-policy.sh` against the merged tree — the
+containerized `opa test` run against this worktree's own policy files
+(23/23 passing) is what actually proves the new policy's logic.
+
 
