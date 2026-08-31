@@ -67,6 +67,19 @@ services:
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
+      # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)
+      # blocks the `coder_app.omnigent` dashboard tile's icon, which points
+      # at the plain-http omnigent_public_url (this platform has no TLS
+      # termination in front of Coder/omnigent-server — see docs/INITIAL.md,
+      # "no inbound Internet exposure"). A self-contained `data:` URI (the
+      # issue's originally proposed fix) was verified live to be infeasible
+      # too: Coder's `workspace_apps.icon` column is `varchar(256)`, and the
+      # real favicon needs >18KB base64-encoded even at its raw SVG size —
+      # `coder templates push` fails outright with `pq: value too long for
+      # type character varying(256)` for any real encoding tested. Widening
+      # img-src for exactly this one already-trusted internal origin is the
+      # narrowest fix; see coder/templates/agent-workspace/assets/README.md.
+      CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder

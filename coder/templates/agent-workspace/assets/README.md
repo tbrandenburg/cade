@@ -23,14 +23,31 @@ templates push` fails with `pq: value too long for type character varying(256)`
 for any encoding of the real asset tested.
 
 `main.tf` instead references `"${var.omnigent_public_url}/favicon.svg"`
-directly — verified live to render correctly in the Coder dashboard (see
-`docs/milestone-reports/issue-47-omnigent-icon.md` if present, or the
-issue's own subagent handoff for the live verification evidence). This adds
-no *new* runtime dependency: `coder_app.omnigent` is `external = true`, so
-the browser must already reach `omnigent_public_url` directly to open the
-app at all — the icon fetch shares that same, already-required reachability.
+directly. This adds no *new* runtime dependency: `coder_app.omnigent` is
+`external = true`, so the browser must already reach `omnigent_public_url`
+directly to open the app at all — the icon fetch shares that same,
+already-required reachability.
+
+**A second, separate blocker was found (and fixed) during live coordinator
+verification of this same URL approach**: Coder's dashboard ships a default
+Content-Security-Policy (`img-src 'self' https: data: blob:`), which
+silently blocks loading an `<img>` from a plain-`http` origin — confirmed
+live via the browser's own console error (`Loading the image
+'http://localhost:8000/favicon.svg' violates the following Content
+Security Policy directive: "img-src 'self' https: data: blob:"`), even
+though the network request itself would have succeeded. This platform has
+no TLS termination in front of Coder/omnigent-server by design (see
+`docs/INITIAL.md`, "no inbound Internet exposure"), so `https:` isn't an
+option either. Fixed by widening the CSP for exactly this one
+already-trusted internal origin via `CODER_ADDITIONAL_CSP_POLICY` in
+`compose.yaml` (`img-src http://localhost:${OMNIGENT_PORT:-8000}`) — the
+minimal widening that unblocks only the one icon `<img>` fetch. Verified
+live end-to-end (real browser session, real Coder dashboard, real
+workspace): the "Omnigent Chat" tile now renders the actual favicon.
 
 If Coder ever widens `workspace_apps.icon`'s column limit (or adds a
 template-bundled-asset serving mechanism), this file is ready to be
 referenced via `filebase64("${path.module}/assets/omnigent-icon.svg")` as
-originally proposed in issue #47.
+originally proposed in issue #47 — at which point the `compose.yaml` CSP
+widening above could likely be reverted too (a `data:` URI already
+satisfies the default CSP).
