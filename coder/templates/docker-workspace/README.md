@@ -60,3 +60,32 @@ repository root `Makefile`'s `coder-workspace-build` target):
 ```bash
 make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 ```
+
+## Optional workspace apps: JupyterLab and Node-RED (Issue #60)
+
+Two independent, opt-in dashboard tiles, both `false` by default (zero
+behaviour change for existing workspaces):
+
+- `enable_jupyter` (`coder_parameter`) — starts JupyterLab
+  (`coder_script.jupyter`) and shows a "JupyterLab" tile
+  (`coder_app.jupyter`).
+- `enable_nodered` (`coder_parameter`) — starts Node-RED
+  (`coder_script.nodered`) and shows a "Node-RED" tile
+  (`coder_app.nodered`).
+
+Both run as plain processes inside the workspace container (not platform
+`compose.yaml` services), bound to `127.0.0.1` only — the *only* way to
+reach either is through Coder's own authenticated agent proxy, so neither
+has its own login. See `docs/operations.md` and `docs/security.md` for the
+full design/data-location/log-location writeup, and
+`scripts/set-workspace-jupyter.sh` / `scripts/set-workspace-nodered.sh` to
+retro-fit either tile onto an already-created workspace.
+
+**Known limitation (live-verified, Issue #60)**: JupyterLab's own SPA emits
+domain-absolute static asset paths (`/static/lab/...`), which do not
+resolve correctly once the browser is at the tile's prefixed URL, because
+Coder's own path-based `coder_app` proxy strips that prefix before
+forwarding to the app. Node-RED is unaffected (its assets are
+relative-path). Workaround: `coder port-forward <workspace> --tcp
+8888:8888` and open `http://localhost:8888/lab` directly. See this
+issue's milestone report for full evidence.
