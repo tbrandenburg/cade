@@ -20,11 +20,13 @@ async def start(
     workflow_id: str,
     wait: bool,
     template: str | None = None,
+    container_name: str | None = None,
+    workdir: str = "/workspace",
 ) -> None:
     client = await Client.connect(TEMPORAL_ADDRESS, namespace=TEMPORAL_NAMESPACE)
     handle = await client.start_workflow(
         BuildWorkflow.run,
-        args=[image, command, "/workspace", template],
+        args=[image, command, workdir, template, container_name],
         id=workflow_id,
         task_queue=TASK_QUEUE,
     )
@@ -68,13 +70,45 @@ def main() -> None:
         help="workflow id (defaults to a fresh unique id)",
     )
     parser.add_argument(
+        "--container-name",
+        default=None,
+        help=(
+            "Issue #49: if given, run the command via `docker exec` "
+            "against this already-existing, already-running container "
+            "(e.g. a real Coder workspace's container, named "
+            "coder-<owner>-<workspace>) instead of an ephemeral one. "
+            "--image/--template is still required/resolved for the OPA "
+            "authz check even in this mode."
+        ),
+    )
+    parser.add_argument(
         "--wait",
         action="store_true",
         help="block until the workflow completes and print its structured result",
     )
+    parser.add_argument(
+        "--workdir",
+        default="/workspace",
+        help=(
+            "working directory inside the target container (default: "
+            "/workspace, which exists in cade/coder-workspace:latest; a "
+            "real Coder workspace container's home is /home/coder — pass "
+            "--workdir explicitly for --container-name targets)"
+        ),
+    )
     args = parser.parse_args()
     workflow_id = args.workflow_id or f"build-workflow-{uuid.uuid4().hex[:8]}"
-    asyncio.run(start(args.image, args.command, workflow_id, args.wait, args.template))
+    asyncio.run(
+        start(
+            args.image,
+            args.command,
+            workflow_id,
+            args.wait,
+            args.template,
+            args.container_name,
+            args.workdir,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -336,13 +336,29 @@ through its own `build-docker-proxy` service (`tecnativa/docker-socket-
 proxy`), deliberately separate from `runner-docker-proxy` (M2) — a
 different consumer with a different allow-list rather than widening an
 existing proxy's scope. Only `CONTAINERS`, `IMAGES`, `POST`, `VERSION`,
-and `PING` are enabled; `EXEC`, `VOLUMES`, `NETWORKS`, `SWARM`, `SYSTEM`,
-and `BUILD` all stay denied (unlike `runner-docker-proxy`, this Activity
-never needs `docker build`, only `docker run` against a pre-built image).
-Not published to the host — reachable only from `platform-workspaces`.
+`PING`, and (since Issue #49) `EXEC` are enabled; `VOLUMES`, `NETWORKS`,
+`SWARM`, `SYSTEM`, and `BUILD` all stay denied (this Activity never needs
+`docker build`, only `docker run`/`docker exec` against a pre-built
+image or an already-running container). Not published to the host —
+reachable only from `platform-workspaces`.
 The OPA policy gate the issue's larger plan calls for (approve/deny which
 images/commands may run) is explicitly out of scope for this MVP slice
 and remains a follow-up.
+
+### Issue #49 — persistent-container exec (`EXEC` widened)
+
+`run_build_command` gained an optional `container_name` parameter: when
+set, the command runs via `docker exec` against an already-existing,
+already-running container (typically a real Coder workspace, named
+`coder-<owner>-<workspace>`) instead of an ephemeral one — Temporal never
+creates/stops/starts/deletes that container, only executes inside it.
+This required widening `build-docker-proxy`'s `EXEC` flag from `0` to `1`
+(proven necessary live: with `EXEC=0`, `container.exec_run(...)` against
+this proxy returned `403 Forbidden by administrative rules`, the same
+class of docker-socket-proxy denial already documented in AGENTS.md for
+`runner-docker-proxy`'s `BUILD=1` fix). No other flag was widened; the
+default (no `container_name`) ephemeral path is completely unaffected.
+
 
 Gap-fill: `run_build_command` is now gated by OPA's `build.authz` policy
 (`governance/opa/policy/build_authz.rego`), evaluated live via OPA's
