@@ -215,3 +215,6 @@ through the bridge to completion, with Issue #23's sandbox properties
 (`denyRead`/`denyWrite`) confirmed not regressed. Full design rationale
 and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
 
+**Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`) — treated as a leaf implementation detail per this issue's own explicit Phase-3 deferral (no new C4 `Rel` arrow drawn here; a formal diagram update is tracked as Phase-3 follow-up).
+
+

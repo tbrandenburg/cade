@@ -470,3 +470,61 @@ enforced discipline is a two-part split:
   standing infrastructure — tracked here rather than left as tribal
   knowledge.
 
+## Issue #50 — Temporal-owned persistent Coder workspaces: `temporal-svc` token scope
+
+`temporal-worker` can now resolve-or-create a Coder workspace on demand
+(`demo/coder_client.py`, `demo/workspace_activity.py`) and reap idle ones
+on a schedule, entirely through the Coder API. It authenticates as a
+dedicated Coder user, `temporal-svc` (not any human/admin account),
+using a token minted by `scripts/coder-svc-token.sh` (`make
+coder-svc-token`) and delivered via `CODER_WORKSPACE_API_TOKEN` —
+deliberately a *different* env var from `CODER_SESSION_TOKEN` (that one
+is the more-privileged, host-side admin token `make ai-bootstrap` uses
+for a completely unrelated purpose; reusing the name would risk either
+var accidentally inheriting the other's value/privilege).
+
+**Exact scopes minted** (verified live against Coder v2.36.3, using the
+current `scopes: [...]` array field — never the deprecated all-or-nothing
+singular `scope: "all"`):
+
+```
+coder:workspaces.create
+coder:workspaces.operate
+organization:read
+template:read
+```
+
+(`coder:workspaces.delete` is added only if
+`CODER_WORKSPACE_REAP_ACTION=delete`; default is `stop`.)
+
+This set is composite-first (the two `coder:workspaces.*` scopes cover
+create/start/stop for workspaces this user owns) plus two narrow,
+read-only, low-level scopes. **This token cannot read other users, list
+or modify templates (`template:read` is read-only), read audit logs, or
+act on any workspace it does not itself own** — verified live via 404/403
+responses for out-of-scope calls during implementation.
+
+**Correction vs. this issue's own comment 2** (found only by live
+testing against the real server, not documented anywhere beforehand):
+`coder:workspaces.create`/`.operate` alone are *not* sufficient to create
+a workspace — `GET /api/v2/organizations` silently returns `200 []` (not
+a 403/404) for a token scoped to only those two, and
+`GET .../templates/{name}` 404s, both without any indication the
+response was scope-truncated rather than genuinely empty/missing. This
+silently produced a `"no organizations returned"` error on the *first*
+live end-to-end attempt in this issue — resolving an organization id and
+a template's `active_version_id` requires the additional `organization:read`
+and `template:read` scopes, added above. **Any future addition to this
+token's capability set must be verified the same way** (mint the token,
+call the specific endpoint, check for a silent-empty-success rather than
+trusting scope names alone) — a `200`/`201` response is not proof a
+scope-restricted caller received real data.
+
+A second correction, also found only live: `list_workspaces` (used by
+the reaper) does not use `GET /api/v2/users/{owner}/workspaces` (this
+issue's own draft plan) — that endpoint returns `405 Method Not Allowed`
+on v2.36.3. The real scoped-listing endpoint is
+`GET /api/v2/workspaces?q=owner:<owner>` (the same query-filter syntax
+the Coder Web UI's workspace search box uses).
+
+

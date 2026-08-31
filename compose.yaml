@@ -363,6 +363,22 @@ services:
       # DOCKER_HOST/runner-docker-proxy above, see build-docker-proxy
       # below and docs/security.md.
       BUILD_DOCKER_HOST: tcp://build-docker-proxy:2375
+      # Issue #50: Temporal-owned persistent Coder workspaces. A distinct
+      # env var name from CODER_SESSION_TOKEN (already used above for the
+      # host-side, admin-scoped `make ai-bootstrap` flow) — see
+      # docs/security.md for the exact, narrowly-scoped token this
+      # references (coder:workspaces.create/.operate only, minted for the
+      # dedicated `temporal-svc` user by `scripts/coder-svc-token.sh`).
+      # Empty by default; ensure_coder_workspace/reap_coder_workspaces
+      # degrade to a clean {"ok": false, "error": "coder token not
+      # configured"} rather than crashing the worker at import time.
+      CODER_URL: http://coder:7080
+      CODER_WORKSPACE_API_TOKEN: ${CODER_WORKSPACE_API_TOKEN:-}
+      CODER_WORKSPACE_OWNER: ${CODER_WORKSPACE_OWNER:-temporal-svc}
+      CODER_WORKSPACE_TEMPLATE: ${CODER_WORKSPACE_TEMPLATE:-docker-standard}
+      CODER_WORKSPACE_TTL_MINUTES: ${CODER_WORKSPACE_TTL_MINUTES:-120}
+      CODER_WORKSPACE_REAP_ACTION: ${CODER_WORKSPACE_REAP_ACTION:-stop}
+      CODER_CREATE_TIMEOUT_SECONDS: ${CODER_CREATE_TIMEOUT_SECONDS:-600}
     volumes:
       - temporal_worker_state:/var/lib/demo-worker
     networks:
