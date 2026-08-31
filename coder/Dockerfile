@@ -74,6 +74,33 @@ RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent
     && mv /root/.opencode/bin/opencode /usr/local/bin/opencode \
     && rm -rf /root/.opencode
 
+# --- JupyterLab (Issue #60) -------------------------------------------------
+# Own venv, not the system Python: Ubuntu 24.04 is PEP-668 "externally
+# managed", so a bare `pip install` fails, and --break-system-packages would
+# put jupyter's dep tree in the same environment as the workspace's own
+# project deps. Symlinked onto PATH for every user/shell (non-login child
+# processes never source /etc/profile).
+ARG JUPYTERLAB_VERSION=4.4.5
+RUN python3 -m venv /opt/jupyter \
+    && /opt/jupyter/bin/pip install --no-cache-dir "jupyterlab==${JUPYTERLAB_VERSION}" \
+    && ln -s /opt/jupyter/bin/jupyter /usr/local/bin/jupyter \
+    && ln -s /opt/jupyter/bin/jupyter-lab /usr/local/bin/jupyter-lab
+
+# --- Node-RED (Issue #60) ---------------------------------------------------
+# Node.js 20 is already installed above (NODE_MAJOR). Palette packages are
+# installed globally here rather than into the userDir, so a fresh
+# /home/coder/.node-red on a brand-new home volume needs zero network access
+# to boot with the dashboard + agent nodes already available.
+ARG NODE_RED_VERSION=4.1.0
+ARG NODE_RED_DASHBOARD_VERSION=1.31.0
+ARG NODE_RED_AGENTS_VERSION=0.3.7
+RUN npm install -g --no-audit --no-fund \
+      "node-red@${NODE_RED_VERSION}" \
+      "@flowfuse/node-red-dashboard@${NODE_RED_DASHBOARD_VERSION}" \
+      "@tbrandenburg/node-red-agents@${NODE_RED_AGENTS_VERSION}" \
+    && mkdir -p /opt/node-red
+COPY workspace-apps/node-red-settings.js /opt/node-red/settings.js
+
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
     else \

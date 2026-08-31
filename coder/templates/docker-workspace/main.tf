@@ -75,6 +75,33 @@ data "coder_parameter" "temporal_owned" {
   order        = 3
 }
 
+# Issue #60: independent, opt-in JupyterLab tile. Both `false` by default —
+# zero behaviour change for existing workspaces. See coder_script.jupyter /
+# coder_app.jupyter below for the full design rationale (in-workspace
+# process, no separate login — guarded solely by Coder's own agent-proxy
+# session auth).
+data "coder_parameter" "enable_jupyter" {
+  name         = "enable_jupyter"
+  display_name = "Enable JupyterLab"
+  description  = "Start JupyterLab in this workspace and show its dashboard tile. Notebooks live in /home/coder/project (persistent home volume). No separate login — access is guarded by Coder's own session auth."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 4
+}
+
+# Issue #60: independent, opt-in Node-RED tile. See coder_script.nodered /
+# coder_app.nodered below.
+data "coder_parameter" "enable_nodered" {
+  name         = "enable_nodered"
+  display_name = "Enable Node-RED"
+  description  = "Start Node-RED in this workspace and show its dashboard tile. Flows live in /home/coder/.node-red (persistent home volume). No separate login — access is guarded by Coder's own session auth."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 5
+}
+
 locals {
   # M4: JSON-RPC/Agent Host security-baseline settings. Kept in sync by hand
   # with the human-readable copy at repository root, `agent-host/settings.json`
@@ -221,6 +248,144 @@ resource "coder_app" "temporal" {
   external     = true
   icon         = "${var.temporal_ui_public_url}/favicon.ico"
   url          = "${var.temporal_ui_public_url}/namespaces/default/workflows?query=WorkflowId%20STARTS_WITH%20%22${data.coder_workspace.me.name}%22"
+}
+
+# Issue #60: JupyterLab, run as an in-workspace process (not a platform
+# compose service) and proxied through Coder's own authenticated agent
+# proxy — see coder/Dockerfile's "JupyterLab" layer and this template's
+# README for the full design rationale. No token/password: the ONLY way to
+# reach this listener is through Coder's session-authenticated proxy, since
+# it binds 127.0.0.1 inside the workspace container only.
+#
+# `count` makes this a true no-op (zero resources) when enable_jupyter
+# stays false (the default) — no process, no tile, no behaviour change.
+#
+# IMPORTANT, corrected from the issue's own original plan after LIVE
+# verification against the real running Coder server (v2.36.3): Jupyter is
+# run WITHOUT --ServerApp.base_url (i.e. mounted at "/", not at a
+# workspace-specific `/@owner/ws.../apps/jupyter` prefix). A raw Python
+# echo-server test proved Coder's real path-based coder_app proxy STRIPS
+# the `/@owner/ws.../apps/<slug>` prefix and forwards only the bare
+# remainder path to the app's `url` — it does NOT preserve/forward the
+# full original path, and sends no `X-Forwarded-Prefix` header either.
+# Setting base_url to the full prefix (the issue's original plan, and the
+# conventional JupyterHub-style reverse-proxy pattern) therefore made
+# EVERY request 404 through the real dashboard proxy (confirmed live),
+# even though it looks correct when curled directly against the container
+# (which is why this bug is easy to miss — always verify through the
+# REAL proxy, not just a direct container curl, per this repo's own
+# anti-deception rules). Mounting at root instead fixes the main page and
+# API routes; JupyterLab's OWN static-asset markup still uses
+# domain-absolute paths ("/static/lab/..."), which is a KNOWN, LIVE-VERIFIED,
+# NOT-FIXED-HERE follow-up limitation — see
+# docs/milestone-reports/issue-60-jupyter-nodered.md and the "Follow-up
+# issues found" section of this issue's handoff for the full writeup and
+# workaround (`coder port-forward`).
+resource "coder_script" "jupyter" {
+  count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "JupyterLab"
+  icon               = "/icon/jupyter.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # PID-file guard, NOT `pgrep -f` — a `pgrep -f` inside a script that is
+    # itself run as `sh -c "<script text>"` can self-match its own command
+    # line (AGENTS.md Issue #45 lesson).
+    PIDFILE=/tmp/jupyter.pid
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      exit 0
+    fi
+    nohup /usr/local/bin/jupyter-lab \
+      --ServerApp.ip=127.0.0.1 \
+      --ServerApp.port=8888 \
+      --IdentityProvider.token='' \
+      --ServerApp.password='' \
+      --ServerApp.root_dir="${local.workspace_dir}" \
+      --no-browser \
+      > /tmp/jupyter.log 2>&1 &
+    echo $! > "$PIDFILE"
+  EOT
+}
+
+# Issue #60: Node-RED, same in-workspace-process shape as jupyter above,
+# also mounted at root (no NODE_RED_BASE_PATH) — LIVE-VERIFIED to work
+# end-to-end through the real Coder dashboard proxy (editor SPA loads,
+# assets load, /flows and /nodes both respond correctly), unlike Jupyter:
+# Node-RED's own HTML emits RELATIVE asset paths ("vendor/vendor.js", not
+# "/vendor/vendor.js"), so they resolve correctly relative to whatever
+# prefixed URL the browser is actually on, even though Coder's proxy
+# strips that same prefix before forwarding the request itself (see
+# coder_script.jupyter's comment above for the full finding). No
+# CODER_WORKSPACE_OWNER_NAME/CODER_WORKSPACE_NAME resolution is needed
+# here at all as a result — simpler than the issue's original plan.
+resource "coder_script" "nodered" {
+  count              = data.coder_parameter.enable_nodered.value ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Node-RED"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PIDFILE=/tmp/node-red.pid
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      exit 0
+    fi
+    mkdir -p /home/coder/.node-red
+    export NODE_RED_USER_DIR=/home/coder/.node-red
+    export NODE_RED_PORT=1880
+    nohup node-red --settings /opt/node-red/settings.js \
+      > /tmp/node-red.log 2>&1 &
+    echo $! > "$PIDFILE"
+  EOT
+}
+
+# Issue #60: JupyterLab tile. Same-origin icon (bundled with Coder, verified
+# live 200 at /icon/jupyter.svg) — NO CODER_ADDITIONAL_CSP_POLICY change
+# needed, unlike Issue #47/#50's plain-http-origin tiles.
+resource "coder_app" "jupyter" {
+  count        = data.coder_parameter.enable_jupyter.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "jupyter"
+  display_name = "JupyterLab"
+  icon         = "/icon/jupyter.svg"
+  url          = "http://localhost:8888"
+  subdomain    = false
+  share        = "owner"
+  order        = 2
+  # Now that Jupyter is mounted at root (see coder_script.jupyter's
+  # comment above — Coder's real path-based proxy strips the URL prefix
+  # rather than preserving it), a bare "/api" is correct.
+  healthcheck {
+    url       = "http://localhost:8888/api"
+    interval  = 5
+    threshold = 10
+  }
+}
+
+# Issue #60: Node-RED tile. `/icon/node.svg` is bundled with Coder
+# (same-origin, no CSP impact) — Node-RED has no bundled icon of its own
+# (`/icon/node-red.svg`/`/icon/nodered.svg` both 404 live). Overridable via
+# var.nodered_icon for anyone who accepts an external-origin icon instead.
+resource "coder_app" "nodered" {
+  count        = data.coder_parameter.enable_nodered.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "nodered"
+  display_name = "Node-RED"
+  icon         = var.nodered_icon
+  url          = "http://localhost:1880"
+  subdomain    = false
+  share        = "owner"
+  order        = 3
+  # Node-RED is mounted at root (see coder_script.nodered's comment above).
+  healthcheck {
+    url       = "http://localhost:1880/"
+    interval  = 5
+    threshold = 10
+  }
 }
 
 resource "docker_volume" "home_volume" {

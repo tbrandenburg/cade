@@ -103,4 +103,82 @@ See `AGENTS.md`'s "Agent Instructions" section for the step-by-step
 walkthrough of the Final E2E Test Request (A–L) and the three Durability
 Boundary Tests (UI/AHP, Worker/Temporal, Workspace/Coder).
 
+## Workspace apps: JupyterLab and Node-RED (Issue #60)
+
+Two independent, opt-in dashboard tiles on the `docker-standard`
+(`docker-workspace`) template, both off by default. Each app runs as a
+plain in-workspace process (baked into `cade/coder-workspace:latest` at
+build time by `coder/Dockerfile`, launched at workspace start by a
+`coder_script`), bound to `127.0.0.1` inside the workspace container only.
+**Neither app has its own login** — the only way to reach either is
+through Coder's own authenticated agent/session proxy. Nothing is
+published to the host or the platform's Docker networks.
+
+### Enabling
+
+- At workspace create time: `--parameter enable_jupyter=true` and/or
+  `--parameter enable_nodered=true`.
+- On an already-existing workspace (no delete/recreate needed):
+  ```bash
+  scripts/set-workspace-jupyter.sh <owner>/<workspace>            # enable
+  scripts/set-workspace-jupyter.sh <owner>/<workspace> false      # disable
+  scripts/set-workspace-nodered.sh <owner>/<workspace>            # enable
+  scripts/set-workspace-nodered.sh <owner>/<workspace> false      # disable
+  ```
+  Both wrap the generic `scripts/set-workspace-parameter.sh` (same
+  mechanism already used by `scripts/set-workspace-temporal-tile.sh`) —
+  this stops (if running) and restarts the workspace container with the
+  new parameter value; `docker_volume.home_volume` is untouched
+  (Durability Test 3 applies).
+
+### Where data lives
+
+- JupyterLab: notebooks/files under `/home/coder/project` (the same
+  cloned-repo directory every other tool in the workspace uses) —
+  persistent home volume.
+- Node-RED: flows/credentials under `/home/coder/.node-red` — persistent
+  home volume. Palette nodes (including
+  `@flowfuse/node-red-dashboard`/`@tbrandenburg/node-red-agents`) are
+  installed globally at image-build time (`/usr/lib/node_modules`), not
+  per-workspace — a brand-new home volume needs zero network access for
+  the palette to be available.
+
+### Where logs are
+
+- `/tmp/jupyter.log`, `/tmp/node-red.log` inside the workspace container
+  (`docker exec <container> tail -f /tmp/jupyter.log`).
+- Coder's own `coder_script` log panel on the workspace page (each app's
+  own script, isolated from the other and from the base
+  `coder_agent.main.startup_script`).
+
+### Verifying live
+
+```bash
+scripts/verify-workspace-jupyter.sh <owner>/<workspace>
+scripts/verify-workspace-nodered.sh <owner>/<workspace>
+```
+
+Checks: `coder_app` slug presence, process liveness, loopback-only
+listener, proxied HTTP round trip (with vs. without a session token), and
+(Node-RED only) that the dashboard/agents palettes are discovered and
+`/flows` returns real JSON.
+
+### Known limitation: JupyterLab's browser UI
+
+Live-verified (Issue #60): Coder's real path-based `coder_app` proxy
+strips the `/@owner/workspace.../apps/<slug>` prefix before forwarding to
+the app — it does not preserve the full path, and sends no
+`X-Forwarded-Prefix` header. JupyterLab's own JavaScript/CSS is served at
+Domain-absolute paths (`/static/lab/...`), so once the browser is
+navigated to the tile's prefixed URL, those absolute asset requests
+resolve outside the app's own proxy scope and fail to load — the page
+loads but renders without its own bundle. Node-RED is unaffected (its
+assets use relative paths). Interim workaround:
+`coder port-forward <workspace> --tcp 8888:8888` and open
+`http://localhost:8888/lab` directly (bypasses the dashboard proxy
+entirely). See `docs/milestone-reports/issue-60-jupyter-nodered.md` and
+this issue's "Follow-up issues found" for the full evidence and possible
+future fixes (wildcard DNS + `subdomain = true`, or an in-workspace
+path-rewriting shim).
+
 
