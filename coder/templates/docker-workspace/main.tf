@@ -75,6 +75,33 @@ data "coder_parameter" "temporal_owned" {
   order        = 3
 }
 
+# Issue #60: independent, opt-in JupyterLab tile. Both `false` by default —
+# zero behaviour change for existing workspaces. See coder_script.jupyter /
+# coder_app.jupyter below for the full design rationale (in-workspace
+# process, no separate login — guarded solely by Coder's own agent-proxy
+# session auth).
+data "coder_parameter" "enable_jupyter" {
+  name         = "enable_jupyter"
+  display_name = "Enable JupyterLab"
+  description  = "Start JupyterLab in this workspace and show its dashboard tile. Notebooks live in /home/coder/project (persistent home volume). No separate login — access is guarded by Coder's own session auth."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 4
+}
+
+# Issue #60: independent, opt-in Node-RED tile. See coder_script.nodered /
+# coder_app.nodered below.
+data "coder_parameter" "enable_nodered" {
+  name         = "enable_nodered"
+  display_name = "Enable Node-RED"
+  description  = "Start Node-RED in this workspace and show its dashboard tile. Flows live in /home/coder/.node-red (persistent home volume). No separate login — access is guarded by Coder's own session auth."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 5
+}
+
 locals {
   # M4: JSON-RPC/Agent Host security-baseline settings. Kept in sync by hand
   # with the human-readable copy at repository root, `agent-host/settings.json`
@@ -221,6 +248,119 @@ resource "coder_app" "temporal" {
   external     = true
   icon         = "${var.temporal_ui_public_url}/favicon.ico"
   url          = "${var.temporal_ui_public_url}/namespaces/default/workflows?query=WorkflowId%20STARTS_WITH%20%22${data.coder_workspace.me.name}%22"
+}
+
+# Issue #60: JupyterLab, run as an in-workspace process (not a platform
+# compose service) and proxied through Coder's own authenticated agent
+# proxy — see coder/Dockerfile's "JupyterLab" layer and this template's
+# README for the full design rationale. No token/password: the ONLY way to
+# reach this listener is through Coder's session-authenticated proxy, since
+# it binds 127.0.0.1 inside the workspace container only.
+#
+# `count` makes this a true no-op (zero resources) when enable_jupyter
+# stays false (the default) — no process, no tile, no behaviour change.
+#
+# base_url is resolved at container RUNTIME from CODER_WORKSPACE_OWNER_NAME
+# / CODER_WORKSPACE_NAME, env vars the coder agent binary itself injects
+# into its own process (and everything it execs) at every agent connect —
+# NOT interpolated here at Terraform-render/build time. This deliberately
+# avoids baking in a name that could go stale if a workspace is ever
+# `coder rename`d without a rebuild (`coder rename` is documented only as
+# a metadata rename, not confirmed to force stop/start like `coder
+# update` does) — see docs/milestone-reports/issue-60-jupyter-nodered.md.
+resource "coder_script" "jupyter" {
+  count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "JupyterLab"
+  icon               = "/icon/jupyter.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # PID-file guard, NOT `pgrep -f` — a `pgrep -f` inside a script that is
+    # itself run as `sh -c "<script text>"` can self-match its own command
+    # line (AGENTS.md Issue #45 lesson).
+    PIDFILE=/tmp/jupyter.pid
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      exit 0
+    fi
+    nohup /usr/local/bin/jupyter-lab \
+      --ServerApp.ip=127.0.0.1 \
+      --ServerApp.port=8888 \
+      --ServerApp.base_url="/@$${CODER_WORKSPACE_OWNER_NAME}/$${CODER_WORKSPACE_NAME}.main/apps/jupyter" \
+      --IdentityProvider.token='' \
+      --ServerApp.password='' \
+      --ServerApp.root_dir="${local.workspace_dir}" \
+      --no-browser \
+      > /tmp/jupyter.log 2>&1 &
+    echo $! > "$PIDFILE"
+  EOT
+}
+
+# Issue #60: Node-RED, same in-workspace-process shape as jupyter above.
+resource "coder_script" "nodered" {
+  count              = data.coder_parameter.enable_nodered.value ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Node-RED"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PIDFILE=/tmp/node-red.pid
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      exit 0
+    fi
+    mkdir -p /home/coder/.node-red
+    export NODE_RED_BASE_PATH="/@$${CODER_WORKSPACE_OWNER_NAME}/$${CODER_WORKSPACE_NAME}.main/apps/nodered/"
+    export NODE_RED_USER_DIR=/home/coder/.node-red
+    export NODE_RED_PORT=1880
+    nohup node-red --settings /opt/node-red/settings.js \
+      > /tmp/node-red.log 2>&1 &
+    echo $! > "$PIDFILE"
+  EOT
+}
+
+# Issue #60: JupyterLab tile. Same-origin icon (bundled with Coder, verified
+# live 200 at /icon/jupyter.svg) — NO CODER_ADDITIONAL_CSP_POLICY change
+# needed, unlike Issue #47/#50's plain-http-origin tiles.
+resource "coder_app" "jupyter" {
+  count        = data.coder_parameter.enable_jupyter.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "jupyter"
+  display_name = "JupyterLab"
+  icon         = "/icon/jupyter.svg"
+  url          = "http://localhost:8888"
+  subdomain    = false
+  share        = "owner"
+  order        = 2
+  healthcheck {
+    url       = "http://localhost:8888/api"
+    interval  = 5
+    threshold = 10
+  }
+}
+
+# Issue #60: Node-RED tile. `/icon/node.svg` is bundled with Coder
+# (same-origin, no CSP impact) — Node-RED has no bundled icon of its own
+# (`/icon/node-red.svg`/`/icon/nodered.svg` both 404 live). Overridable via
+# var.nodered_icon for anyone who accepts an external-origin icon instead.
+resource "coder_app" "nodered" {
+  count        = data.coder_parameter.enable_nodered.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "nodered"
+  display_name = "Node-RED"
+  icon         = var.nodered_icon
+  url          = "http://localhost:1880"
+  subdomain    = false
+  share        = "owner"
+  order        = 3
+  healthcheck {
+    url       = "http://localhost:1880/"
+    interval  = 5
+    threshold = 10
+  }
 }
 
 resource "docker_volume" "home_volume" {
