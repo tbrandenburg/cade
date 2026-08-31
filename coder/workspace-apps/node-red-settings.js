@@ -6,10 +6,14 @@
 // agent proxy (Issue #60 §1). Adding a second login here would be redundant
 // and would break the proxied deep-link.
 //
-// The base path is resolved at container RUNTIME by the coder_script that
-// launches this process (docker-workspace/main.tf, coder_script.nodered),
-// not baked in at Terraform-render time — see Issue #60 Task 2/Task 4 notes
-// on the `coder rename` rebuild-risk this avoids.
+// The base path is normally left at the default ("/") — see
+// docker-workspace/main.tf's coder_script.nodered comment for why: Coder's
+// real path-based coder_app proxy strips the `/@owner/ws.../apps/nodered`
+// prefix before forwarding, and Node-RED's own HTML emits relative asset
+// paths, so root-mounting it works correctly through that stripped-prefix
+// proxy without any prefix configuration at all. NODE_RED_BASE_PATH is kept
+// as an override for other deployment shapes (e.g. a future wildcard-DNS
+// subdomain=true setup, or running this file outside Coder entirely).
 const base = process.env.NODE_RED_BASE_PATH || "/";
 
 module.exports = {

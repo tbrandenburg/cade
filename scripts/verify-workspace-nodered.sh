@@ -121,8 +121,22 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
   pgrep_out="$(docker exec "${container_name}" pgrep -af node-red 2>/dev/null || true)"
   check "node-red process alive in ${container_name}" "$([ -n "${pgrep_out}" ] && echo 0 || echo 1)"
 
-  ss_out="$(docker exec "${container_name}" sh -c 'ss -ltnp 2>/dev/null | grep 1880 || true')"
-  check "listener bound to 127.0.0.1:1880 only (got: '${ss_out}')" "$(echo "${ss_out}" | grep -q '127\.0\.0\.1:1880' && ! echo "${ss_out}" | grep -q '0\.0\.0\.0:1880' && echo 0 || echo 1)"
+  # `ss`/`netstat` are not installed in cade/coder-workspace:latest; read
+  # /proc/net/tcp directly instead. Port 1880 decimal = 0758 hex.
+  listeners="$(docker exec "${container_name}" sh -c "awk 'NR>1 {print \$2}' /proc/net/tcp | grep -i ':0758$'" 2>/dev/null || true)"
+  loopback_only="true"
+  any_listener="false"
+  while read -r entry; do
+    [ -z "${entry}" ] && continue
+    any_listener="true"
+    addr_hex="${entry%%:*}"
+    if [ "${addr_hex}" != "0100007F" ]; then
+      loopback_only="false"
+    fi
+  done <<EOF
+${listeners}
+EOF
+  check "listener bound to 127.0.0.1:1880 only (entries: '${listeners}')" "$([ "${any_listener}" = "true" ] && [ "${loopback_only}" = "true" ] && echo 0 || echo 1)"
 else
   skip "container ${container_name} not found locally (process/port checks)"
 fi

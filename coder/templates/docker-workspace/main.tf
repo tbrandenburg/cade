@@ -260,14 +260,27 @@ resource "coder_app" "temporal" {
 # `count` makes this a true no-op (zero resources) when enable_jupyter
 # stays false (the default) — no process, no tile, no behaviour change.
 #
-# base_url is resolved at container RUNTIME from CODER_WORKSPACE_OWNER_NAME
-# / CODER_WORKSPACE_NAME, env vars the coder agent binary itself injects
-# into its own process (and everything it execs) at every agent connect —
-# NOT interpolated here at Terraform-render/build time. This deliberately
-# avoids baking in a name that could go stale if a workspace is ever
-# `coder rename`d without a rebuild (`coder rename` is documented only as
-# a metadata rename, not confirmed to force stop/start like `coder
-# update` does) — see docs/milestone-reports/issue-60-jupyter-nodered.md.
+# IMPORTANT, corrected from the issue's own original plan after LIVE
+# verification against the real running Coder server (v2.36.3): Jupyter is
+# run WITHOUT --ServerApp.base_url (i.e. mounted at "/", not at a
+# workspace-specific `/@owner/ws.../apps/jupyter` prefix). A raw Python
+# echo-server test proved Coder's real path-based coder_app proxy STRIPS
+# the `/@owner/ws.../apps/<slug>` prefix and forwards only the bare
+# remainder path to the app's `url` — it does NOT preserve/forward the
+# full original path, and sends no `X-Forwarded-Prefix` header either.
+# Setting base_url to the full prefix (the issue's original plan, and the
+# conventional JupyterHub-style reverse-proxy pattern) therefore made
+# EVERY request 404 through the real dashboard proxy (confirmed live),
+# even though it looks correct when curled directly against the container
+# (which is why this bug is easy to miss — always verify through the
+# REAL proxy, not just a direct container curl, per this repo's own
+# anti-deception rules). Mounting at root instead fixes the main page and
+# API routes; JupyterLab's OWN static-asset markup still uses
+# domain-absolute paths ("/static/lab/..."), which is a KNOWN, LIVE-VERIFIED,
+# NOT-FIXED-HERE follow-up limitation — see
+# docs/milestone-reports/issue-60-jupyter-nodered.md and the "Follow-up
+# issues found" section of this issue's handoff for the full writeup and
+# workaround (`coder port-forward`).
 resource "coder_script" "jupyter" {
   count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -288,7 +301,6 @@ resource "coder_script" "jupyter" {
     nohup /usr/local/bin/jupyter-lab \
       --ServerApp.ip=127.0.0.1 \
       --ServerApp.port=8888 \
-      --ServerApp.base_url="/@$${CODER_WORKSPACE_OWNER_NAME}/$${CODER_WORKSPACE_NAME}.main/apps/jupyter" \
       --IdentityProvider.token='' \
       --ServerApp.password='' \
       --ServerApp.root_dir="${local.workspace_dir}" \
@@ -298,7 +310,17 @@ resource "coder_script" "jupyter" {
   EOT
 }
 
-# Issue #60: Node-RED, same in-workspace-process shape as jupyter above.
+# Issue #60: Node-RED, same in-workspace-process shape as jupyter above,
+# also mounted at root (no NODE_RED_BASE_PATH) — LIVE-VERIFIED to work
+# end-to-end through the real Coder dashboard proxy (editor SPA loads,
+# assets load, /flows and /nodes both respond correctly), unlike Jupyter:
+# Node-RED's own HTML emits RELATIVE asset paths ("vendor/vendor.js", not
+# "/vendor/vendor.js"), so they resolve correctly relative to whatever
+# prefixed URL the browser is actually on, even though Coder's proxy
+# strips that same prefix before forwarding the request itself (see
+# coder_script.jupyter's comment above for the full finding). No
+# CODER_WORKSPACE_OWNER_NAME/CODER_WORKSPACE_NAME resolution is needed
+# here at all as a result — simpler than the issue's original plan.
 resource "coder_script" "nodered" {
   count              = data.coder_parameter.enable_nodered.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -313,7 +335,6 @@ resource "coder_script" "nodered" {
       exit 0
     fi
     mkdir -p /home/coder/.node-red
-    export NODE_RED_BASE_PATH="/@$${CODER_WORKSPACE_OWNER_NAME}/$${CODER_WORKSPACE_NAME}.main/apps/nodered/"
     export NODE_RED_USER_DIR=/home/coder/.node-red
     export NODE_RED_PORT=1880
     nohup node-red --settings /opt/node-red/settings.js \
@@ -335,6 +356,9 @@ resource "coder_app" "jupyter" {
   subdomain    = false
   share        = "owner"
   order        = 2
+  # Now that Jupyter is mounted at root (see coder_script.jupyter's
+  # comment above — Coder's real path-based proxy strips the URL prefix
+  # rather than preserving it), a bare "/api" is correct.
   healthcheck {
     url       = "http://localhost:8888/api"
     interval  = 5
@@ -356,6 +380,7 @@ resource "coder_app" "nodered" {
   subdomain    = false
   share        = "owner"
   order        = 3
+  # Node-RED is mounted at root (see coder_script.nodered's comment above).
   healthcheck {
     url       = "http://localhost:1880/"
     interval  = 5

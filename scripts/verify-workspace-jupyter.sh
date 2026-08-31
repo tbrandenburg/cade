@@ -98,8 +98,23 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
   pgrep_out="$(docker exec "${container_name}" pgrep -af jupyter-lab 2>/dev/null || true)"
   check "jupyter-lab process alive in ${container_name}" "$([ -n "${pgrep_out}" ] && echo 0 || echo 1)"
 
-  ss_out="$(docker exec "${container_name}" sh -c 'ss -ltnp 2>/dev/null | grep 8888 || true')"
-  check "listener bound to 127.0.0.1:8888 only (got: '${ss_out}')" "$(echo "${ss_out}" | grep -q '127\.0\.0\.1:8888' && ! echo "${ss_out}" | grep -q '0\.0\.0\.0:8888' && echo 0 || echo 1)"
+  # `ss`/`netstat` are not installed in cade/coder-workspace:latest; read
+  # /proc/net/tcp directly instead (always available, no extra dependency).
+  # Port 8888 decimal = 22B8 hex; local_addr is little-endian hex IP:PORT.
+  listeners="$(docker exec "${container_name}" sh -c "awk 'NR>1 {print \$2}' /proc/net/tcp | grep -i ':22B8$'" 2>/dev/null || true)"
+  loopback_only="true"
+  any_listener="false"
+  while read -r entry; do
+    [ -z "${entry}" ] && continue
+    any_listener="true"
+    addr_hex="${entry%%:*}"
+    if [ "${addr_hex}" != "0100007F" ]; then
+      loopback_only="false"
+    fi
+  done <<EOF
+${listeners}
+EOF
+  check "listener bound to 127.0.0.1:8888 only (entries: '${listeners}')" "$([ "${any_listener}" = "true" ] && [ "${loopback_only}" = "true" ] && echo 0 || echo 1)"
 else
   skip "container ${container_name} not found locally (process/port checks)"
 fi
