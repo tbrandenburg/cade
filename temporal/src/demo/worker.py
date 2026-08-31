@@ -33,7 +33,10 @@ from demo.e2e_activities import (
     run_lab_test,
 )
 from demo.e2e_workflow import EmbeddedValidationWorkflow
+from demo.reaper_workflow import WorkspaceReaperWorkflow
 from demo.workflows import DemoDurableWorkflow
+from demo.workspace_activity import ensure_coder_workspace, reap_coder_workspaces
+from demo.workspace_workflow import PersistentWorkspaceBuildWorkflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("demo.worker")
@@ -63,7 +66,13 @@ async def run_worker() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[DemoDurableWorkflow, EmbeddedValidationWorkflow, BuildWorkflow],
+        workflows=[
+            DemoDurableWorkflow,
+            EmbeddedValidationWorkflow,
+            BuildWorkflow,
+            PersistentWorkspaceBuildWorkflow,
+            WorkspaceReaperWorkflow,
+        ],
         activities=[
             prepare_build,
             verify_build,
@@ -72,6 +81,8 @@ async def run_worker() -> None:
             retrieve_lab_logs,
             release_lab_device,
             run_build_command,
+            ensure_coder_workspace,
+            reap_coder_workspaces,
         ],
         graceful_shutdown_timeout=timedelta(seconds=5),
     )
