@@ -8,6 +8,7 @@ import pytest
 
 from demo import workspace_activity
 from demo.workspace_activity import (
+    DEFAULT_RICH_PARAMETER_VALUES,
     container_name_for,
     ensure_coder_workspace,
     reap_coder_workspaces,
@@ -35,6 +36,22 @@ def test_validate_workspace_name_rejects_over_32_chars():
     error = validate_workspace_name(long_name)
     assert error is not None
     assert "32-char cap" in error
+
+
+def test_default_rich_parameter_values_sets_temporal_owned_true():
+    # Regression guard for Issue #55: this Activity only ever creates
+    # Temporal-owned tw-* workspaces, so DEFAULT_RICH_PARAMETER_VALUES must
+    # always include an entry rendering the Temporal Workflows dashboard
+    # tile (coder_app.temporal in coder/templates/docker-workspace/main.tf).
+    # If a future refactor drops this entry, the tile silently stops
+    # appearing for workspaces created via this path.
+    matches = [
+        entry
+        for entry in DEFAULT_RICH_PARAMETER_VALUES
+        if entry["name"] == "temporal_owned"
+    ]
+    assert len(matches) == 1
+    assert matches[0]["value"] == "true"
 
 
 def test_container_name_for_matches_issue_49_convention():
