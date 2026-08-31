@@ -68,11 +68,12 @@ class BuildWorkflow:
         command: list[str],
         workdir: str = "/workspace",
         template: str | None = None,
+        container_name: str | None = None,
     ) -> dict:
         resolved_image = resolve_image(image, template)
         return await workflow.execute_activity(
             run_build_command,
-            args=[resolved_image, command, workdir],
+            args=[resolved_image, command, workdir, container_name],
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=BUILD_RETRY_POLICY,
         )

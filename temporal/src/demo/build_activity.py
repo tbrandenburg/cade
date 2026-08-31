@@ -89,9 +89,63 @@ def _opa_allows(image: str, command: list[str]) -> bool:
     return result is True
 
 
+def _run_in_persistent_container(
+    client: docker.DockerClient,
+    container_name: str,
+    command: list[str],
+    workdir: str,
+) -> dict:
+    """Issue #49: run `command` via `docker exec` against an already-
+    existing, still-`running` container (a real, pre-created Coder
+    workspace, e.g. `coder-<owner>-<workspace>`) instead of creating/
+    removing a throwaway one. Workspace lifecycle (create/stop/start/
+    delete) stays entirely manual/out-of-band — this never starts, stops,
+    or removes the target container. Fails closed with a structured error
+    dict (never raises) if the container doesn't exist or isn't running,
+    mirroring the ephemeral path's error-handling contract."""
+    try:
+        container = client.containers.get(container_name)
+    except docker.errors.NotFound:
+        return {"ok": False, "error": f"container not found: {container_name!r}"}
+    except docker.errors.APIError as exc:
+        return {"ok": False, "error": f"docker API error resolving container: {exc}"}
+
+    if container.status != "running":
+        return {
+            "ok": False,
+            "error": (
+                f"container {container_name!r} is not running "
+                f"(status={container.status!r})"
+            ),
+        }
+
+    try:
+        exit_code, (stdout, stderr) = container.exec_run(
+            command, workdir=workdir, demux=True
+        )
+    except docker.errors.APIError as exc:
+        return {"ok": False, "error": f"docker API error during exec: {exc}"}
+
+    output = (stdout or b"") + (stderr or b"")
+    activity.logger.info(
+        "run_build_command: container=%s command=%s -> exit_code=%s",
+        container_name,
+        command,
+        exit_code,
+    )
+    return {
+        "ok": exit_code == 0,
+        "exit_code": exit_code,
+        "output": output.decode("utf-8", errors="replace"),
+    }
+
+
 @activity.defn(name="run_build_command")
 async def run_build_command(
-    image: str, command: list[str], workdir: str = "/workspace"
+    image: str,
+    command: list[str],
+    workdir: str = "/workspace",
+    container_name: str | None = None,
 ) -> dict:
     """Run `command` inside a short-lived container from `image`, capture
     stdout/stderr and the exit code, then remove the container. Fails
@@ -100,6 +154,16 @@ async def run_build_command(
     bad `image`/`command` input surfaces as a clear workflow result instead
     of an opaque Activity exception with a Temporal retry storm behind it.
     Also fails closed if OPA denies the request or is unreachable.
+
+    Issue #49: when `container_name` is given, the command runs via
+    `docker exec` against that already-existing, already-running
+    container (a real, pre-created Coder workspace) instead of spinning
+    up/removing an ephemeral one. `image` is still required and still
+    passed through the same OPA `build.authz` check in this mode — it is
+    used purely for the authz decision (mirroring what would normally run
+    in that workspace), not to create anything. When `container_name` is
+    None (default), behavior is completely unchanged from before this
+    issue.
     """
     if not _opa_allows(image, command):
         activity.logger.warning(
@@ -113,6 +177,12 @@ async def run_build_command(
         client = docker.DockerClient(base_url=BUILD_DOCKER_HOST)
     except Exception as exc:  # noqa: BLE001 - fail closed, see docstring
         return {"ok": False, "error": f"docker client init failed: {exc}"}
+
+    if container_name is not None:
+        try:
+            return _run_in_persistent_container(client, container_name, command, workdir)
+        finally:
+            client.close()
 
     task_key = _task_key()
     _reap_previous_attempt(client, task_key)

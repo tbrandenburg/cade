@@ -393,7 +393,12 @@ services:
       POST: 1
       VERSION: 1
       PING: 1
-      EXEC: 0
+      # Issue #49: widened from 0 to 1, minimally, to allow
+      # `run_build_command`'s new persistent-container path to
+      # `docker exec` into an already-existing, already-running Coder
+      # workspace container. No other flag changed (still no VOLUMES,
+      # NETWORKS, SWARM, SYSTEM, BUILD) — see docs/security.md.
+      EXEC: 1
       VOLUMES: 0
       NETWORKS: 0
       SWARM: 0
