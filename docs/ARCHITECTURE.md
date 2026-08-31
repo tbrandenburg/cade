@@ -85,6 +85,7 @@ C4Container
     Rel(runner, workspace, "Runs deterministic builds via Docker")
     Rel(runner, temporal, "Starts/observes durable workflows")
     Rel(temporal, mcp, "Activities call MCP tools")
+    Rel(temporal, coder, "Resolves/creates/reaps tw-* workspaces via, gated by OPA workspace.authz")
     Rel(mcp, opa, "Decision query before privileged action")
     Rel(workspace, mcp, "Agent calls tools instead of shelling out")
     Rel(runner, openbao, "Reads secrets")
@@ -215,6 +216,8 @@ through the bridge to completion, with Issue #23's sandbox properties
 (`denyRead`/`denyWrite`) confirmed not regressed. Full design rationale
 and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
 
-**Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`) — treated as a leaf implementation detail per this issue's own explicit Phase-3 deferral (no new C4 `Rel` arrow drawn here; a formal diagram update is tracked as Phase-3 follow-up). A `tw-`-prefixed workspace's own dashboard also gained a "Temporal Workflows" tile (§10 follow-up, verified live 2026-08-31) linking back to Temporal UI — purely a UI convenience, not a new C4 relationship.
+**Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`). A `tw-`-prefixed workspace's own dashboard also gained a "Temporal Workflows" tile (§10 follow-up, verified live 2026-08-31) linking back to Temporal UI — purely a UI convenience, not a new C4 relationship.
+
+**Issue #54 (Phase 3 follow-up):** the deferred formal C4 `Rel` arrow above (`Rel(temporal, coder, ...)`) is now drawn in the Container diagram, and the create/start/stop/delete calls it represents are gated by a new `workspace.authz` OPA policy (`governance/opa/policy/workspace_authz.rego`) — see `docs/security.md`'s "Issue #54" section for the full rule set.
 
 
