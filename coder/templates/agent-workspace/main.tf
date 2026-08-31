@@ -644,8 +644,23 @@ resource "coder_app" "omnigent" {
   agent_id     = coder_agent.main.id
   slug         = "omnigent"
   display_name = "Omnigent Chat"
-  icon         = "/icon/widgets.svg"
-  external     = true
+  # Issue #47: Omnigent's own favicon instead of Coder's generic
+  # /icon/widgets.svg. NOTE, verified live against the real Coder DB schema
+  # (`workspace_apps.icon` is `character varying(256)`): the issue's own
+  # recommended approach (embed the real favicon.svg -- 13.8KB raw, ~18.4KB
+  # base64 -- as a self-contained `data:` URI via filebase64()) is
+  # infeasible; `coder templates push` fails outright with `pq: value too
+  # long for type character varying(256)` for ANY encoding of the real
+  # asset (SVG or a rasterized PNG down to 8x8px still needs 500+ chars).
+  # A real copy of the asset is kept at assets/omnigent-icon.svg for
+  # provenance/a future fix (e.g. if Coder ever raises this column limit,
+  # or serves template-bundled assets directly) -- see assets/README.md.
+  # Using `omnigent_public_url` here instead introduces no *new* runtime
+  # dependency: this coder_app is `external = true`, so the browser must
+  # already reach `omnigent_public_url` directly to use the app at all;
+  # the icon fetch shares that exact same, already-required reachability.
+  icon     = "${var.omnigent_public_url}/favicon.svg"
+  external = true
   # Uses omnigent_public_url (browser-reachable loopback), NOT
   # omnigent_server_url (internal compose DNS name used by the startup
   # script's own login/registration calls) — see variables.tf.

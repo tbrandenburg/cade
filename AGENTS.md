@@ -169,6 +169,21 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #47, `coder_app` custom icon): a `coder_app.icon` set to
+  a plain-`http` URL is silently blocked by Coder's own default
+  Content-Security-Policy (`img-src 'self' https: data: blob:`) — the
+  `<img>` never loads and there is no server-side error, only a browser
+  console CSP violation. On a platform with no TLS termination in front of
+  Coder by design, fix with `CODER_ADDITIONAL_CSP_POLICY` widening `img-src`
+  for exactly the one already-trusted internal origin, rather than
+  switching to `https:` (not available) or assuming a `data:` URI is a
+  drop-in alternative — also check `workspace_apps.icon`'s Postgres column
+  (`varchar(256)`) before choosing a `data:` URI for any non-trivial
+  real-world icon asset; it will not fit. Always visually re-verify a
+  `coder_app.icon` change in a real browser session (check
+  `page.on('console')` for CSP errors), not just via the Coder API/CLI —
+  the stored field value can be exactly right while still failing to
+  render for a reason invisible to any non-browser check.
 - 2026-08-30 (Issue #43, omnigent host integration, Stage B live E2E
   session against a real `coder create`d workspace, host security
   profiles loaded via `sudo scripts/load-security-profiles.sh`): three
