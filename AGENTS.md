@@ -172,6 +172,23 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-08-31 (Issue #62, JupyterLab tile fix, `docker-workspace`
+  template): when a proxied backend emits domain-absolute asset paths
+  and the proxy in front of it strips the URL prefix with no
+  `X-Forwarded-Prefix` (Issue #60's finding) and a subdomain/wildcard-DNS
+  fix isn't available, a narrow, `Content-Type`-gated, stdlib-only
+  rewriting shim (rewrite only `href="/`/`src="/`/known JS string-literal
+  asset prefixes to relative, in HTML/JS/CSS responses only; pass
+  everything else — JSON, binary, WebSocket upgrades — through as a raw
+  untouched byte stream) is a viable, low-risk fix with no new external
+  exposure or dependencies. Also reconfirms Issue #60's own lesson: a
+  subagent's isolated Docker-level test (however thorough) is not the
+  same evidence as a real `coder create` + real dashboard-proxy round
+  trip — the coordinator re-verified live post-merge
+  (`make coder-workspace-build && coder templates push` +
+  `coder create`/`coder delete`) and this is what actually closed the
+  issue's own acceptance criteria, not the subagent's pre-merge tests.
+
 - 2026-08-31 (Issue #60, JupyterLab/Node-RED workspace apps,
   `docker-workspace` template): Coder v2.36.3's real path-based
   `coder_app` proxy **strips** the `/@owner/workspace.../apps/<slug>`

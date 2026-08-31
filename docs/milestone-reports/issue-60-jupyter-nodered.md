@@ -233,15 +233,46 @@ container (`docker exec` only, no host ports bound):
   to a throwaway echo backend came back **byte-for-byte identical**,
   confirming the duplex relay path never touches WS traffic.
 
-**Not verified**: a real `coder create`/real-browser round trip. This
-would require rebuilding and pushing the `cade/coder-workspace:latest`
-image and the `docker-workspace` template from this branch — but
-`coder_agent`'s `startup_script` clones `origin/main` at runtime (AGENTS.md's
-own documented Makefile behavior), not an unmerged branch, so a live
-workspace created before this branch merges would not actually exercise
-these changes at all; doing so meaningfully would mean overwriting the
-production template/image tag from an unreviewed branch, which is out of
-this task's safety scope. The isolated Docker-level evidence above is
-the strongest evidence obtainable pre-merge; a live browser
-confirmation should be run once this branch is merged to `main` and
-`make coder-workspace-build && make templates-push` has been re-run.
+**Live end-to-end confirmation (coordinator, post-integration, real stack,
+no mocks)**: `coder_agent`'s `startup_script` clones `origin/main` at
+runtime, so the subagent's own isolated Docker-level evidence above
+(gathered pre-merge, on an unmerged branch) could not yet exercise a
+real `coder create` round trip. Once this fix was merged into
+`integrate/issue-62`, `make coder-workspace-build` rebuilt
+`cade/coder-workspace:latest` with the shim baked in, and
+`coder templates push docker-workspace -d
+coder/templates/docker-workspace --yes` pushed a new template version.
+A real throwaway workspace (`issue45verify/issue62verify`,
+`enable_jupyter=true`) was created via `coder create --yes`, and the
+fix was confirmed **through the actual Coder dashboard proxy** (not a
+direct container curl — see this same file's Issue #60 "always verify
+through the REAL proxy" lesson):
+
+```
+GET http://localhost:7080/@issue45verify/issue62verify.main/apps/jupyter/lab
+  (Coder-Session-Token auth, exactly as a real browser session would send)
+  -> 200, HTML shows relative markup:
+       href="static/favicons/favicon.ico"
+       src="static/lab/main.2155fa5c4dce2b7a12e6.js?v=..."
+     (previously absolute: href="/static/favicons/favicon.ico", etc.)
+
+GET .../apps/jupyter/static/lab/main.2155fa5c4dce2b7a12e6.js?v=...
+  -> HTTP 200, size=75226 bytes (the JS bundle that previously 404'd
+     through the real proxy now loads successfully)
+
+GET .../apps/jupyter/api/status
+  -> 200, unmodified JSON ({"connections": 0, "kernels": 0, ...}),
+     confirming the Content-Type gate leaves API responses untouched
+```
+
+`docker exec` into the live workspace container additionally confirmed
+both `jupyter-lab` (port 8889) and `jupyter-proxy-shim.py` (port 8888)
+running as expected from the `coder_script.jupyter` startup script, with
+no errors in either `/tmp/jupyter.log` or `/tmp/jupyter-proxy-shim.log`
+beyond the shim's expected initial 502s during jupyter-lab's own ~1s
+startup window (retried successfully by JupyterLab's own client-side
+polling). The throwaway workspace was deleted (`coder delete ... --yes`)
+immediately after this confirmation — no leftover live-verification
+state. This closes the previously-open "Not verified" gap: the
+JupyterLab tile now fully renders and functions through Coder's real
+path-based proxy, matching Node-RED's already-working behavior.
