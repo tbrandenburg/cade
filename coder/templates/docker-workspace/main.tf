@@ -275,12 +275,23 @@ resource "coder_app" "temporal" {
 # (which is why this bug is easy to miss — always verify through the
 # REAL proxy, not just a direct container curl, per this repo's own
 # anti-deception rules). Mounting at root instead fixes the main page and
-# API routes; JupyterLab's OWN static-asset markup still uses
-# domain-absolute paths ("/static/lab/..."), which is a KNOWN, LIVE-VERIFIED,
-# NOT-FIXED-HERE follow-up limitation — see
-# docs/milestone-reports/issue-60-jupyter-nodered.md and the "Follow-up
-# issues found" section of this issue's handoff for the full writeup and
-# workaround (`coder port-forward`).
+# API routes; JupyterLab's OWN static-asset markup used domain-absolute
+# paths ("/static/lab/..."), which broke through the real dashboard proxy —
+# LIVE-VERIFIED in Issue #60 and originally left as a known, not-fixed-here
+# follow-up limitation (see docs/milestone-reports/issue-60-jupyter-nodered.md).
+#
+# Issue #62 fixes this: JupyterLab itself now listens on an internal-only
+# port (8889, never exposed as a coder_app), and a tiny in-workspace
+# reverse-proxy shim (coder/jupyter-proxy-shim.py, stdlib-only) listens on
+# 8888 instead — the port coder_app.jupyter.url actually points at. The shim
+# rewrites JupyterLab's own domain-absolute asset references
+# (`href="/...`, `src="/...`, `"/static/`) into relative ones in HTML/JS/CSS
+# responses only, mirroring how Node-RED's own HTML already resolves
+# correctly against the tile's prefixed browser URL. WebSocket upgrades
+# (kernel/terminal comms) are relayed as a raw, unmodified byte stream — see
+# the shim script's own module docstring for the full design and why this
+# is safe (no new external exposure: the shim still binds 127.0.0.1 only,
+# same trust boundary as jupyter-lab itself today).
 resource "coder_script" "jupyter" {
   count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -294,19 +305,29 @@ resource "coder_script" "jupyter" {
     # PID-file guard, NOT `pgrep -f` — a `pgrep -f` inside a script that is
     # itself run as `sh -c "<script text>"` can self-match its own command
     # line (AGENTS.md Issue #45 lesson).
+    # Each guard is independent (not a single early `exit 0`) so an
+    # already-running jupyter-lab from before this shim existed still gets
+    # the shim started on the next `coder_script` run, rather than being
+    # skipped entirely by one shared exit.
     PIDFILE=/tmp/jupyter.pid
-    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      exit 0
+    if ! { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }; then
+      nohup /usr/local/bin/jupyter-lab \
+        --ServerApp.ip=127.0.0.1 \
+        --ServerApp.port=8889 \
+        --IdentityProvider.token='' \
+        --ServerApp.password='' \
+        --ServerApp.root_dir="${local.workspace_dir}" \
+        --no-browser \
+        > /tmp/jupyter.log 2>&1 &
+      echo $! > "$PIDFILE"
     fi
-    nohup /usr/local/bin/jupyter-lab \
-      --ServerApp.ip=127.0.0.1 \
-      --ServerApp.port=8888 \
-      --IdentityProvider.token='' \
-      --ServerApp.password='' \
-      --ServerApp.root_dir="${local.workspace_dir}" \
-      --no-browser \
-      > /tmp/jupyter.log 2>&1 &
-    echo $! > "$PIDFILE"
+
+    SHIM_PIDFILE=/tmp/jupyter-proxy-shim.pid
+    if ! { [ -f "$SHIM_PIDFILE" ] && kill -0 "$(cat "$SHIM_PIDFILE")" 2>/dev/null; }; then
+      SHIM_PORT=8888 BACKEND_PORT=8889 nohup python3 /usr/local/bin/jupyter-proxy-shim.py \
+        > /tmp/jupyter-proxy-shim.log 2>&1 &
+      echo $! > "$SHIM_PIDFILE"
+    fi
   EOT
 }
 
@@ -358,7 +379,11 @@ resource "coder_app" "jupyter" {
   order        = 2
   # Now that Jupyter is mounted at root (see coder_script.jupyter's
   # comment above — Coder's real path-based proxy strips the URL prefix
-  # rather than preserving it), a bare "/api" is correct.
+  # rather than preserving it), a bare "/api" is correct. This URL now
+  # points at the Issue #62 shim (port 8888), not jupyter-lab directly
+  # (moved to 8889) — the shim transparently forwards /api unmodified
+  # (only HTML/JS/CSS responses are rewritten), so this healthcheck
+  # behaves identically to before the shim existed.
   healthcheck {
     url       = "http://localhost:8888/api"
     interval  = 5

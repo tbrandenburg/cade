@@ -180,6 +180,7 @@ templates or files were touched (per scope).
    prefix) — meaningfully more complexity than this issue's stated scope
    allows. Interim workaround documented: `coder port-forward <ws> --tcp
    8888:8888` + browse to `http://localhost:8888/lab` directly.
+   **RESOLVED in Issue #62** — see the dedicated section below.
 2. **`@tbrandenburg/node-red-agents@0.3.7` declares `engines.node >=22`**
    but this image installs Node.js 20 (`ARG NODE_MAJOR=20`, an existing,
    unrelated pin) — `npm install` only warns (`EBADENGINE`), does not
@@ -189,3 +190,58 @@ templates or files were touched (per scope).
    version bump for this image should re-verify this package still works
    (or bump `NODE_MAJOR` to 22, out of scope for this issue since it
    would affect every other tool in the image, not just Node-RED).
+
+## Issue #62 resolution — JupyterLab proxy-prefix rewriting shim
+
+Fixes Follow-up #1 above. Since a wildcard-DNS/`subdomain = true` fix is
+infeasible on this deployment (no wildcard DNS entry exists), option (b)
+was implemented: a minimal, stdlib-only Python reverse-proxy shim
+(`coder/jupyter-proxy-shim.py`) now sits between Coder's `coder_app`
+proxy and `jupyter-lab` itself.
+
+**Design**: `jupyter-lab` moved from port 8888 to an internal-only port
+8889 (never referenced by any `coder_app`); the shim binds 8888 instead
+(still 127.0.0.1-only — no change to the existing trust boundary) and
+proxies every request to 8889. For `text/html`/`*javascript`/`text/css`
+responses only, it rewrites the narrow set of domain-absolute asset
+references JupyterLab's own markup emits (`href="/...`, `src="/...`,
+the JS string-literal prefix `"/static/`) into relative ones — mirroring
+what Node-RED's own HTML already does natively. All other content types
+(JSON API responses, binary assets, notebook/kernel payloads) pass
+through completely untouched, gated by an exact `Content-Type` prefix
+check. WebSocket upgrades (kernel/terminal comms) are detected up front
+and relayed as a raw, bidirectional byte stream — never buffered,
+inspected, or rewritten — so kernel execution is unaffected.
+
+**Validation performed** (see this issue's own subagent handoff for the
+full transcript): a scratch-tagged test image
+(`cade/coder-workspace-issue62-test:latest`, never overwriting the
+production `cade/coder-workspace:latest` tag) was built from the
+modified `coder/Dockerfile`. Inside a throwaway, un-published-port
+container (`docker exec` only, no host ports bound):
+- `GET /lab` through the shim (8888) showed **relative** `href="static/...`
+  / `src="static/lab/...` markup, while the identical request against the
+  raw backend (8889) still showed the original **absolute**
+  `href="/static/...` — proving the rewrite fires exactly where expected.
+- A `/static/lab/<bundle>.js` asset request through the shim returned
+  `200` with byte-identical content to the direct-backend response (this
+  particular bundle contained no `"/static/` string literals to rewrite,
+  confirming the narrow rewrite doesn't touch content it shouldn't).
+- `/api/status` (JSON) and `/api` (the tile's own healthcheck endpoint)
+  both returned unmodified, correctly-typed responses through the shim.
+- A raw WebSocket handshake + a masked data frame sent through the shim
+  to a throwaway echo backend came back **byte-for-byte identical**,
+  confirming the duplex relay path never touches WS traffic.
+
+**Not verified**: a real `coder create`/real-browser round trip. This
+would require rebuilding and pushing the `cade/coder-workspace:latest`
+image and the `docker-workspace` template from this branch — but
+`coder_agent`'s `startup_script` clones `origin/main` at runtime (AGENTS.md's
+own documented Makefile behavior), not an unmerged branch, so a live
+workspace created before this branch merges would not actually exercise
+these changes at all; doing so meaningfully would mean overwriting the
+production template/image tag from an unreviewed branch, which is out of
+this task's safety scope. The isolated Docker-level evidence above is
+the strongest evidence obtainable pre-merge; a live browser
+confirmation should be run once this branch is merged to `main` and
+`make coder-workspace-build && make templates-push` has been re-run.
