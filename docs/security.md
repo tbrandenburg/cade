@@ -648,13 +648,14 @@ adopted here**. `coder/templates/docker-workspace/security/*` (Issue
 this issue at all; JupyterLab and Node-RED run under the exact same
 confinement every other in-workspace process already does.
 
-**Live-verified limitation, not a security issue**: Coder's own real
-path-based `coder_app` proxy (v2.36.3) strips the app's URL prefix before
-forwarding to the app, rather than preserving the full path. This breaks
+**Superseded by Issue #83**: Coder's real path-based `coder_app` proxy
+(v2.36.3) strips the app's URL prefix before forwarding, which broke
 JupyterLab's own domain-absolute static-asset loading in a real browser
-(see `docs/operations.md`'s "Known limitation" for the full write-up) —
-purely a usability gap, not an auth/confinement gap: the underlying
-process is exactly as reachable (only via the authenticated proxy) either
-way.
+under path-based mode. Fixed by switching `coder_app.jupyter` to
+`subdomain = true` (requires `CODER_WILDCARD_ACCESS_URL` set — see
+`docs/operations.md`) — purely a routing-mode change, no impact on the
+auth/confinement model described above: the underlying JupyterLab
+process is still reachable only via Coder's authenticated proxy, on a
+127.0.0.1-only listener, either way.
 
 

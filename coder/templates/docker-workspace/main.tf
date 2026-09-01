@@ -643,38 +643,27 @@ resource "coder_app" "temporal" {
 # `count` makes this a true no-op (zero resources) when enable_jupyter
 # stays false (the default) — no process, no tile, no behaviour change.
 #
-# IMPORTANT, corrected from the issue's own original plan after LIVE
-# verification against the real running Coder server (v2.36.3): Jupyter is
-# run WITHOUT --ServerApp.base_url (i.e. mounted at "/", not at a
-# workspace-specific `/@owner/ws.../apps/jupyter` prefix). A raw Python
-# echo-server test proved Coder's real path-based coder_app proxy STRIPS
-# the `/@owner/ws.../apps/<slug>` prefix and forwards only the bare
-# remainder path to the app's `url` — it does NOT preserve/forward the
-# full original path, and sends no `X-Forwarded-Prefix` header either.
-# Setting base_url to the full prefix (the issue's original plan, and the
-# conventional JupyterHub-style reverse-proxy pattern) therefore made
-# EVERY request 404 through the real dashboard proxy (confirmed live),
-# even though it looks correct when curled directly against the container
-# (which is why this bug is easy to miss — always verify through the
-# REAL proxy, not just a direct container curl, per this repo's own
-# anti-deception rules). Mounting at root instead fixes the main page and
-# API routes; JupyterLab's OWN static-asset markup used domain-absolute
-# paths ("/static/lab/..."), which broke through the real dashboard proxy —
-# LIVE-VERIFIED in Issue #60 and originally left as a known, not-fixed-here
-# follow-up limitation (see docs/milestone-reports/issue-60-jupyter-nodered.md).
-#
-# Issue #62 fixes this: JupyterLab itself now listens on an internal-only
-# port (8889, never exposed as a coder_app), and a tiny in-workspace
-# reverse-proxy shim (coder/jupyter-proxy-shim.py, stdlib-only) listens on
-# 8888 instead — the port coder_app.jupyter.url actually points at. The shim
-# rewrites JupyterLab's own domain-absolute asset references
-# (`href="/...`, `src="/...`, `"/static/`) into relative ones in HTML/JS/CSS
-# responses only, mirroring how Node-RED's own HTML already resolves
-# correctly against the tile's prefixed browser URL. WebSocket upgrades
-# (kernel/terminal comms) are relayed as a raw, unmodified byte stream — see
-# the shim script's own module docstring for the full design and why this
-# is safe (no new external exposure: the shim still binds 127.0.0.1 only,
-# same trust boundary as jupyter-lab itself today).
+# History (condensed — see #60/#62/#76/#81/#83 for full evidence): Coder's
+# real path-based coder_app proxy strips the `/@owner/ws.../apps/<slug>`
+# prefix with no `X-Forwarded-Prefix` header, so neither `--ServerApp.
+# base_url` (#81) nor mounting at root with a rewriting shim (#62, the
+# `jupyter-proxy-shim.py` this superseded) could ever be a complete fix
+# while `coder_app.jupyter` stayed path-based — the shim covered HTML/JS/
+# CSS rewriting but was extra maintained surface for a proxy-mode problem.
+# Issue #83 fixes this properly: `coder_app.jupyter` now uses
+# `subdomain = true` (needs `CODER_WILDCARD_ACCESS_URL` set — see
+# compose.yaml/.env.example), so the browser talks to Jupyter's own
+# subdomain directly with no path-prefix stripping at all — unmodified
+# `jupyter-lab`, no shim, no `base_url` flag needed. One new flag IS
+# required though, live-verified during #83's own rollout: JupyterLab's
+# own Tornado server 403s any request whose Host header isn't
+# localhost/a local IP (DNS-rebinding protection) — reproduced directly
+# against jupyter-lab with `curl -H "Host: jupyter--ws--owner...` even
+# though `curl http://127.0.0.1:8889/api` with no Host override worked
+# fine. `--ServerApp.allow_remote_access=True` disables that check; this
+# is safe here for the same reason the missing token/password already is
+# (see above) — the ONLY network path to this port is still Coder's own
+# authenticated subdomain proxy.
 resource "coder_script" "jupyter" {
   count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -688,10 +677,6 @@ resource "coder_script" "jupyter" {
     # PID-file guard, NOT `pgrep -f` — a `pgrep -f` inside a script that is
     # itself run as `sh -c "<script text>"` can self-match its own command
     # line (AGENTS.md Issue #45 lesson).
-    # Each guard is independent (not a single early `exit 0`) so an
-    # already-running jupyter-lab from before this shim existed still gets
-    # the shim started on the next `coder_script` run, rather than being
-    # skipped entirely by one shared exit.
     PIDFILE=/tmp/jupyter.pid
     if ! { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }; then
       nohup /usr/local/bin/jupyter-lab \
@@ -700,16 +685,10 @@ resource "coder_script" "jupyter" {
         --IdentityProvider.token='' \
         --ServerApp.password='' \
         --ServerApp.root_dir="${local.workspace_dir}" \
+        --ServerApp.allow_remote_access=True \
         --no-browser \
         > /tmp/jupyter.log 2>&1 &
       echo $! > "$PIDFILE"
-    fi
-
-    SHIM_PIDFILE=/tmp/jupyter-proxy-shim.pid
-    if ! { [ -f "$SHIM_PIDFILE" ] && kill -0 "$(cat "$SHIM_PIDFILE")" 2>/dev/null; }; then
-      SHIM_PORT=8888 BACKEND_PORT=8889 nohup python3 /usr/local/bin/jupyter-proxy-shim.py \
-        > /tmp/jupyter-proxy-shim.log 2>&1 &
-      echo $! > "$SHIM_PIDFILE"
     fi
   EOT
 }
@@ -750,25 +729,23 @@ resource "coder_script" "nodered" {
 # Issue #60: JupyterLab tile. Same-origin icon (bundled with Coder, verified
 # live 200 at /icon/jupyter.svg) — NO CODER_ADDITIONAL_CSP_POLICY change
 # needed, unlike Issue #47/#50's plain-http-origin tiles.
+#
+# Issue #83: subdomain-routed (not path-based) — requires
+# CODER_WILDCARD_ACCESS_URL set server-wide (see compose.yaml). This is the
+# only coder_app in this template using subdomain mode; see #60/#62/#76/#81
+# for the full history of why path-based mode could never work for Jupyter.
 resource "coder_app" "jupyter" {
   count        = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id     = coder_agent.main.id
   slug         = "jupyter"
   display_name = "JupyterLab"
   icon         = "/icon/jupyter.svg"
-  url          = "http://localhost:8888"
-  subdomain    = false
+  url          = "http://localhost:8889"
+  subdomain    = true
   share        = "owner"
   order        = 2
-  # Now that Jupyter is mounted at root (see coder_script.jupyter's
-  # comment above — Coder's real path-based proxy strips the URL prefix
-  # rather than preserving it), a bare "/api" is correct. This URL now
-  # points at the Issue #62 shim (port 8888), not jupyter-lab directly
-  # (moved to 8889) — the shim transparently forwards /api unmodified
-  # (only HTML/JS/CSS responses are rewritten), so this healthcheck
-  # behaves identically to before the shim existed.
   healthcheck {
-    url       = "http://localhost:8888/api"
+    url       = "http://localhost:8889/api"
     interval  = 5
     threshold = 10
   }

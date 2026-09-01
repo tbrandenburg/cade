@@ -54,6 +54,9 @@ services:
       CODER_HTTP_ADDRESS: "0.0.0.0:7080"
       CODER_PG_CONNECTION_URL: "postgresql://${CODER_PG_USER:-coder}:${CODER_PG_PASSWORD:-coder}@coder-db/${CODER_PG_DB:-coder}?sslmode=disable"
       CODER_ACCESS_URL: "${CODER_ACCESS_URL:-http://localhost:7080}"
+      # Optional: enables subdomain-routed coder_app tiles (Issue #83).
+      # Empty default = zero behavior change unless an operator opts in.
+      CODER_WILDCARD_ACCESS_URL: "${CODER_WILDCARD_ACCESS_URL:-}"
       # Optional corporate/TLS-intercepting-proxy CA trust for the coder
       # server's own `terraform init` (fetches coder/coder, kreuzwerker/docker
       # provider packages from registry.terraform.io). Unset/empty is a
