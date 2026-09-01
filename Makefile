@@ -30,6 +30,7 @@ doctor:
 ## automatically, see that target's own doc comment.
 up: temporal-worker-build lab-sim-build
 	@bash scripts/openbao-gen-cert.sh
+	@bash scripts/derive-wildcard-access-url.sh --write
 	@$(COMPOSE) up -d
 	@bash scripts/print-urls.sh
 	@bash scripts/ai-bootstrap.sh --best-effort || true
