@@ -169,6 +169,23 @@ for the exact shape. Do not rely on the Terraform default alone to catch
 that class of regression; the default only applies at workspace-create
 time for workspaces that don't pass the parameter explicitly at all.
 
+## Post-spawn toggle: get it for free
+
+Any opt-in `coder_parameter`-gated tile built per this skill's "Gating"
+section automatically gets a post-spawn (no-recreate-needed) toggle for
+free via the generic script:
+
+```bash
+scripts/set-workspace-parameter.sh <owner>/<workspace> <param_name> <value>
+```
+
+No new script is required. Only add a dedicated wrapper if a more
+memorable command is genuinely wanted — in that case, mirror
+`scripts/set-workspace-temporal-tile.sh`'s pattern exactly: a thin
+one-line `exec "${script_dir}/set-workspace-parameter.sh" "$1"
+<param_name> "$2"` wrapper, never a reimplementation of the stop/start/
+re-send-all-parameters logic that script already handles.
+
 ## Authoritative external sources (verified reachable, real URLs)
 
 - `coder_app` resource schema (fields, `healthcheck`, `share`, `open_in`,
