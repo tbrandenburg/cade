@@ -58,6 +58,7 @@ REWRITE_CONTENT_TYPES = ("text/html", "application/javascript", "text/javascript
 #   href="/..."  -> href="..."
 #   src="/..."   -> src="..."
 #   '"/static/'  -> '"static/'   (JS string-literal asset references)
+#   "xxxUrl": "/..." -> "xxxUrl": "..."   (see Issue #83 below)
 # Intentionally does NOT touch "//" (protocol-relative URLs), query strings,
 # or any occurrence not immediately following one of these exact markers —
 # this avoids corrupting WebSocket URLs (ws://...), JSON payloads, or
@@ -65,10 +66,96 @@ REWRITE_CONTENT_TYPES = ("text/html", "application/javascript", "text/javascript
 _HREF_SRC_RE = re.compile(rb'(href|src)="/(?!/)')
 _STATIC_STR_RE = re.compile(rb'"/static/')
 
+# Issue #83: JupyterLab's own root HTML embeds a `<script
+# id="jupyter-config-data" type="application/json">` blob whose JS
+# (`PageConfig`/`ServerConnection`) reads directly to build every API/WS
+# request — e.g. `"baseUrl": "/"`, `"appUrl": "/lab"`,
+# `"fullSettingsUrl": "/lab/api/settings"`, `"treeUrl": "/lab/tree"`, etc.
+# Every one of these keys follows Jupyter's own naming convention of ending
+# in "Url" (camelCase). Two DISTINCT bugs live here, and fixing only the
+# first (as an earlier version of this shim did) is NOT sufficient — the
+# second is the actual remaining blank/broken-editor defect re-scoped by
+# Issue #83 (follow-up to #76/#81):
+#
+# Bug 1: these are domain-absolute JSON *string values*, never touched by
+# the `href="/`/`src="/` HTML-attribute rewrites above, so with the value
+# left as shipped (e.g. "/lab/api/settings") the browser fetches it
+# straight from the bare domain root, bypassing the tile's proxy path
+# entirely. Fixed the same narrow way as `href=`/`src=`: strip exactly one
+# leading "/" (`_CONFIG_URL_RE` below).
+#
+# Bug 2 (the actual remaining gap): stripping the leading "/" makes the
+# *string value* relative, but JupyterLab's `URLExt.join()`/
+# `ServerConnection.makeSettings()` machinery does NOT resolve a relative
+# `baseUrl` against the current page's directory the way a plain HTML
+# `href="lab/api/settings"` would (confirmed live: even with `"baseUrl":
+# ""` and `"settingsUrl": "lab/api/settings"`, the browser still requested
+# the origin-absolute `http://<host>/lab/api/settings`, not the
+# tile-prefixed URL) — it always resolves relative to the *origin root*,
+# never to the actual browser-visible tile prefix
+# (`/@owner/workspace.../apps/jupyter/`). The shim itself has no way to
+# learn that prefix server-side (Coder sends no `X-Forwarded-Prefix`,
+# see Issue #60), but the *browser* already knows it, in
+# `window.location.pathname`, the instant the page loads. Fixed with a
+# small inline `<script>` (`_CONFIG_PREFIX_SCRIPT`) injected immediately
+# after the `jupyter-config-data` tag: it derives the real external prefix
+# by stripping the config's own already-known `appUrl` suffix (e.g.
+# "lab") off the live `window.location.pathname`, and sets `cfg.baseUrl`
+# to it — this must run, and does run, before `jlab_core.js` (loaded
+# later in the same document) ever reads the config.
+#
+# Deliberately does NOT also re-prefix every other already-relativized
+# `*Url` field (an earlier version of this fix tried that and broke
+# things): JupyterLab's own runtime code uses these two DIFFERENT ways
+# for the *same* field depending on call site — some code paths read a
+# field like `settingsUrl` as an already-fully-qualified literal, while
+# others build the equivalent request via `URLExt.join(baseUrl,
+# settingsUrl)`, joining it with `baseUrl` a second time. Only fixing
+# `baseUrl` and leaving the individual fields exactly as the Python-side
+# `_CONFIG_URL_RE` rewrite already left them (relative, no leading "/")
+# lets the `join()` call sites resolve correctly (baseUrl + relative
+# suffix = the one correct absolute path); re-prefixing the field's own
+# value too would have made those call sites request a doubled,
+# non-existent path (`.../apps/jupyter/@owner/workspace.../apps/jupyter/
+# lab/api/settings`, confirmed live as a 404) instead.
+_CONFIG_URL_RE = re.compile(rb'("\w*Url"\s*:\s*)"/(?!/)')
+
+_CONFIG_DATA_TAG_RE = re.compile(
+    rb'(<script\s+id="jupyter-config-data"[^>]*>.*?</script>)', re.DOTALL
+)
+
+_CONFIG_PREFIX_SCRIPT = rb"""<script>
+(function () {
+  var el = document.getElementById("jupyter-config-data");
+  if (!el) { return; }
+  try {
+    var cfg = JSON.parse(el.textContent);
+    var appUrl = cfg.appUrl || "";
+    var path = window.location.pathname;
+    var prefix = path;
+    if (appUrl && path.slice(-appUrl.length) === appUrl) {
+      prefix = path.slice(0, path.length - appUrl.length);
+    }
+    if (prefix.slice(-1) !== "/") { prefix += "/"; }
+    // "baseUrl" is the one field every other URL in the app is ultimately
+    // built from (ServiceManager, ServerConnection, etc. via
+    // URLExt.join(baseUrl, <relative *Url field>)) - fixing this one
+    // field is sufficient; see the module-level comment above for why
+    // the other *Url fields must be left alone.
+    if (typeof cfg.baseUrl === "string" && cfg.baseUrl.indexOf("://") === -1) {
+      cfg.baseUrl = prefix;
+    }
+    el.textContent = JSON.stringify(cfg);
+  } catch (e) { /* leave jupyter-config-data untouched on any error */ }
+})();
+</script>"""
+
 
 def _rewrite(body: bytes) -> bytes:
     body = _HREF_SRC_RE.sub(rb'\1="', body)
     body = _STATIC_STR_RE.sub(rb'"static/', body)
+    body = _CONFIG_URL_RE.sub(rb'\1"', body)
+    body = _CONFIG_DATA_TAG_RE.sub(rb'\1' + _CONFIG_PREFIX_SCRIPT, body, count=1)
     return body
 
 
@@ -167,6 +254,30 @@ class ShimHandler(BaseHTTPRequestHandler):
         conn = http.client.HTTPConnection(BACKEND_HOST, BACKEND_PORT, timeout=30)
         try:
             forward_headers = {k: v for k, v in self.headers.items() if k.lower() != "host"}
+            # Issue #83: jupyter_server's own Cross-Origin API protection (a
+            # CSRF-hardening layer independent of the `_xsrf` token check)
+            # rejects any state-changing request (POST/PUT/...) whose
+            # `Origin` header doesn't match the `Host` it sees on the
+            # connection — logged server-side as "Blocking Cross Origin API
+            # request", returned to the client as a generic 404 (not 403),
+            # which is what made this look like a routing bug rather than a
+            # security check at first. The browser's `Origin` is always the
+            # real, tile-prefixed page origin (e.g. `http://<coder-host>`),
+            # never this backend's own `127.0.0.1:8889` — exactly the same
+            # prefix-stripping mismatch already documented throughout this
+            # module — so every kernel-session start, notebook save, and
+            # workspace-layout save (all POST/PUT) failed even though every
+            # GET worked fine (this check doesn't apply to GET). Fixed the
+            # same way the `Host` header is already handled two lines
+            # above: rewrite the forwarded `Origin` to match the backend
+            # this shim actually connects to. Safe to do unconditionally —
+            # the backend binds 127.0.0.1 only and this shim is the sole
+            # possible caller (see module docstring), so there is no other,
+            # real cross-origin request this could be confused with.
+            if "origin" in {k.lower() for k in forward_headers}:
+                for key in list(forward_headers):
+                    if key.lower() == "origin":
+                        forward_headers[key] = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
             conn.request(self.command, self.path, body=body, headers=forward_headers)
             resp = conn.getresponse()
         except (OSError, http.client.HTTPException) as exc:
