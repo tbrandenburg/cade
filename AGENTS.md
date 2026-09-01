@@ -195,6 +195,36 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Issue #83, Jupyter tile switched to subdomain routing,
+  superseding the #62 shim): closing #83's own hard-gate cross-user
+  isolation check (`coder/coder#13889`'s `share = "owner"`-under-wildcard
+  caveat) surfaced a real testing-methodology bug before it became a false
+  "verified secure" claim — `coder server create-admin-user` mints a
+  **site-wide `owner` role** account, which bypasses all per-workspace-app
+  ACL checks entirely; using one to test "can a different user reach this
+  owner-shared app tile" always trivially passes regardless of whether the
+  real ACL check works, because that account isn't subject to the ACL at
+  all. Fixed by creating a genuine plain-`member` user (`POST
+  /api/v2/users`, no roles) instead — that account correctly got a real
+  `404 Application Not Found` from Coder's own app-ACL layer. Rule: never
+  use an `owner`-role account (however conveniently already authenticated)
+  to test a per-resource/per-workspace access-control boundary — mint a
+  no-roles member account specifically for that check, every time.
+  Separately, JupyterLab's own Tornado server independently 403s any
+  request whose `Host` header isn't localhost/a local IP (its own
+  DNS-rebinding protection, unrelated to Coder's proxy) — this only
+  surfaces once a `coder_app` is switched to subdomain mode (a real
+  hostname reaches the backend's `Host` header for the first time; path-based
+  mode's `localhost`-only proxying never triggered it) and needs
+  `--ServerApp.allow_remote_access=True` to disable, safe here because
+  Coder's own authenticated proxy is still the only network path to the
+  port either way. And: a git worktree's `docker compose` commands, run
+  against a `compose.yaml` with an explicit pinned top-level `name:`,
+  correctly target the *same* already-running project/containers as the
+  main tree — a useful, verified-safe pattern for live-testing a
+  compose-level env-var change from an isolated worktree without ever
+  touching the coordinator's main tree's files.
+
 - 2026-09-01 (Issues #80/#81/#82, parallel subagent resolution): a
   parallel three-issue run confirmed the file-ownership-by-disjoint-line-range
   strategy works cleanly when two subagents must edit the same `.tf`
