@@ -8,7 +8,7 @@
 # docs/devcontainer-security-notes.md for why), Node.js, and
 # `@devcontainers/cli`. The *inner* container — built from the cloned repo's
 # own devcontainer spec — is where the actual toolchain lives; keep this
-# image deliberately thin. Modelled on coder/Dockerfile (docker-standard
+# image deliberately thin. Modelled on coder/Dockerfile (docker-workspace
 # template), reusing its CA-bundle and uid/gid-1000 user patterns verbatim.
 FROM ubuntu:24.04
 

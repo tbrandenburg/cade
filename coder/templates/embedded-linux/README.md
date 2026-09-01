@@ -1,6 +1,6 @@
 # `embedded-linux` Coder template (Milestone M6)
 
-Same Coder/Docker workspace mechanics as `docker-standard` (Milestone M3):
+Same Coder/Docker workspace mechanics as `docker-workspace` (Milestone M3):
 repository auto-cloned into `/home/coder/project`, persistent per-workspace
 home volume, code-server access. The only difference is the workspace
 image, which adds a pinned embedded-style cross-compilation toolchain on

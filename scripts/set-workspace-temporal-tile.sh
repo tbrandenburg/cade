@@ -2,7 +2,7 @@
 # set-workspace-temporal-tile.sh — Convenience wrapper to retroactively
 # enable (or disable) the "Temporal Workflows" dashboard tile
 # (`coder_app.temporal`, Issue #50 §10 / PR #53) on an EXISTING
-# `docker-standard` workspace, without needing to delete/recreate it.
+# `docker-workspace` workspace, without needing to delete/recreate it.
 #
 # Background: the tile is gated by the `temporal_owned` mutable
 # `coder_parameter` (default "false"). Temporal's own

@@ -65,7 +65,7 @@ A Chats-driven task is only as repeatable as four independently-controlled
 inputs:
 
 1. **Environment determinism** — the workspace runs a pinned Coder
-   template (this repo's `docker-standard` / `agent-workspace` /
+   template (this repo's `docker-workspace` / `agent-workspace` /
    `embedded-linux`), not an ad-hoc environment. See `AGENTS.md`'s
    Terraform/Coder lessons for what breaks this (e.g. unpinned volume
    names, dirty-tree template builds).

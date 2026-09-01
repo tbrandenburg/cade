@@ -52,7 +52,7 @@ C4Container
 
         Container(coder, "Coder Community", "Terraform + Docker", "L4 Execution Plane control. Provisions/destroys Docker workspaces from templates; separates ephemeral container from persistent home volume.")
 
-        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session. Three Coder templates: `docker-standard`/`embedded-linux` (fixed pre-built image) and the additive `devcontainer` template (Issue #6), which instead builds/runs the workspace from the cloned repo's own `.devcontainer/devcontainer.json` via `@devcontainers/cli` at start time.")
+        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session. Three Coder templates: `docker-workspace`/`embedded-linux` (fixed pre-built image) and the additive `devcontainer` template (Issue #6), which instead builds/runs the workspace from the cloned repo's own `.devcontainer/devcontainer.json` via `@devcontainers/cli` at start time.")
 
         Container(runner, "Self-Hosted GitHub Runner", "Docker, JIT/ephemeral", "L5 Coordination. Outbound-only poller; executes deterministic Actions jobs and gh-aw's reasoning step.")
 

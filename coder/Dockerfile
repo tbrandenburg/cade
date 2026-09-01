@@ -1,4 +1,4 @@
-# Workspace image for the `docker-standard` Coder template (Milestone M3).
+# Workspace image for the `docker-workspace` Coder template (Milestone M3).
 #
 # Contents: git, curl, build-essential, Python, Node.js, GitHub CLI, Docker
 # CLI, and a project-specific non-root user ("coder").

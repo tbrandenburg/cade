@@ -1,6 +1,6 @@
-# `docker-standard` Coder template (Milestone M3)
+# `docker-workspace` Coder template (Milestone M3)
 
-Provisions the first `docker-standard` workspace type: a Docker container built
+Provisions the first `docker-workspace` workspace type: a Docker container built
 from `coder/Dockerfile`, with the repository auto-cloned into
 `/home/coder/project` and a persistent per-workspace home volume.
 
@@ -31,7 +31,7 @@ This produces `cade/coder-workspace:latest`, the default value of
 ## Push a template revision
 
 ```bash
-coder templates push docker-standard \
+coder templates push docker-workspace \
   --directory coder/templates/docker-workspace \
   --var repo_url=https://github.com/<org>/cade.git
 ```
