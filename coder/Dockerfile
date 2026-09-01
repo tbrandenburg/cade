@@ -100,9 +100,13 @@ RUN chmod +x /usr/local/bin/jupyter-proxy-shim.py
 # installed globally here rather than into the userDir, so a fresh
 # /home/coder/.node-red on a brand-new home volume needs zero network access
 # to boot with the dashboard + agent nodes already available.
+# NODE_RED_AGENTS_VERSION pinned to >=0.3.8: earlier 0.3.x releases declared
+# engines.node >=22 (Issue #63) despite having no Node-22-only API usage;
+# 0.3.8 relaxes engines.node to >=20, matching this image's actual Node
+# major version and clearing the prior EBADENGINE warning at install time.
 ARG NODE_RED_VERSION=4.1.0
 ARG NODE_RED_DASHBOARD_VERSION=1.31.0
-ARG NODE_RED_AGENTS_VERSION=0.3.7
+ARG NODE_RED_AGENTS_VERSION=0.3.8
 RUN npm install -g --no-audit --no-fund \
       "node-red@${NODE_RED_VERSION}" \
       "@flowfuse/node-red-dashboard@${NODE_RED_DASHBOARD_VERSION}" \

@@ -172,6 +172,20 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Issue #63, `@tbrandenburg/node-red-agents` `engines.node`
+  mismatch, follow-up to Issue #60): a merged upstream PR fixing a
+  dependency's `package.json` on `main` does **not** mean the fix is live
+  — `npm view <pkg>@<pinned-version> engines` still showed the pre-fix
+  value until a genuinely new version was published (`0.3.7` → `0.3.8`),
+  confirmed live both via a direct `npm view` check against the real npm
+  registry and via `docker run node:20-slim npm install -g
+  @tbrandenburg/node-red-agents@0.3.8` (no more `EBADENGINE` warning).
+  Always verify a dependency fix by checking the *published registry
+  metadata for the exact pinned version*, not the upstream repo's `main`
+  branch — a merged PR and a released package version are two different
+  claims. Resolved by bumping `NODE_RED_AGENTS_VERSION` to `0.3.8` in
+  `coder/Dockerfile` once the real published version carried the fix.
+
 - 2026-08-31 (Issue #62, JupyterLab tile fix, `docker-workspace`
   template): when a proxied backend emits domain-absolute asset paths
   and the proxy in front of it strips the URL prefix with no
