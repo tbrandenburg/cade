@@ -183,6 +183,29 @@ check_security_profiles() {
   fi
 }
 
+# ── Issue #69: required local secrets present? ───────────────────────────
+# Read-only checks only -- never generate anything themselves. A fresh
+# clone before governance-bootstrap/registry-bootstrap has run is expected
+# to warn here, not fail; but skipping the fix will crash-loop openbao/
+# registry forever once `docker compose up -d` runs (see AGENTS.md Issue #69).
+check_openbao_cert() {
+  local cert="governance/openbao/certs/openbao.crt"
+  if [ -f "$cert" ]; then
+    pass "OpenBao TLS cert present at $cert"
+  else
+    warn "OpenBao TLS cert missing at $cert -- 'make up' now generates it automatically (via scripts/openbao-gen-cert.sh); if you see this after running 'make up', run 'make governance-bootstrap' to init/unseal OpenBao. Without the cert, openbao will crash-loop forever once 'docker compose up -d' runs."
+  fi
+}
+
+check_registry_htpasswd() {
+  local htpasswd="cache/registry/auth/htpasswd"
+  if [ -f "$htpasswd" ]; then
+    pass "Registry htpasswd present at $htpasswd"
+  else
+    warn "Registry htpasswd missing at $htpasswd -- run 'make registry-bootstrap USER=<user> PASSWORD=<password>' before 'docker compose up -d', otherwise the registry service will crash-loop forever (it has no way to auto-generate credentials for you)."
+  fi
+}
+
 # ── Port availability ──────────────────────────────────────────────────────
 check_ports() {
   local port in_use
@@ -221,6 +244,8 @@ main() {
   check_https "update.code.visualstudio.com"
   check_https "vscode.download.prss.microsoft.com"
   check_security_profiles
+  check_openbao_cert
+  check_registry_htpasswd
   check_ports
 
   echo

@@ -132,17 +132,28 @@ cp .env.example .env
 $EDITOR .env   # set DOCKER_GID: getent group docker | cut -d: -f3
 
 # 3. Start the platform control plane (Postgres + Coder)
+#    (this also auto-generates governance/openbao/certs/openbao.crt via
+#    scripts/openbao-gen-cert.sh if it doesn't already exist — required for
+#    openbao's TLS listener, otherwise it crash-loops forever once step 4 runs)
 make up
 
-# 4. Bring up the remaining services (runner support, Temporal, MCP,
+# 4. One-time: generate registry credentials (cache/registry/auth/htpasswd).
+#    Required before step 5 — without it, the registry service crash-loops
+#    forever, since credentials can't be invented automatically.
+make registry-bootstrap USER=<user> PASSWORD=<password>
+
+# 5. Bring up the remaining services (runner support, Temporal, MCP,
 #    governance, observability)
 docker compose up -d
 make status   # wait until every service is (healthy)/Up
 
-# 5. One-time: initialize/unseal OpenBao and rotate credentials
+# 6. One-time: initialize/unseal OpenBao and rotate credentials
+#    (the TLS cert prerequisite is already handled by step 3's `make up` —
+#    this step only does init/unseal/credential-rotation, no longer a
+#    dependency for the cert existing)
 make governance-bootstrap
 
-# 6. First login: open http://localhost:7080 in a browser and complete
+# 7. First login: open http://localhost:7080 in a browser and complete
 #    Coder's first-run admin setup — or from the CLI:
 coder login http://localhost:7080
 #    (If the browser doesn't show a "create first admin" form, an admin
@@ -150,12 +161,12 @@ coder login http://localhost:7080
 #    "Resetting a Coder user's password" below to regain access instead
 #    of wiping the deployment.)
 
-# 7. Build the workspace image(s) workspaces will run
+# 8. Build the workspace image(s) workspaces will run
 make coder-workspace-build          # docker-workspace template
 make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
-# 8. Push the Terraform template(s) and create a workspace
+# 9. Push the Terraform template(s) and create a workspace
 make templates-push                 # pushes all three templates in one shot
 # (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
 coder create <owner>/<name> --template docker-workspace --yes \
@@ -171,8 +182,9 @@ Agent Host protocol handshake actually succeeds end-to-end.
 
 Coder's admin account has no seeded/default credentials — it's created
 either via the first-run browser wizard or `coder login`'s
-`--first-user-*` flags (see Quickstart step 6), and the password only ever
+`--first-user-*` flags (see Quickstart step 7), and the password only ever
 exists wherever you first set it. If it's lost, or a fresh clone shows a
+
 normal login form instead of the "create first admin" wizard (meaning an
 admin already exists from a previous run), reset that user's password
 directly rather than wiping the whole deployment.

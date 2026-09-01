@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
+.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -22,7 +22,14 @@ doctor:
 ## references them as local-only images (no `build:` stanza), so `up`
 ## fails on a fresh host/clone without this. Pass CACERT=... to also
 ## thread a corporate CA bundle through both builds.
+## Also runs scripts/openbao-gen-cert.sh first (Issue #69) — it's a no-op
+## if governance/openbao/certs/openbao.crt already exists, so this is safe
+## to run every time; without it, openbao crash-loops forever on a fresh
+## clone. Registry credentials still require an explicit one-time
+## `make registry-bootstrap USER=... PASSWORD=...` — they can't be invented
+## automatically, see that target's own doc comment.
 up: temporal-worker-build lab-sim-build
+	@bash scripts/openbao-gen-cert.sh
 	@$(COMPOSE) up -d
 	@bash scripts/print-urls.sh
 	@bash scripts/ai-bootstrap.sh --best-effort || true
@@ -34,6 +41,23 @@ down:
 ## status: Show the status/health of the platform stack's containers.
 status:
 	@$(COMPOSE) ps
+
+## registry-bootstrap: Generate cache/registry/auth/htpasswd for the local
+## registry service (Issue #69). Credentials are operator-chosen and cannot
+## be invented automatically, so this is a required one-time manual step
+## before `docker compose up -d` — without it, `registry` crash-loops
+## forever. Usage: make registry-bootstrap USER=<user> PASSWORD=<password>
+## NOTE: `USER` is also a standard Make/environment variable (your OS login
+## name) — it will NOT appear "unset" if you forget to pass it explicitly;
+## always pass USER=... explicitly rather than relying on this check to
+## catch a missing username.
+registry-bootstrap:
+	@if [ -z "$(USER)" ] || [ -z "$(PASSWORD)" ]; then \
+		echo "ERROR: USER and PASSWORD are required."; \
+		echo "Usage: make registry-bootstrap USER=<user> PASSWORD=<password>"; \
+		exit 1; \
+	fi
+	@bash cache/registry/generate-htpasswd.sh "$(USER)" "$(PASSWORD)"
 
 ## logs: Follow the logs of the platform stack's containers.
 logs:
