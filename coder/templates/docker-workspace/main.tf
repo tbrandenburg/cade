@@ -172,13 +172,38 @@ ${jsonencode(local.agent_host_settings)}
 VSCODE_SETTINGS
     fi
 
-    # M4: best-effort autostop relaxation for agent-capable workspaces. The
-    # Coder CLI is not guaranteed to be present/authenticated for the
-    # workspace's own token inside every image, so this is deliberately
-    # non-fatal (`|| true`) and documented as a known limitation in
-    # docs/milestone-reports/M4-agent-host.md rather than relied upon.
-    if [ "${data.coder_parameter.agent_capable.value}" = "true" ] && command -v coder >/dev/null 2>&1; then
-      coder schedule stop "$(hostname)" --disable-ttl || true
+    # M4 / Issue #74: autostop relaxation for agent-capable workspaces
+    # CANNOT be performed from inside the workspace container itself.
+    # `$CODER_AGENT_TOKEN` (the only Coder credential ever present in this
+    # container's env) authenticates the *workspace agent* protocol, not
+    # the CLI/API user-session protocol `coder schedule stop` needs — it is
+    # a bare UUID, not a `<key-id>:<secret>` API key, and the coderd API
+    # rejects it outright ("Invalid API key format") for any
+    # `/api/v2/...` call, including `PUT .../ttl`. There is also no
+    # `coder_parameter`/env mechanism exposing a real user session token
+    # to a running workspace by design (that would let any workspace
+    # process act as its owner against the whole API). Live-confirmed
+    # 2026-09 while fixing Issue #74: the previous `coder schedule stop
+    # "$(hostname)" --disable-ttl` call failed on `--disable-ttl` (removed/
+    # renamed in this deployment's v2.36.3 CLI) but would have *also*
+    # failed on auth even with a correct flag/subcommand name — see
+    # AGENTS.md's Issue #74 entry for the full evidence.
+    #
+    # The only real fix is to disable the TTL from OUTSIDE the workspace,
+    # using a real, already-authenticated `coder` CLI session (exactly how
+    # `coder schedule stop <owner>/<workspace> manual` was proven live to
+    # actually clear `ttl_ms` via the Coder API). This is now
+    # `scripts/verify-agent-capable-autostop.sh <owner>/<workspace>` —
+    # idempotent, safe to re-run, and both applies and verifies the fix in
+    # one call. Run it once right after `coder create ... --parameter
+    # agent_capable=true`.
+    #
+    # This log line is intentionally ERROR-tagged and grep-able
+    # (`grep AGENT_CAPABLE_TTL /tmp/coder-startup-script.log`) so a
+    # future regression (e.g. someone re-adding a broken in-container
+    # attempt) is caught by tooling instead of silently no-op'ing again.
+    if [ "${data.coder_parameter.agent_capable.value}" = "true" ]; then
+      echo "AGENT_CAPABLE_TTL: agent_capable=true — autostop is NOT disabled from inside the workspace (no valid API session token available here). Run 'scripts/verify-agent-capable-autostop.sh <owner>/<workspace>' from an authenticated host session to actually disable it." >> /tmp/coder-startup-script.log
     fi
 
     # M9 (Agent/Harness Plane): copy/symlink the versioned `srt`
