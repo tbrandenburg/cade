@@ -23,9 +23,9 @@ variable "temporal_ui_public_url" {
 }
 
 variable "nodered_icon" {
-  description = "Icon for the Node-RED tile (Issue #60). Defaults to \"/icon/node.svg\" (Coder-bundled generic Node.js icon, same-origin, no CSP impact) — this is also the live-deployed value on this platform's Coder server (reconciled in Issue #73 so `make templates-verify-vars` doesn't report it as drift forever). Set to the real Node-RED brand icon via Simple Icons instead (CC0, https://cdn.simpleicons.org/nodered, verified live 200 image/svg+xml) if outbound Internet from the browser is acceptable — needs CODER_ADDITIONAL_CSP_POLICY's img-src widened for that origin (already done in compose.yaml)."
+  description = "Icon for the Node-RED tile (Issue #60). Defaults to the real Node-RED brand icon via Simple Icons (CC0, https://cdn.simpleicons.org/nodered, verified live 200 image/svg+xml) — needs CODER_ADDITIONAL_CSP_POLICY's img-src widened for that origin (already done in compose.yaml). Restored as the default in Issue #90 after Issue #73 mistakenly reconciled an unintended live-server regression (drift back to the generic icon) as if it were a deliberate decision. Set to \"/icon/node.svg\" (Coder-bundled generic Node.js icon, same-origin, no CSP impact) instead if outbound Internet from the browser to the Simple Icons CDN is genuinely not acceptable for a given deployment."
   type        = string
-  default     = "/icon/node.svg"
+  default     = "https://cdn.simpleicons.org/nodered"
 }
 
 # Issue #75: ported verbatim (comment + value) from
