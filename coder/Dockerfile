@@ -86,15 +86,6 @@ RUN python3 -m venv /opt/jupyter \
     && ln -s /opt/jupyter/bin/jupyter /usr/local/bin/jupyter \
     && ln -s /opt/jupyter/bin/jupyter-lab /usr/local/bin/jupyter-lab
 
-# Issue #62: in-workspace reverse-proxy shim that sits in front of
-# JupyterLab so its own domain-absolute static-asset paths render through
-# Coder's real path-prefix-stripping proxy (see coder_script.jupyter /
-# coder_app.jupyter in coder/templates/docker-workspace/main.tf, and the
-# shim script's own docstring, for the full rationale). Plain-stdlib
-# Python — no new dependency, system python3 (installed above) is enough.
-COPY jupyter-proxy-shim.py /usr/local/bin/jupyter-proxy-shim.py
-RUN chmod +x /usr/local/bin/jupyter-proxy-shim.py
-
 # --- Node-RED (Issue #60) ---------------------------------------------------
 # Node.js 20 is already installed above (NODE_MAJOR). Palette packages are
 # installed globally here rather than into the userDir, so a fresh

@@ -111,13 +111,18 @@ authenticated agent proxy, so neither has its own login. See
 `docs/operations.md` and `docs/security.md` for the full
 design/data-location/log-location writeup.
 
-**Known limitation (live-verified)**: JupyterLab's own SPA emits
-domain-absolute static asset paths (`/static/lab/...`), which do not
-resolve correctly once the browser is at the tile's prefixed URL, because
-Coder's own path-based `coder_app` proxy strips that prefix before
-forwarding to the app. Node-RED is unaffected (its assets are
-relative-path). Workaround: `coder port-forward <workspace> --tcp
-8888:8888` and open `http://localhost:8888/lab` directly.
+**JupyterLab requires `CODER_WILDCARD_ACCESS_URL` (Issue #83)**: unlike
+every other `coder_app` in this template, `coder_app.jupyter` uses
+`subdomain = true` — Coder's real path-based proxy strips the
+`/@owner/ws.../apps/<slug>` prefix with no `X-Forwarded-Prefix` header,
+so path-based mode can never work for an app (like JupyterLab) whose own
+static assets use domain-absolute paths (see #60/#62/#76/#81/#83 history
+in `main.tf`'s comments). The deployment's `.env` must set
+`CODER_WILDCARD_ACCESS_URL` to a real wildcard-resolvable hostname (e.g.
+`*.<host-ip>.nip.io`) for the tile to resolve at all; without it, the
+tile link 404s/refuses to connect. Node-RED stays path-based
+(`subdomain = false`) and is unaffected either way — its own HTML emits
+relative asset paths.
 
 ### Tier 3 — optional, post-instantiation
 

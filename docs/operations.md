@@ -169,22 +169,21 @@ listener, proxied HTTP round trip (with vs. without a session token), and
 (Node-RED only) that the dashboard/agents palettes are discovered and
 `/flows` returns real JSON.
 
-### Known limitation: JupyterLab's browser UI
+### Known limitation: JupyterLab requires wildcard DNS (Issue #83)
 
-Live-verified (Issue #60): Coder's real path-based `coder_app` proxy
-strips the `/@owner/workspace.../apps/<slug>` prefix before forwarding to
-the app — it does not preserve the full path, and sends no
-`X-Forwarded-Prefix` header. JupyterLab's own JavaScript/CSS is served at
-Domain-absolute paths (`/static/lab/...`), so once the browser is
-navigated to the tile's prefixed URL, those absolute asset requests
-resolve outside the app's own proxy scope and fail to load — the page
-loads but renders without its own bundle. Node-RED is unaffected (its
-assets use relative paths). Interim workaround:
-`coder port-forward <workspace> --tcp 8888:8888` and open
-`http://localhost:8888/lab` directly (bypasses the dashboard proxy
-entirely). See `docs/milestone-reports/issue-60-jupyter-nodered.md` and
-this issue's "Follow-up issues found" for the full evidence and possible
-future fixes (wildcard DNS + `subdomain = true`, or an in-workspace
-path-rewriting shim).
+Superseded (Issue #83): the previous shim-based workaround
+(`jupyter-proxy-shim.py`, Issue #62) has been removed. `coder_app.jupyter`
+now uses `subdomain = true` instead of path-based routing — the browser
+talks to Jupyter's own subdomain directly, so Coder's path-prefix-stripping
+proxy (which broke JupyterLab's domain-absolute static assets under
+path-based mode, see #60/#62/#76/#81) no longer applies at all. This
+requires the platform's `CODER_WILDCARD_ACCESS_URL` env var (see
+`compose.yaml`/`.env.example`) to be set to a real wildcard-resolvable
+hostname — without it, the JupyterLab tile's link does not resolve. All
+other `coder_app` tiles in this template (Node-RED, Temporal, Omnigent,
+VS Code Web) remain path-based and are unaffected by this env var being
+set. See `docs/milestone-reports/issue-60-jupyter-nodered.md` for the
+original path-based-proxy investigation history.
+
 
 
