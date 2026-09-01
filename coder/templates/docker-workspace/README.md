@@ -61,31 +61,59 @@ repository root `Makefile`'s `coder-workspace-build` target):
 make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 ```
 
-## Optional workspace apps: JupyterLab and Node-RED (Issue #60)
+## Workspace app tiers
 
-Two independent, opt-in dashboard tiles, both `false` by default (zero
-behaviour change for existing workspaces):
+This template's dashboard apps (VS Code Web, SSH/Terminal, JupyterLab,
+Node-RED, the Temporal Workflows link) all follow one consistent
+three-tier convention. Any future opt-in app should follow the same
+shape rather than inventing a new mechanism.
 
-- `enable_jupyter` (`coder_parameter`) — starts JupyterLab
-  (`coder_script.jupyter`) and shows a "JupyterLab" tile
-  (`coder_app.jupyter`).
-- `enable_nodered` (`coder_parameter`) — starts Node-RED
-  (`coder_script.nodered`) and shows a "Node-RED" tile
-  (`coder_app.nodered`).
+### Tier 1 — core, always on, no `coder_parameter`
 
-Both run as plain processes inside the workspace container (not platform
-`compose.yaml` services), bound to `127.0.0.1` only — the *only* way to
-reach either is through Coder's own authenticated agent proxy, so neither
-has its own login. See `docs/operations.md` and `docs/security.md` for the
-full design/data-location/log-location writeup, and
-`scripts/set-workspace-jupyter.sh` / `scripts/set-workspace-nodered.sh` to
-retro-fit either tile onto an already-created workspace.
+- VS Code Web (`module.code-server` in `main.tf`) — gated only by
+  `count = data.coder_workspace.me.start_count`, never by a
+  `coder_parameter`.
+- SSH / Web Terminal — Coder platform built-in via `coder_agent`, **not**
+  a template-defined `coder_app` at all.
 
-**Known limitation (live-verified, Issue #60)**: JupyterLab's own SPA emits
+### Tier 2 — optional, creation-time `coder_parameter`
+
+Each is a `bool` `coder_parameter`, default `"false"`, `mutable = true`,
+gating the `count` on its `coder_app`/`coder_script` pair — pass
+`--parameter <name>=true` at `coder create` time to opt in:
+
+- `temporal_owned` → `coder_app.temporal` — a dashboard tile linking to
+  the Temporal Workflows UI, filtered to this workspace.
+- `enable_jupyter` → `coder_script.jupyter` + `coder_app.jupyter` —
+  starts JupyterLab and shows a "JupyterLab" tile.
+- `enable_nodered` → `coder_script.nodered` + `coder_app.nodered` —
+  starts Node-RED and shows a "Node-RED" tile.
+
+JupyterLab and Node-RED both run as plain processes inside the workspace
+container (not platform `compose.yaml` services), bound to `127.0.0.1`
+only — the *only* way to reach either is through Coder's own
+authenticated agent proxy, so neither has its own login. See
+`docs/operations.md` and `docs/security.md` for the full
+design/data-location/log-location writeup.
+
+**Known limitation (live-verified)**: JupyterLab's own SPA emits
 domain-absolute static asset paths (`/static/lab/...`), which do not
 resolve correctly once the browser is at the tile's prefixed URL, because
 Coder's own path-based `coder_app` proxy strips that prefix before
 forwarding to the app. Node-RED is unaffected (its assets are
 relative-path). Workaround: `coder port-forward <workspace> --tcp
-8888:8888` and open `http://localhost:8888/lab` directly. See this
-issue's milestone report for full evidence.
+8888:8888` and open `http://localhost:8888/lab` directly.
+
+### Tier 3 — optional, post-instantiation
+
+Any Tier 2 parameter can be flipped on an *already-created* workspace, no
+recreate needed, via the single generic entry point:
+
+```bash
+scripts/set-workspace-parameter.sh <owner>/<workspace> <param_name> <value>
+```
+
+`scripts/set-workspace-temporal-tile.sh`, `scripts/set-workspace-jupyter.sh`,
+and `scripts/set-workspace-nodered.sh` are thin, byte-compatible wrapper
+scripts around this one generic script — a new Tier 2 app gets Tier 3 for
+free with no new script required.

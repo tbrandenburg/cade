@@ -604,6 +604,22 @@ Read [`AGENTS.md`](AGENTS.md) before doing any further work in this repo —
 it records binding pitfalls, a review checklist for verifying "done"
 claims, and the full walkthrough for re-running the final E2E scenario.
 
+### Workspace dashboard apps (VS Code, JupyterLab, Node-RED, Temporal, ...)
+
+The `docker-standard` workspace template exposes optional dashboard tiles
+(JupyterLab, Node-RED, a Temporal Workflows link) alongside the always-on
+VS Code Web / SSH tiles, following one consistent three-tier convention:
+
+1. **Core, always on** — no parameter (VS Code Web, SSH/Terminal).
+2. **Optional, at creation** — `coder create ... --parameter
+   enable_jupyter=true` (or `enable_nodered=true`, `temporal_owned=true`).
+3. **Optional, after creation, no recreate needed** —
+   `scripts/set-workspace-parameter.sh <owner>/<workspace> <param_name>
+   <value>`.
+
+See `AGENTS.md`'s "Workspace-app tiers" guideline and
+`coder/templates/docker-workspace/README.md` for the full breakdown.
+
 ## Documentation map
 
 | Doc | Purpose |

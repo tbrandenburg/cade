@@ -23,6 +23,27 @@ data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
+# Workspace app tiers (see coder/templates/docker-workspace/README.md and
+# .agents/skills/coder-app-tile/SKILL.md for the full convention):
+#
+# Tier 1 — core, always on, no coder_parameter:
+#   - VS Code Web (module.code-server, below)
+#   - SSH / Web Terminal (Coder platform built-in, not defined here)
+#
+# Tier 2 — optional, creation-time coder_parameter (bool, default "false"):
+#   - temporal_owned  -> coder_app.temporal
+#   - enable_jupyter  -> coder_script.jupyter + coder_app.jupyter
+#   - enable_nodered  -> coder_script.nodered + coder_app.nodered
+#
+# Tier 3 — optional, post-instantiation (no recreate needed):
+#   scripts/set-workspace-parameter.sh <owner>/<ws> <param_name> <value>
+#   (set-workspace-temporal-tile.sh / -jupyter.sh / -nodered.sh are thin,
+#   byte-compatible wrappers around this one generic script)
+#
+# Any NEW opt-in app MUST follow Tier 2 (bool coder_parameter, default
+# false, count-gated coder_app/coder_script pair) — it then gets Tier 3
+# for free via scripts/set-workspace-parameter.sh with no new script.
+
 # Optional token for cloning `repo_url` when it is not publicly readable.
 # Left empty, `git clone` behaves exactly as before (anonymous HTTPS clone).
 # When set, the startup script clones non-interactively via GIT_ASKPASS

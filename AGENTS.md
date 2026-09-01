@@ -55,6 +55,29 @@ _(Populated incrementally as phases complete. Each phase adds concrete, binding 
   another (e.g. `embedded-linux`); each template independently declares
   its own `docker_volume.home_volume` with `lifecycle { ignore_changes =
   all }` — verify the specific template a release claims to support.
+- **Workspace-app tiers (`coder/templates/docker-workspace/main.tf`)** —
+  any new dashboard app/tile follows one of three tiers; pick the tier
+  deliberately, don't invent a fourth mechanism:
+  1. **Core, always on, no `coder_parameter`** — e.g. VS Code Web
+     (`module.code-server`, gated only by `count =
+     data.coder_workspace.me.start_count`) and SSH/Web Terminal (Coder
+     platform built-in, not template-defined at all).
+  2. **Optional, creation-time `coder_parameter`** (bool, default
+     `"false"`, `mutable = true`, gates `count` on the `coder_app`/
+     `coder_script` pair) — e.g. `temporal_owned`, `enable_jupyter`,
+     `enable_nodered`. A human passes `--parameter <name>=true` at
+     `coder create` time to opt in.
+  3. **Optional, post-instantiation** — any Tier-2 parameter can be
+     flipped on an *existing* workspace, no recreate needed, via the
+     generic `scripts/set-workspace-parameter.sh <owner>/<ws>
+     <param_name> <value>` (does the stop-then-start-with-all-current-
+     parameters dance, working around `coder update`'s
+     drops-parameters-on-second-build bug — see the script's header).
+     `set-workspace-temporal-tile.sh`/`-jupyter.sh`/`-nodered.sh` are
+     already thin wrappers around it — a new app gets Tier 3 for free
+     from Tier 2, no new script required. See
+     `.agents/skills/coder-app-tile/SKILL.md` for the full Terraform
+     shape.
 
 ## Agent Instructions
 
@@ -171,6 +194,16 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
+
+- 2026-09-01: the live Coder server currently has two templates derived
+  from the same `coder/templates/docker-workspace/` directory —
+  `docker-workspace` (actively pushed/matches current `main.tf`) and a
+  stale `docker-standard` (older push, name still used in some
+  docs/examples). Always confirm which template name is actually current
+  via `coder templates versions list <name>` before running any live
+  `coder create`-based verification — using the stale name would silently
+  test outdated Terraform, not the change under review. Follow-up cleanup
+  (retire/rename one of the two) not yet filed.
 
 - 2026-09-01 (Node-RED tile brand icon, `docker-workspace` template,
   live-verified): the previously-documented `nodered_icon` fallback
