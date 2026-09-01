@@ -114,6 +114,24 @@ RUN npm install -g --no-audit --no-fund \
     && mkdir -p /opt/node-red
 COPY workspace-apps/node-red-settings.js /opt/node-red/settings.js
 
+# Omnigent host CLI (Issue #75, porting Issue #43's agent-workspace
+# integration to docker-workspace) — PyPI `omnigent` package only, mirrored
+# verbatim from `coder/agent-workspace/Dockerfile`'s existing block (see
+# that file's comment for the full rationale: not the upstream
+# omnigent-sandbox `deploy/docker/Dockerfile.host` image, own venv for
+# isolation). Version MUST stay in lockstep with omnigent-server's pin in
+# ../compose.yaml and within the OpenCode range OPENCODE_VERSION (above)
+# supports. This is installed unconditionally at image-build time — the
+# opt-in gating (Tier 2, `enable_omnigent` coder_parameter, default false)
+# happens entirely in coder/templates/docker-workspace/main.tf's startup
+# script, not here; a few extra MB in the image is an acceptable trade-off
+# for keeping this Dockerfile a single shared artifact.
+ARG OMNIGENT_VERSION=0.11.0
+RUN python3 -m venv /opt/omnigent-venv \
+ && /opt/omnigent-venv/bin/pip install --no-cache-dir "omnigent==${OMNIGENT_VERSION}" \
+ && ln -s /opt/omnigent-venv/bin/omnigent /usr/local/bin/omnigent \
+ && omnigent --version
+
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
     else \

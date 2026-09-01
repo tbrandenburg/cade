@@ -13,6 +13,14 @@ locals {
   username      = data.coder_workspace_owner.me.name
   repo_url      = var.repo_url
   workspace_dir = "/home/coder/project"
+  # Issue #75 (ported from agent-workspace/main.tf's Issue #43 Step 5):
+  # legible per-workspace omnigent host name/id, only meaningful when
+  # enable_omnigent=true — see that file's comment for the full rationale
+  # on why host_id/name are written into ~/.omnigent/config.yaml rather
+  # than passed via OMNIGENT_HOST_ID/OMNIGENT_HOST_NAME env vars (silently
+  # dropped by omnigent's own daemon-spawn allowlist).
+  omnigent_host_name = "${data.coder_workspace_owner.me.name}-${data.coder_workspace.me.name}"
+  omnigent_host_id   = md5(data.coder_workspace.me.id)
 }
 
 provider "docker" {
@@ -29,11 +37,11 @@ data "coder_workspace_owner" "me" {}
 # Tier 1 — core, always on, no coder_parameter:
 #   - VS Code Web (module.code-server, below)
 #   - SSH / Web Terminal (Coder platform built-in, not defined here)
-#
-# Tier 2 — optional, creation-time coder_parameter (bool, default "false"):
+## Tier 2 — optional, creation-time coder_parameter (bool, default "false"):
 #   - temporal_owned  -> coder_app.temporal
 #   - enable_jupyter  -> coder_script.jupyter + coder_app.jupyter
 #   - enable_nodered  -> coder_script.nodered + coder_app.nodered
+#   - enable_omnigent -> startup_script block + coder_app.omnigent (Issue #75)
 #
 # Tier 3 — optional, post-instantiation (no recreate needed):
 #   scripts/set-workspace-parameter.sh <owner>/<ws> <param_name> <value>
@@ -121,6 +129,55 @@ data "coder_parameter" "enable_nodered" {
   default      = "false"
   mutable      = true
   order        = 5
+}
+
+# Issue #75: Tier-2 opt-in Omnigent Chat tile, ported from
+# agent-workspace/main.tf's Tier-1 (always-on) omnigent integration
+# (Issue #43/#45) — deliberately demoted to Tier 2 here per this
+# template's own three-tier convention (see coder-app-tile/SKILL.md and
+# AGENTS.md's "Workspace-app tiers" guideline): forcing every
+# docker-workspace user through Omnigent login/registration at every
+# workspace start would be unnecessary friction for this template's
+# broader, non-agent-specialized audience, unlike agent-workspace which
+# exists specifically for long-running Coder Agents sessions. `false` by
+# default — zero behaviour change, no new container/network dependency,
+# no login prompt, no extra startup-script latency for existing
+# workspaces. Gates every Omnigent-related resource below (the startup
+# script block, coder_app.omnigent, and the two credential parameters'
+# practical relevance).
+data "coder_parameter" "enable_omnigent" {
+  name         = "enable_omnigent"
+  display_name = "Enable Omnigent Chat"
+  description  = "Start the omnigent host daemon in this workspace and show an \"Omnigent Chat\" dashboard tile linking to the shared omnigent-server UI. Requires omnigent-db/omnigent-server to be up (`docker compose up -d omnigent-db omnigent-server` + `make omnigent-bootstrap`) — see this template's README."
+  type         = "bool"
+  default      = "false"
+  mutable      = true
+  order        = 6
+}
+
+# Issue #75 (ported from agent-workspace/main.tf's Issue #43 Step 5): only
+# meaningful when enable_omnigent=true — see that file's comment for the
+# full rationale (shared omnigent-server first-admin account, OpenBao
+# secret/devenv-cloud/omnigent/host-account; omnigent's "accounts" auth
+# mode is username+password only, no bearer-token login flag).
+data "coder_parameter" "omnigent_admin_username" {
+  name         = "omnigent_admin_username"
+  display_name = "Omnigent Admin Username"
+  description  = "Username for the shared omnigent-server first-admin account (OpenBao secret/devenv-cloud/omnigent/host-account). Only used when enable_omnigent=true."
+  type         = "string"
+  default      = "admin"
+  mutable      = true
+  order        = 7
+}
+
+data "coder_parameter" "omnigent_admin_password" {
+  name         = "omnigent_admin_password"
+  display_name = "Omnigent Admin Password"
+  description  = "Password for the shared omnigent-server first-admin account (OpenBao secret/devenv-cloud/omnigent/host-account). Leave empty to skip omnigent host registration entirely. Only used when enable_omnigent=true."
+  type         = "string"
+  default      = ""
+  mutable      = true
+  order        = 8
 }
 
 locals {
@@ -224,6 +281,199 @@ alias opencode='srt opencode --'
 alias pi='srt pi --'
 BASHRC_ALIASES
     fi
+
+    # Issue #75: Omnigent host integration, ported verbatim (mechanism,
+    # not just intent) from agent-workspace/main.tf's Issue #43/#45 block
+    # — this template already wraps opencode/pi in srt (M9, same
+    # `bwrap --unshare-net` sandboxing agent-workspace uses), so the
+    # reverse-Unix-socket-bridge fix Issue #45 proved live for reaching a
+    # srt-sandboxed `opencode serve` from the unsandboxed omnigent daemon
+    # applies identically here. Entirely gated behind enable_omnigent —
+    # a `false` value (the default) means NONE of this runs: no PATH
+    # shim, no bridge/watchdog process, no login attempt, no
+    # ~/.omnigent/config.yaml write, matching this template's Tier-2
+    # "zero behaviour change when disabled" convention.
+    if [ "${data.coder_parameter.enable_omnigent.value}" = "true" ]; then
+      # Issue #43 Step 5: PATH shim so the omnigent-spawned harness
+      # resolves `opencode` the same way as the interactive alias above.
+      # See agent-workspace/main.tf's identical block for the full,
+      # live-verified rationale (omnigent's opencode-native runner spawns
+      # its native server by the literal command name "opencode", a PATH
+      # lookup at spawn time) and the srt-recursion gotcha (always pass
+      # srt the ABSOLUTE path, never the bare word "opencode", or srt
+      # resolves its own target back through this same shim).
+      mkdir -p ~/.omnigent-bin
+      cat > ~/.omnigent-bin/opencode <<'OMNIGENT_OPENCODE_SHIM'
+#!/bin/sh
+set -e
+if [ "$OMNIGENT_SANDBOX_MODE" = "plain" ]; then
+  exec /usr/local/bin/opencode "$@"
+fi
+
+# Issue #45 (Direction 4): srt's `bwrap --unshare-net` puts a sandboxed
+# `opencode serve` in a private network namespace, so its loopback port is
+# unreachable from the unsandboxed omnigent runner polling
+# http://127.0.0.1:<port> from outside the sandbox. Verified live fix
+# (Issue #45, "Direction 4"): a Unix socket created inside the sandbox is
+# still a filesystem object under the shared /tmp bind-mount, so it
+# (unlike TCP) IS reachable from outside -- bridge the sandboxed TCP port
+# to a Unix socket in here, and bridge that same Unix socket back to the
+# identical TCP port from OUTSIDE the sandbox via the bridge-watchdog
+# started below. Only applies to a `serve --port <N>` invocation
+# (omnigent's opencode-native harness's long-lived orchestration server)
+# -- every other invocation (interactive attach, etc.) is unaffected.
+is_serve=""
+port=""
+prev=""
+for arg in "$@"; do
+  if [ "$arg" = "serve" ]; then
+    is_serve=1
+  fi
+  case "$prev" in
+  --port)
+    port="$arg"
+    ;;
+  esac
+  case "$arg" in
+  --port=*)
+    port="$${arg#--port=}"
+    ;;
+  esac
+  prev="$arg"
+done
+
+if [ -n "$is_serve" ] && [ -n "$port" ]; then
+  rm -f "/tmp/opencode-bridge-$port.sock"
+  exec srt -c "socat UNIX-LISTEN:/tmp/opencode-bridge-$port.sock,fork,reuseaddr TCP:127.0.0.1:$port & exec /usr/local/bin/opencode $*"
+fi
+
+exec srt /usr/local/bin/opencode -- "$@"
+OMNIGENT_OPENCODE_SHIM
+      chmod +x ~/.omnigent-bin/opencode
+      if ! grep -q '.omnigent-bin' ~/.bashrc 2>/dev/null; then
+        echo 'export PATH="$HOME/.omnigent-bin:$PATH"' >> ~/.bashrc
+      fi
+      # Issue #43 (live E2E finding): the .bashrc line above only helps a
+      # FUTURE interactive shell -- `coder_agent` runs startup_script via a
+      # non-interactive `sh -c`, which never sources ~/.bashrc. Export it
+      # into the CURRENT script's own environment too.
+      export PATH="$HOME/.omnigent-bin:$PATH"
+
+      # Issue #45 (Direction 4): outside-sandbox half of the reverse
+      # Unix-socket bridge -- pairs with the ~/.omnigent-bin/opencode shim
+      # above. Written unconditionally (always overwritten) on every boot
+      # -- this file is never meant to be hand-edited.
+      mkdir -p ~/.omnigent-bin
+      cat > ~/.omnigent-bin/bridge-watchdog.sh <<'BRIDGE_WATCHDOG'
+#!/bin/sh
+# Polls for opencode-bridge-<N>.sock files created by the srt-side shim and
+# keeps a matching plain (unsandboxed) socat TCP<->UNIX bridge running for
+# each one, reaping the bridge process once its socket disappears (the
+# owning srt session ended).
+while true; do
+  for sock in /tmp/opencode-bridge-*.sock; do
+    [ -e "$sock" ] || continue
+    base=$(basename "$sock" .sock)
+    port="$${base#opencode-bridge-}"
+    pidfile="/tmp/opencode-bridge-$port.pid"
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
+      continue
+    fi
+    socat TCP-LISTEN:"$port",fork,reuseaddr UNIX-CONNECT:"$sock",retry &
+    echo $! >"$pidfile"
+  done
+
+  for pidfile in /tmp/opencode-bridge-*.pid; do
+    [ -e "$pidfile" ] || continue
+    base=$(basename "$pidfile" .pid)
+    port="$${base#opencode-bridge-}"
+    sock="/tmp/opencode-bridge-$port.sock"
+    # Issue #45 Step 3 (live E2E finding): a dead Unix socket special file
+    # is NOT automatically removed from disk -- probe for a live listener
+    # (`socat -u OPEN:/dev/null UNIX-CONNECT:"$sock"`) instead of trusting
+    # mere file existence.
+    if [ ! -e "$sock" ] || ! socat -u OPEN:/dev/null UNIX-CONNECT:"$sock" >/dev/null 2>&1; then
+      kill "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null || true
+      rm -f "$pidfile" "$sock"
+    fi
+  done
+
+  sleep 1
+done
+BRIDGE_WATCHDOG
+      chmod +x ~/.omnigent-bin/bridge-watchdog.sh
+
+      # Idempotent start: a PID-file + `kill -0` check, NOT `pgrep -f
+      # 'bridge-watchdog.sh'` -- a `pgrep -f` string match self-matches
+      # this currently-running startup_script shell process itself
+      # (Issue #45 Step 3 lesson: the script's own text, including this
+      # very comment, contains the literal substring "bridge-watchdog.sh").
+      if [ ! -f /tmp/omnigent-bridge-watchdog.pid ] || ! kill -0 "$(cat /tmp/omnigent-bridge-watchdog.pid 2>/dev/null)" 2>/dev/null; then
+        nohup ~/.omnigent-bin/bridge-watchdog.sh >/tmp/omnigent-bridge-watchdog.log 2>&1 &
+        echo $! >/tmp/omnigent-bridge-watchdog.pid
+      fi
+
+      # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
+      # "accounts" auth mode by replicating the real CLI's own
+      # `_accounts_login()` code path exactly (omnigent==0.11.0 has no
+      # --token/non-interactive credential flag) — POST /auth/login with
+      # {username, password}, then persist the session via
+      # `omnigent.cli_auth.store_token(...)`. Re-authenticates on every
+      # workspace start rather than checking for an existing non-expired
+      # token first — simpler, and cheap.
+      if [ -n "$${OMNIGENT_ADMIN_PASSWORD}" ] && command -v /opt/omnigent-venv/bin/python3 >/dev/null 2>&1; then
+        /opt/omnigent-venv/bin/python3 <<'OMNIGENT_LOGIN_PY' || true
+import os
+import time
+
+import httpx
+
+from omnigent.cli_auth import store_token
+
+server = os.environ["OMNIGENT_SERVER_URL"]
+username = os.environ["OMNIGENT_ADMIN_USERNAME"]
+password = os.environ["OMNIGENT_ADMIN_PASSWORD"]
+
+resp = httpx.post(
+    f"{server}/auth/login",
+    json={"username": username, "password": password},
+    timeout=10.0,
+)
+resp.raise_for_status()
+body = resp.json()
+store_token(
+    server_url=server,
+    token=body["token"],
+    user_id=body["user"]["id"],
+    expires_at=time.time() + body.get("expires_in", 8 * 3600),
+    refresh_token=body.get("refresh_token"),
+)
+print(f"omnigent: logged in as {body['user']['id']}")
+OMNIGENT_LOGIN_PY
+
+        # Issue #43 Step 5 (corrected, live E2E finding): the
+        # OMNIGENT_HOST_ID/OMNIGENT_HOST_NAME env var pair does NOT reach
+        # the actual `--background` daemon process (silently dropped by
+        # omnigent's own daemon-spawn environment allowlist). The real,
+        # verified-working mechanism: `omnigent host` honors a pre-existing
+        # `host:` section in ~/.omnigent/config.yaml if BOTH `host_id` and
+        # `name` are already present — write it directly, first-boot only,
+        # before ever invoking `omnigent host`. This file lives on the
+        # persistent home volume, so identity survives `coder stop`/`start`.
+        if [ ! -f ~/.omnigent/config.yaml ]; then
+          mkdir -p ~/.omnigent
+          cat > ~/.omnigent/config.yaml <<OMNIGENT_HOST_IDENTITY
+host:
+  host_id: ${local.omnigent_host_id}
+  name: ${local.omnigent_host_name}
+OMNIGENT_HOST_IDENTITY
+        fi
+
+        # `--background` spawns the daemon detached and returns
+        # immediately (reusing a healthy daemon if already up).
+        omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1 || true
+      fi
+    fi
   EOT
 
   env = {
@@ -232,6 +482,20 @@ BASHRC_ALIASES
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
     GITHUB_TOKEN        = data.coder_parameter.github_token.value
+    # Issue #75: only consumed by the startup script when
+    # enable_omnigent=true (see above) — harmless, always-set env vars
+    # otherwise, same "cheap to always set, only acted on when gated"
+    # pattern as agent-workspace/main.tf.
+    OMNIGENT_SERVER_URL     = var.omnigent_server_url
+    OMNIGENT_ADMIN_USERNAME = data.coder_parameter.omnigent_admin_username.value
+    OMNIGENT_ADMIN_PASSWORD = data.coder_parameter.omnigent_admin_password.value
+    OMNIGENT_SANDBOX_MODE   = var.omnigent_sandbox_mode
+    # Issue #43: OMNIGENT_SANDBOX_MODE is NOT in omnigent's own daemon/
+    # runner environment allowlist — OMNIGENT_RUNNER_ENV_PASSTHROUGH is
+    # omnigent's own documented mechanism for forwarding extra var names,
+    # and IS itself allowlisted. See agent-workspace/main.tf's identical
+    # env block for the full rationale.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
   }
 
   metadata {
@@ -459,9 +723,40 @@ resource "coder_app" "nodered" {
   }
 }
 
-resource "docker_volume" "home_volume" {
-  name = "coder-${data.coder_workspace.me.id}-home"
+# Issue #75: Tier-2 opt-in dashboard tile linking out to the omnigent chat
+# UI, ported from agent-workspace/main.tf's coder_app.omnigent (Issue
+# #43/#47/#45). `external = true` is the correct mechanism here (same
+# rationale as that file's comment: no iframe/embedded-UI mechanism exists
+# for coder_app in this Coder version, and omnigent-server is a separate,
+# already-running container, not a process the workspace agent itself
+# starts/reaches).
+resource "coder_app" "omnigent" {
+  count        = data.coder_parameter.enable_omnigent.value ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "omnigent"
+  display_name = "Omnigent Chat"
+  # Issue #47: `workspace_apps.icon` is varchar(256) in Coder's Postgres
+  # schema — the real Omnigent favicon SVG/PNG cannot be embedded as a
+  # `data:` URI at any reasonable resolution (verified live, see
+  # agent-workspace/main.tf's identical comment). Using omnigent_public_url
+  # directly introduces no *new* runtime dependency: this coder_app is
+  # `external = true`, so the browser must already reach omnigent_public_url
+  # directly to use the app at all; the icon fetch shares that exact same,
+  # already-required reachability.
+  icon     = "${var.omnigent_public_url}/favicon.svg"
+  external = true
+  # Uses omnigent_public_url (browser-reachable loopback), NOT
+  # omnigent_server_url (internal compose DNS name used by the startup
+  # script's own login/registration calls) — see variables.tf.
+  #
+  # The `?host=` query param is currently INERT: omnigent's shipped web UI
+  # ignores unrecognized query params and always lands on New Chat — kept
+  # only as forward-compatible plumbing pending upstream deep-link support
+  # (omnigent-ai/omnigent#5881). Do not "fix" this locally.
+  url = "${var.omnigent_public_url}/?host=${local.omnigent_host_name}"
+}
 
+resource "docker_volume" "home_volume" {
   # Protect the volume from being deleted due to changes in attributes.
   # This is the same persistent volume M4 uses for Agent Host state
   # (~/.vscode, ~/.vscode-server) alongside the cloned repository.
@@ -499,6 +794,19 @@ resource "docker_container" "workspace" {
   host {
     host = "host.docker.internal"
     ip   = "host-gateway"
+  }
+
+  # Issue #75: attach to the `platform-workspaces` Docker network
+  # (defined in the repo-root compose.yaml) so the workspace container can
+  # resolve/reach `omnigent-server` by its compose service name when
+  # `enable_omnigent=true` — same network agent-workspace already attaches
+  # to for the same reason (Issue #13 Task 8b, `lab-sim`). Attached
+  # unconditionally (not gated behind `enable_omnigent`, which cannot be
+  # used to conditionally toggle a single resource's `networks_advanced`
+  # block) — this only adds network *reachability*, no new process/login/
+  # container dependency for the `enable_omnigent=false` default case.
+  networks_advanced {
+    name = "platform-workspaces"
   }
 
   # Issue #23: scoped seccomp + AppArmor profiles that permit `bwrap`

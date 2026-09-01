@@ -27,3 +27,39 @@ variable "nodered_icon" {
   type        = string
   default     = "/icon/node.svg"
 }
+
+# Issue #75: ported verbatim (comment + value) from
+# coder/templates/agent-workspace/variables.tf — see that file's comment
+# for the full rationale (no Terraform<->OpenBao data-source pattern exists
+# yet; real credential lives in OpenBao at
+# secret/devenv-cloud/omnigent/host-account). Only used when
+# `enable_omnigent` (main.tf) is true.
+variable "omnigent_server_url" {
+  default     = "http://omnigent-server:8000"
+  description = "Omnigent server URL, reachable from workspace containers via the `platform-workspaces` Docker network (compose service name). Not a secret. Only used when enable_omnigent=true."
+  type        = string
+}
+
+# Issue #75: ported verbatim from agent-workspace/variables.tf — see that
+# file's comment for why this is a SEPARATE variable from
+# `omnigent_server_url` (internal compose DNS name vs. browser-reachable
+# loopback URL, matching compose.yaml's `127.0.0.1:${OMNIGENT_PORT:-8000}`
+# publish default).
+variable "omnigent_public_url" {
+  default     = "http://localhost:8000"
+  description = "Public-facing (browser-reachable) Omnigent URL, used only for the dashboard tile link. Distinct from `omnigent_server_url` (internal compose DNS name, used only by the startup script's own login/registration calls). Not a secret. Only used when enable_omnigent=true."
+  type        = string
+}
+
+# Issue #75: ported verbatim from agent-workspace/variables.tf. "plain"
+# spawns bare `opencode` (verification-only) and must NEVER be the default
+# in a pushed template version.
+variable "omnigent_sandbox_mode" {
+  default     = "srt"
+  description = "How the omnigent-spawned opencode harness resolves its `opencode` binary: \"srt\" (default, sandboxed via `srt opencode --`) or \"plain\" (bare `opencode`, verification-only, never the shipped default). Only used when enable_omnigent=true."
+  type        = string
+  validation {
+    condition     = contains(["srt", "plain"], var.omnigent_sandbox_mode)
+    error_message = "omnigent_sandbox_mode must be either \"srt\" or \"plain\"."
+  }
+}
