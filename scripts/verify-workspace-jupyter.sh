@@ -19,7 +19,7 @@
 #   2. jupyter-lab process is alive inside the workspace container
 #      (docker exec ... pgrep -af jupyter-lab), listening on 8889.
 #   3. Listener is loopback-only, not exposed on all interfaces
-#      (checked via /proc/net/tcp, port 8889 = 22C1 hex).
+#      (checked via /proc/net/tcp, port 8889 = 22B9 hex).
 #   4. Proxied HTTP round trip through Coder's real subdomain-routed proxy,
 #      with a valid session token, returns 200 JSON from the Jupyter API.
 #   5. The same subdomain URL WITHOUT a session token/cookie is NOT 200
@@ -95,28 +95,41 @@ print("")
     subdomain_host=""
     if [ -n "${jupyter_app_json}" ]; then
       # Resolve whichever field Coder's live API actually populates for a
-      # subdomain=true app — checked live (see handoff for the confirmed
-      # field name); fall back through a couple of plausible names rather
-      # than hard-failing if the API shape differs from what was observed.
-      subdomain_host="$(echo "${jupyter_app_json}" | python3 -c '
+      # subdomain=true app. Live-verified (Issue #83): `subdomain_name` is
+      # a bare label only (e.g. "jupyter--<ws>--<owner>"), not a full
+      # hostname — it must be combined with the deployment's
+      # wildcard_access_url (GET /api/v2/deployment/config) to build the
+      # actual routable host, e.g. "jupyter--ws--owner.192.168.0.20.nip.io".
+      subdomain_label="$(echo "${jupyter_app_json}" | python3 -c '
 import json, sys
 app = json.load(sys.stdin)
-for key in ("subdomain_name", "subdomain", "url"):
-    v = app.get(key)
-    if v:
-        print(v)
-        break
+print(app.get("subdomain_name") or "")
 ' 2>/dev/null || true)"
+
+      if [ -n "${subdomain_label}" ]; then
+        deployment_json="$(curl -sf "${coder_url}/api/v2/deployment/config" \
+          -H "Coder-Session-Token: ${session_token}" 2>/dev/null || true)"
+        wildcard_url="$(echo "${deployment_json}" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print((d.get("config") or {}).get("wildcard_access_url") or "")
+' 2>/dev/null || true)"
+        # wildcard_url looks like "*.192.168.0.20.nip.io" — strip the "*."
+        # prefix and prepend our resolved subdomain label instead.
+        wildcard_domain="${wildcard_url#\*.}"
+        if [ -n "${wildcard_domain}" ] && [ "${wildcard_domain}" != "${wildcard_url}" ]; then
+          subdomain_host="${subdomain_label}.${wildcard_domain}"
+        fi
+      fi
     fi
 
     if [ -n "${subdomain_host}" ]; then
-      # subdomain_name is typically a bare hostname (no scheme); build a
-      # full URL against it using the same scheme as CODER_ACCESS_URL.
+      # Build a full URL against the resolved host, reusing CODER_ACCESS_URL's
+      # scheme and port (wildcard DNS resolves the hostname; the port is not
+      # part of the DNS name itself).
       scheme="$(echo "${coder_url}" | sed -n 's~^\(https\?\)://.*~\1~p')"
-      case "${subdomain_host}" in
-        http*://*) proxy_url="${subdomain_host}" ;;
-        *) proxy_url="${scheme}://${subdomain_host}" ;;
-      esac
+      port_suffix="$(echo "${coder_url}" | sed -n 's~^https\?://[^:]*\(:[0-9]\+\)\?.*~\1~p')"
+      proxy_url="${scheme}://${subdomain_host}${port_suffix}"
 
       body="$(curl -sf -H "Coder-Session-Token: ${session_token}" \
         "${proxy_url}/api" 2>/dev/null || true)"
@@ -140,8 +153,8 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 
   # `ss`/`netstat` are not installed in cade/coder-workspace:latest; read
   # /proc/net/tcp directly instead (always available, no extra dependency).
-  # Port 8889 decimal = 22C1 hex; local_addr is little-endian hex IP:PORT.
-  listeners="$(docker exec "${container_name}" sh -c "awk 'NR>1 {print \$2}' /proc/net/tcp | grep -i ':22C1$'" 2>/dev/null || true)"
+  # Port 8889 decimal = 22B9 hex; local_addr is little-endian hex IP:PORT.
+  listeners="$(docker exec "${container_name}" sh -c "awk 'NR>1 {print \$2}' /proc/net/tcp | grep -i ':22B9$'" 2>/dev/null || true)"
   loopback_only="true"
   any_listener="false"
   while read -r entry; do
