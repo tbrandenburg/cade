@@ -195,6 +195,49 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Issue #74, `docker-workspace` agent_capable autostop-disable):
+  the pre-existing `coder schedule stop "$(hostname)" --disable-ttl` call in
+  the startup script was broken in **two independent ways**, not just the
+  reported unsupported flag. (1) `--disable-ttl` genuinely doesn't exist on
+  this deployment's v2.36.3 CLI — confirmed via `coder schedule stop --help`
+  live; the correct working invocation is `coder schedule stop <workspace>
+  manual` (a positional `manual` keyword, not a flag), verified to actually
+  clear `ttl_ms` to `null` via a direct `GET /api/v2/workspaces/{id}` check.
+  (2) Even with the flag fixed, this call **can never succeed from inside
+  the workspace container** — the only Coder credential ever present there,
+  `$CODER_AGENT_TOKEN`, is a bare UUID authenticating the workspace-agent
+  protocol, not a `<key-id>:<secret>` API key; coderd rejects it outright
+  ("Invalid API key format: incorrect amount of API key parts, expected 2
+  got 5") for any user-session API call, confirmed by curling
+  `/api/v2/workspaces/{id}/ttl` and `coder schedule stop` directly inside a
+  real workspace container with `CODER_SESSION_TOKEN=$CODER_AGENT_TOKEN`.
+  There is also no session-token file anywhere under
+  `~/.config/coderv2/` inside a workspace container to fall back to. This
+  second bug was **completely invisible before fixing bug (1)** — the
+  flag-parsing error always fired first, silently masking that even a
+  syntactically-correct call would still 401. General rule: fixing a CLI
+  flag/subcommand-name bug is not sufficient evidence the *whole* command
+  now works — re-verify the corrected command's actual auth/execution
+  path live, not just that it parses. Fixed by moving the disable step
+  entirely outside the workspace to a new idempotent
+  `scripts/verify-agent-capable-autostop.sh <owner>/<workspace>` (same
+  already-authenticated-host-CLI-session pattern as
+  `scripts/set-workspace-parameter.sh`), which both detects and clears an
+  active `ttl_ms` and is safe to re-run after every `coder create
+  --parameter agent_capable=true`; the startup script itself now only logs
+  a single grep-able `AGENT_CAPABLE_TTL:` line explaining the limitation,
+  instead of silently `|| true`-swallowing a call that could never work.
+  Separately confirmed live: `docker-workspace`'s template-level
+  `default_ttl_ms` is `0` (no default TTL at all), so a genuinely fresh
+  workspace already has `ttl_ms=null` with no action needed — the disable
+  step only actually matters once *something* (a human via the dashboard,
+  a different automation) has explicitly set a schedule on that specific
+  workspace afterward; `compose.yaml`'s `CODER_WORKSPACE_TTL_MINUTES=120`
+  deployment-wide env var does not appear to override this per-template
+  `default_ttl_ms=0` (untested beyond this one observation — flag as an
+  open question if a future issue needs the deployment-wide default's
+  exact precedence rules confirmed).
+
 - 2026-09-01: the live Coder server currently has two templates derived
   from the same `coder/templates/docker-workspace/` directory —
   `docker-workspace` (actively pushed/matches current `main.tf`) and a
@@ -669,6 +712,30 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
  
 ### Coder / Terraform / Docker
 
+- `coder templates push` NEVER resets an already-pushed template variable to
+  its `.tf` file's `default` — Coder persists each variable's *value*
+  server-side, independent of the `.tf` default, exactly like a Terraform
+  Cloud workspace variable; only an explicit `--variable "name=value"` on
+  that push overrides it. Confirmed live (Issue #73): after the
+  devenv-cloud -> cade rebrand changed `variables.tf` defaults for
+  `workspace_image`/`repo_url` across all 4 templates, a bare
+  `coder templates push <name> ... --yes` (no `--variable` flags, exactly
+  what `make templates-push` runs) left the *live* value on the stale
+  pre-rebrand string on at least one template — every workspace created from
+  it kept running the wrong, feature-incomplete image, silently, with no
+  error at push time or at workspace-create time. `scripts/
+  verify-template-vars.sh` (`make templates-verify-vars`) now diffs each of
+  the 4 templates' live variable values (`GET /api/v2/templateversions/
+  <active_version_id>/variables`) against their own `.tf` `default`s and
+  fails loudly on drift — run it after any `.tf` variable-default change,
+  not just after a rebrand. Any live value that legitimately differs from
+  the `.tf` default on purpose (e.g. `docker-workspace`'s `nodered_icon`,
+  deliberately overridden to the same-origin `/icon/node.svg` fallback the
+  variable's own description documents as an alternative to the CDN
+  default) should have its `.tf` default itself updated to match — the
+  script does not distinguish "deliberate" from "accidental" drift, and
+  leaving it unreconciled means every future `templates-verify-vars` run
+  reports a false positive forever.
 - `temporalio/auto-setup`'s frontend/history/matching/worker gRPC services bind to
   `BIND_ON_IP` (defaults to the container's own resolved IP, not 127.0.0.1) — `TEMPORAL_ADDRESS`
   only sets the `temporal` CLI's default target, not the bind address; set `BIND_ON_IP=0.0.0.0`
