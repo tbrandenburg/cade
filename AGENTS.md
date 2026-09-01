@@ -864,6 +864,20 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   script does not distinguish "deliberate" from "accidental" drift, and
   leaving it unreconciled means every future `templates-verify-vars` run
   reports a false positive forever.
+  **Correction (Issue #90):** the `nodered_icon` drift reconciled above was
+  itself an unintended regression, not an actual decision — no commit in
+  `git log` ever pushed the live variable back to `/icon/node.svg`; it most
+  likely happened via an out-of-band `coder templates push --variable`
+  call or a manual dashboard edit that left no traceable record in this
+  session. The `.tf` default has been reverted to the real Node-RED brand
+  icon (`https://cdn.simpleicons.org/nodered`) and the live value pushed
+  back to match (`--variable 'nodered_icon=...'`), live-verified in a real
+  browser (tile's `<img src>` resolves to the CDN URL, zero CSP console
+  errors). Lesson generalized: before reconciling a drift this tool finds
+  by changing the `.tf` default to match live, actively check whether the
+  live value's origin is explainable (a real commit/PR) — silently
+  "deliberate-ifying" an unexplained live value can codify a regression
+  as policy.
 - `temporalio/auto-setup`'s frontend/history/matching/worker gRPC services bind to
   `BIND_ON_IP` (defaults to the container's own resolved IP, not 127.0.0.1) — `TEMPORAL_ADDRESS`
   only sets the `temporal` CLI's default target, not the bind address; set `BIND_ON_IP=0.0.0.0`
