@@ -634,6 +634,26 @@ VS Code Web / SSH tiles, following one consistent three-tier convention:
 See `AGENTS.md`'s "Workspace-app tiers" guideline and
 `coder/templates/docker-workspace/README.md` for the full breakdown.
 
+#### Where does each integrated service actually run?
+
+A dashboard tile linking out to a service doesn't tell you *where* that
+service runs — some pieces genuinely execute inside your workspace
+container, others are shared platform services your workspace just links
+to. Quick overview:
+
+| Service | Where it runs | Why |
+|---|---|---|
+| VS Code Web, SSH/Terminal, JupyterLab, Node-RED | Inside your workspace container | Started by the workspace itself; only reachable through your workspace |
+| Temporal (server + worker + UI) | Shared platform service, separate containers | One shared workflow engine for the whole platform; reaches into your workspace only when a workflow needs to run something there |
+| omnigent-server (accounts/dashboard) | Shared platform service, separate containers | One shared login/orchestration backend for every workspace |
+| omnigent host daemon + sandboxed agent session | Inside your workspace container | The actual AI coding session runs locally, in a network-isolated sandbox, on your workspace's own files |
+
+Rule of thumb: anything you *interact with directly through the file
+system or a sandbox* runs locally in your workspace; anything that's a
+*shared dashboard/UI serving every user at once* is a platform service
+your workspace merely links to. See `AGENTS.md`'s "Guidelines" for the
+full technical breakdown and reasoning.
+
 ## Documentation map
 
 | Doc | Purpose |

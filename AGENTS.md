@@ -78,6 +78,37 @@ _(Populated incrementally as phases complete. Each phase adds concrete, binding 
      from Tier 2, no new script required. See
      `.agents/skills/coder-app-tile/SKILL.md` for the full Terraform
      shape.
+- **Internal (workspace-context) vs. external (platform-service)
+  components — what actually runs where, and why** (2026-09-01, captured
+  during a design-review chat, not a code change):
+
+  | Component | Where it runs | Internal or External | Why |
+  |---|---|---|---|
+  | Temporal server (frontend/history/matching/UI) | `temporal` container, always-on | External | Shared, multi-tenant service — one cluster/UI serves every workspace's workflow history simultaneously; not scoped to a single workspace by design. |
+  | Temporal worker (`temporal-worker`) | Separate container, always-on | External | Polls the shared task queue and reaches *into* workspaces only via `docker exec` (through `runner-docker-proxy`/`build-docker-proxy`). No hard technical wall forces it inside a workspace — `docker exec` already gives full external reach, unlike omnigent's case below. See Issue #88 (groomed, not started) for the "should it ever move in-workspace" question. |
+  | Temporal `coder_app` tile | Points at the external Temporal UI | External (`external = true`) | Deep-linked with `?query=WorkflowId STARTS_WITH ...` to filter to a workspace's own workflows — gives a per-workspace *view* without needing a per-workspace *instance*. |
+  | omnigent-server + omnigent-db | Separate containers, always-on | External | Shared accounts/host-registry/orchestration backend across all workspaces — same multi-tenant reasoning as Temporal's server. |
+  | omnigent host daemon (`omnigent host --background`) | Started by the workspace's own `coder_agent.startup_script`, runs inside the workspace container | **Internal** | Genuinely workspace-scoped: same container, same user, same `docker_volume.home_volume` (identity persisted to `~/.omnigent/config.yaml`, survives `coder stop`/`start`). |
+  | Sandboxed `opencode serve` (`srt`-wrapped) | Inside the workspace container, private network namespace | **Internal** | The actual agentic session; has to live in-workspace since it's the thing being sandboxed. |
+  | Reverse Unix-socket bridge (Issue #45) | Inside the workspace container | **Internal, and structurally forced to be** | `srt`'s `bwrap --unshare-net` makes the sandboxed process's TCP port unreachable from any external caller — a Unix socket (crosses netns via a shared bind-mount) was the only way to connect the externally-reaching daemon to the isolated sandbox. This is the one genuine hard wall in the whole comparison. |
+  | omnigent `coder_app` tile | Points at the external omnigent-server dashboard | External (`external = true`) | Same reasoning as Temporal's tile — the web UI is the shared, multi-tenant surface; only the daemon+bridge behind it is workspace-local. |
+  | JupyterLab / Node-RED / code-server (`external = false` reference pattern) | Started via `coder_script`/`startup_script`, tied to `coder_agent.id`, `url = localhost:PORT` | **Internal** | Structurally enforced by Terraform: `agent_id` ties the app to one specific workspace's agent, and Coder's proxy tunnel can only reach that container's own network namespace — no code path lets it be anything else. |
+
+  **Net pattern**: something is only forced *internal* when there's a real
+  technical wall preventing external reach (namespace isolation,
+  per-workspace filesystem/volume dependency) or when Terraform's
+  `agent_id` binding structurally requires it (the `external = false`
+  reference pattern above). Everything else — shared, multi-tenant,
+  product-level UIs/servers (Temporal, omnigent-server) — stays *external*
+  by design: embedding them would either be meaningless (same shared UI
+  duplicated per workspace) or require a brand-new scoping/proxy component
+  that doesn't exist and isn't currently justified. A registered
+  `coder_app` tile existing at all is **not** evidence its target actually
+  works correctly through Coder's real proxy in a live browser — see
+  `.agents/skills/coder-app-tile/SKILL.md`'s "Validation before calling an
+  integration done" checklist; only a live pass through the real dashboard
+  proxy is real evidence, never `terraform validate`/a direct container
+  curl alone.
 
 ## Agent Instructions
 
