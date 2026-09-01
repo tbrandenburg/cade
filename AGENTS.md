@@ -195,6 +195,16 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01: the live Coder server currently has two templates derived
+  from the same `coder/templates/docker-workspace/` directory —
+  `docker-workspace` (actively pushed/matches current `main.tf`) and a
+  stale `docker-standard` (older push, name still used in some
+  docs/examples). Always confirm which template name is actually current
+  via `coder templates versions list <name>` before running any live
+  `coder create`-based verification — using the stale name would silently
+  test outdated Terraform, not the change under review. Follow-up cleanup
+  (retire/rename one of the two) not yet filed.
+
 - 2026-09-01 (Node-RED tile brand icon, `docker-workspace` template,
   live-verified): the previously-documented `nodered_icon` fallback
   (`/icon/node.svg`, a generic Node.js icon) was switched to the real
