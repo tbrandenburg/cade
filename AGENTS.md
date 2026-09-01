@@ -195,6 +195,36 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Issues #80/#81/#82, parallel subagent resolution): a
+  parallel three-issue run confirmed the file-ownership-by-disjoint-line-range
+  strategy works cleanly when two subagents must edit the same `.tf`
+  file — #81 (jupyter resources) and #82 (omnigent startup block) both
+  edited `coder/templates/docker-workspace/main.tf` concurrently in
+  separate worktrees/branches, and both merged into a fresh integration
+  branch with zero conflicts because each was scoped to non-adjacent
+  resource blocks in its own prompt. More important finding: #81's
+  subagent correctly implemented the issue's proposed fix exactly as
+  specified (Jupyter's own `--ServerApp.base_url` instead of a
+  response-rewriting shim, matching Coder's own official registry
+  module), but a live test against the real running Coder v2.36.3
+  proxy proved the issue's own premise wrong — the path-based
+  `coder_app` proxy strips the app-slug prefix and sends no
+  `X-Forwarded-Prefix` header at all, so *no* `base_url` value can make
+  Jupyter route correctly through it (confirmed by swapping in a bare
+  echo-server to isolate the proxy's behavior from Jupyter's own). The
+  subagent reverted its own change to a net-zero diff rather than
+  merging a regression, and reported this as a live-verified
+  contradiction rather than "done." Prevention rule generalized: an
+  issue's own cited "official upstream approach should just work" claim
+  is still just a hypothesis until verified against *this specific*
+  deployment/version through the real proxy — a subagent successfully
+  implementing an issue's instructions to the letter is not equivalent
+  to the issue's root-cause diagnosis being correct; always let a
+  subagent's live-verification step override a "did what the issue
+  said" claim of completion, and treat a clean revert-to-no-op as a
+  valid, honest outcome deserving a follow-up issue (filed as #83) with
+  the re-scoped options, not as agent failure.
+
 - 2026-09-01 (Issue #75, Omnigent tile ported to `docker-workspace`,
   coordinator integration review): a subagent's otherwise-correct porting
   diff silently deleted the pre-existing `name =
