@@ -654,7 +654,16 @@ resource "coder_app" "temporal" {
 # `subdomain = true` (needs `CODER_WILDCARD_ACCESS_URL` set — see
 # compose.yaml/.env.example), so the browser talks to Jupyter's own
 # subdomain directly with no path-prefix stripping at all — unmodified
-# `jupyter-lab`, no shim, no `base_url` flag needed.
+# `jupyter-lab`, no shim, no `base_url` flag needed. One new flag IS
+# required though, live-verified during #83's own rollout: JupyterLab's
+# own Tornado server 403s any request whose Host header isn't
+# localhost/a local IP (DNS-rebinding protection) — reproduced directly
+# against jupyter-lab with `curl -H "Host: jupyter--ws--owner...` even
+# though `curl http://127.0.0.1:8889/api` with no Host override worked
+# fine. `--ServerApp.allow_remote_access=True` disables that check; this
+# is safe here for the same reason the missing token/password already is
+# (see above) — the ONLY network path to this port is still Coder's own
+# authenticated subdomain proxy.
 resource "coder_script" "jupyter" {
   count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -676,6 +685,7 @@ resource "coder_script" "jupyter" {
         --IdentityProvider.token='' \
         --ServerApp.password='' \
         --ServerApp.root_dir="${local.workspace_dir}" \
+        --ServerApp.allow_remote_access=True \
         --no-browser \
         > /tmp/jupyter.log 2>&1 &
       echo $! > "$PIDFILE"
