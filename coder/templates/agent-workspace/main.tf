@@ -553,21 +553,94 @@ OMNIGENT_LOGIN_PY
       # ~/.omnigent lives on the persistent home volume, so the identity
       # written here survives `coder stop`/`start` for free, with no
       # reliance on Coder re-passing the same derived value on every boot.
-      if [ ! -f ~/.omnigent/config.yaml ]; then
-        mkdir -p ~/.omnigent
-        cat > ~/.omnigent/config.yaml <<OMNIGENT_HOST_IDENTITY
+       if [ ! -f ~/.omnigent/config.yaml ]; then
+         mkdir -p ~/.omnigent
+         cat > ~/.omnigent/config.yaml <<OMNIGENT_HOST_IDENTITY
 host:
   host_id: ${local.omnigent_host_id}
   name: ${local.omnigent_host_name}
 OMNIGENT_HOST_IDENTITY
-      fi
+       fi
 
-      # `--background` spawns the daemon detached and returns immediately
-      # (reusing a healthy daemon if already up), so no trailing shell `&`
-      # is needed here.
-      omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1 || true
-    fi
-  EOT
+       # Issue #82: work around Omnigent's opencode-native readiness check
+       # (omnigent/onboarding/opencode_auth.py) reporting a false-positive
+       # "needs-auth" badge. That check only recognizes a stored auth.json
+       # provider entry or a provider env var as "configured" — it has no
+       # concept of OpenCode's free, credential-less default "Zen" model
+       # (opencode/big-pickle). Three unsafe variants were tried and
+       # rejected before landing on this one (see docs/ai-coder.md's
+       # Omnigent section for the full live evidence):
+       #   1. A dummy OPENAI_API_KEY/auth.json entry with NO model pin
+       #      silently redirects OpenCode's own default-model selection
+       #      away from big-pickle to whatever provider now looks
+       #      "configured" (reproduced: `build · gpt-5.3-chat-latest` ->
+       #      `Incorrect API key provided`), breaking this repo's own
+       #      documented Journey 1 default-model behavior.
+       #   2. A dummy OPENAI_API_KEY env var (even with the model pin)
+       #      never reaches the readiness check at all in this
+       #      configuration: our templates always invoke
+       #      `omnigent host "$OMNIGENT_SERVER_URL" --background
+       #      --non-interactive` (remote-daemon mode), and omnigent's own
+       #      `omnigent/cli.py::_build_host_daemon_env()` deliberately
+       #      excludes provider secrets (OPENAI_API_KEY/ANTHROPIC_API_KEY/
+       #      etc.) from the daemon's environment in remote mode (only
+       #      LOCAL mode, server_url unset, forwards them) — by design, so
+       #      a shared remote server doesn't inherit the workspace owner's
+       #      provider secrets. Confirmed live via
+       #      /proc/<daemon-pid>/environ showing the var simply absent.
+       #   3. Routing around (2) via a different env-var channel is not
+       #      viable either — the daemon-spawn allowlist is intentional
+       #      upstream security design, not a bug, and must not be
+       #      defeated.
+       # What DOES work, verified live end-to-end (opencode run still uses
+       # big-pickle; Omnigent's /v1/hosts reports opencode-native: true):
+       #   a. Pin the default model explicitly in
+       #      ~/.config/opencode/opencode.jsonc — this overrides
+       #      OpenCode's own credential-presence-based default-model
+       #      selection regardless of what other (dummy) credentials
+       #      exist, so big-pickle stays active no matter what.
+       #   b. Write a dummy provider entry directly to the FILE
+       #      ~/.local/share/opencode/auth.json (never an env var) —
+       #      omnigent's `_stored_providers()` re-reads this file fresh
+       #      from disk on every readiness check, entirely independent of
+       #      the daemon's own filtered/stale environment; this is the
+       #      only channel that actually reaches the check in
+       #      remote-daemon mode.
+       # Both writes are purely cosmetic (satisfy the badge only) and
+       # MUST NEVER be treated as configuring a real OpenCode provider —
+       # a user who wants a real, working provider should use
+       # `omnigent setup`/`opencode auth login` normally. Both are
+       # idempotent and non-destructive: the model pin is only written if
+       # the config file doesn't already exist (never clobber a
+       # user-customized config, matching this template's existing
+       # copy-once guard pattern for srt-settings.json), and the dummy
+       # auth.json entry is only written if auth.json doesn't already
+       # exist or has zero real entries (never overwrite a genuine
+       # `opencode auth login` credential).
+       mkdir -p ~/.config/opencode
+       if [ ! -f ~/.config/opencode/opencode.jsonc ]; then
+         cat > ~/.config/opencode/opencode.jsonc <<'OMNIGENT_OPENCODE_MODEL_PIN'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/big-pickle"
+}
+OMNIGENT_OPENCODE_MODEL_PIN
+       fi
+
+       mkdir -p ~/.local/share/opencode
+       omnigent_auth_json=~/.local/share/opencode/auth.json
+       if [ ! -s "$omnigent_auth_json" ] || [ "$(cat "$omnigent_auth_json")" = "{}" ]; then
+         cat > "$omnigent_auth_json" <<'OMNIGENT_DUMMY_AUTH'
+{"openai": {"type": "api", "key": "sk-dummy-placeholder"}}
+OMNIGENT_DUMMY_AUTH
+       fi
+
+       # `--background` spawns the daemon detached and returns immediately
+       # (reusing a healthy daemon if already up), so no trailing shell `&`
+       # is needed here.
+       omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1 || true
+     fi
+   EOT
 
   env = {
     GIT_AUTHOR_NAME         = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
