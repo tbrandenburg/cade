@@ -7,7 +7,7 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
-.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
+.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -231,6 +231,19 @@ templates-push: embedded-workspace-build devcontainer-workspace-build agent-work
 	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
 	@coder templates push devcontainer -d coder/templates/devcontainer --yes
 	@coder templates push agent-workspace -d coder/templates/agent-workspace --yes
+
+## templates-verify-vars: Detect Coder server-side template-variable drift (Issue #73).
+## Coder persists each template variable's *value* server-side across
+## `templates push`, independent of the .tf file's `default` -- so a changed
+## `.tf` default (e.g. the devenv-cloud -> cade rebrand) silently never takes
+## effect on an already-pushed template unless a push explicitly passes
+## `--variable`. Fetches each of the 4 templates' live variable values via
+## the Coder API and diffs them against their own `variables.tf` defaults,
+## failing loudly (non-zero exit) on any mismatch instead of staying silent.
+## Requires: CODER_SESSION_TOKEN (or an existing `coder login` session) and
+## the Coder server up/healthy (`make status`).
+templates-verify-vars:
+	@bash scripts/verify-template-vars.sh
 
 ## ai-bootstrap: Reconcile coder/ai/{providers,models}.yaml into the running Coder deployment.
 ai-bootstrap:
