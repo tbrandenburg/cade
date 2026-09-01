@@ -458,8 +458,10 @@ One-time setup (manual, per deployment):
 ```bash
 # 1. Create a real GitHub OAuth App, then set in .env:
 #    GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET
-# 2. Uncomment CODER_EXTERNAL_AUTH_0_* in compose.yaml, then:
-docker compose up -d coder
+# 2. compose.yaml conditionally enables CODER_EXTERNAL_AUTH_0_* at container
+#    startup whenever GITHUB_OAUTH_CLIENT_ID is non-empty (Issue #71) — no
+#    compose.yaml edit needed, just recreate coder:
+docker compose up -d --force-recreate coder
 # 3. In the Coder UI: Account -> External Authentication -> link GitHub.
 # 4. Provision repo secrets/vars for .github/workflows/agent-chat.yml:
 gh secret set CODER_URL --body "http://coder:7080"       # internal hostname, not localhost

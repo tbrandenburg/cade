@@ -32,6 +32,22 @@ services:
     image: ghcr.io/coder/coder:${CODER_VERSION:-v2.36.3}
     container_name: coder
     restart: unless-stopped
+    # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
+    # GITHUB_OAUTH_CLIENT_ID is non-empty, then exec the image's real
+    # entrypoint/cmd (`/opt/coder server`, confirmed via `docker image
+    # inspect`). `$$` escapes are required so Compose passes the literal
+    # `$VAR`/`$$VAR` syntax through to the container's own shell instead of
+    # substituting it itself at compose-parse time.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$GITHUB_OAUTH_CLIENT_ID" ]; then
+          export CODER_EXTERNAL_AUTH_0_ID=github
+          export CODER_EXTERNAL_AUTH_0_TYPE=github
+          export CODER_EXTERNAL_AUTH_0_CLIENT_ID="$$GITHUB_OAUTH_CLIENT_ID"
+          export CODER_EXTERNAL_AUTH_0_CLIENT_SECRET="$$GITHUB_OAUTH_CLIENT_SECRET"
+        fi
+        exec /opt/coder server
     ports:
       - "${CODER_HTTP_PORT:-7080}:7080"
     environment:
@@ -47,23 +63,23 @@ services:
       SSL_CERT_DIR: "${CODER_SSL_CERT_DIR:-}"
       # Task 0 (issue #13): GitHub external auth provider. Requires a
       # manually-created GitHub OAuth App.
-      # ENABLED as of Issue #17 — a real GitHub OAuth App and matching
-      # GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET now exist in
-      # .env. Historical context, still relevant if this block is ever
-      # commented back out on a fresh clone with no GitHub OAuth App:
-      # verified live (docker logs coder, issue #13 E2E test T1) that
-      # Coder crashes at startup ("client_id must be provided", then
-      # "doesn't have a valid id") the moment CODER_EXTERNAL_AUTH_0_ID
-      # exists in its environment at all, even set to "" via
-      # `${VAR:-}`/`${VAR:+}` substitution — presence of the env var, not
-      # its value, triggers provider parsing. There is no compose-level
-      # conditional that avoids declaring the key entirely, so re-commenting
-      # this block out is the correct move for a fresh clone with no
-      # GitHub OAuth App configured (would otherwise break `make up`).
-      CODER_EXTERNAL_AUTH_0_ID: "github"
-      CODER_EXTERNAL_AUTH_0_TYPE: "github"
-      CODER_EXTERNAL_AUTH_0_CLIENT_ID: "${GITHUB_OAUTH_CLIENT_ID:-}"
-      CODER_EXTERNAL_AUTH_0_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
+      # Issue #71: Coder parses an external-auth provider based on the
+      # mere PRESENCE of CODER_EXTERNAL_AUTH_0_ID in its environment, not
+      # its value — even `${VAR:-}`-resolved-to-"" crashes it at startup
+      # ("client_id must be provided"). Compose's declarative `environment:`
+      # map has no syntax to omit a key conditionally, so the
+      # CODER_EXTERNAL_AUTH_0_* vars are intentionally NOT declared here.
+      # Instead, GITHUB_OAUTH_CLIENT_ID/_SECRET are passed through under
+      # their own plain names below, and `entrypoint`/`command` (a real
+      # shell, evaluated inside the container at startup, not by Compose)
+      # conditionally `export`s the CODER_EXTERNAL_AUTH_0_* vars only when
+      # GITHUB_OAUTH_CLIENT_ID is non-empty, before `exec`ing the real
+      # `coder server` command. This is purely .env-driven: set
+      # GITHUB_OAUTH_CLIENT_ID/_SECRET to enable GitHub external auth, leave
+      # them unset for a fresh clone with no GitHub OAuth App — no tracked
+      # file edit required either way.
+      GITHUB_OAUTH_CLIENT_ID: "${GITHUB_OAUTH_CLIENT_ID:-}"
+      GITHUB_OAUTH_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
