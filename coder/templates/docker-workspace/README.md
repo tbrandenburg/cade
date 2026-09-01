@@ -88,6 +88,21 @@ gating the `count` on its `coder_app`/`coder_script` pair — pass
   starts JupyterLab and shows a "JupyterLab" tile.
 - `enable_nodered` → `coder_script.nodered` + `coder_app.nodered` —
   starts Node-RED and shows a "Node-RED" tile.
+- `enable_omnigent` → a `startup_script` block (host daemon + reverse
+  Unix-socket bridge) + `coder_app.omnigent` — starts the `omnigent host`
+  daemon and shows an "Omnigent Chat" tile linking to the shared
+  `omnigent-server` UI (Issue #75, ported from `agent-workspace`'s
+  Issue #43/#45 integration). **Prerequisite**: `omnigent-db`/
+  `omnigent-server` must already be up before this is useful —
+  `docker compose up -d omnigent-db omnigent-server` then
+  `make omnigent-bootstrap` (from the repository root) — otherwise the
+  tile renders but the startup script's login/host-registration step
+  fails (non-fatally logged, workspace boot is not blocked) and the tile
+  will not reach a working chat session. Also pass
+  `omnigent_admin_username`/`omnigent_admin_password` (the shared
+  omnigent-server first-admin account, OpenBao
+  `secret/devenv-cloud/omnigent/host-account`) at `coder create` time —
+  leaving the password empty skips host registration entirely.
 
 JupyterLab and Node-RED both run as plain processes inside the workspace
 container (not platform `compose.yaml` services), bound to `127.0.0.1`
@@ -116,4 +131,8 @@ scripts/set-workspace-parameter.sh <owner>/<workspace> <param_name> <value>
 `scripts/set-workspace-temporal-tile.sh`, `scripts/set-workspace-jupyter.sh`,
 and `scripts/set-workspace-nodered.sh` are thin, byte-compatible wrapper
 scripts around this one generic script — a new Tier 2 app gets Tier 3 for
-free with no new script required.
+free with no new script required. `enable_omnigent` works identically:
+`scripts/set-workspace-omnigent.sh <owner>/<workspace> [true|false]` (a
+thin wrapper, same pattern as the others) or the generic
+`scripts/set-workspace-parameter.sh <owner>/<workspace> enable_omnigent true`
+directly.
