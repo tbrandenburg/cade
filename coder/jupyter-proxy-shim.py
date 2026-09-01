@@ -72,6 +72,20 @@ def _rewrite(body: bytes) -> bytes:
     return body
 
 
+def _rewrite_location(value: str) -> str:
+    """Rewrite a domain-absolute `Location` redirect target to a relative one.
+
+    Mirrors `_rewrite()`'s narrow philosophy: only a single leading "/" (e.g.
+    JupyterLab's root route replying `Location: /lab?`) is stripped. "//..."
+    (protocol-relative) and "scheme://..." (absolute) values are passed
+    through unmodified, since those are not the domain-absolute-path case
+    this shim exists to fix (see Issue #76).
+    """
+    if value.startswith("/") and not value.startswith("//"):
+        return value[1:]
+    return value
+
+
 def _is_websocket_upgrade(headers) -> bool:
     connection = headers.get("Connection", "")
     upgrade = headers.get("Upgrade", "")
@@ -168,6 +182,8 @@ class ShimHandler(BaseHTTPRequestHandler):
         for key, value in resp.getheaders():
             if key.lower() in ("content-length", "transfer-encoding", "connection"):
                 continue
+            if key.lower() == "location":
+                value = _rewrite_location(value)
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(resp_body)))
         self.end_headers()
