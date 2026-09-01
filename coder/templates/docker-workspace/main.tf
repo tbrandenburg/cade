@@ -250,7 +250,7 @@ module "code-server" {
 # to its own filtered Temporal Workflows UI view. `count` makes this a
 # true no-op (zero resources) for the default/human-dev flow where
 # `temporal_owned` stays false — this deliberately does not opportunistically
-# render for every docker-standard workspace, only ones Temporal itself
+# render for every docker-workspace workspace, only ones Temporal itself
 # creates via PersistentWorkspaceBuildWorkflow. `external = true` is
 # required here for the same reason as coder_app.omnigent in
 # agent-workspace/main.tf: no iframe/embedded-UI mechanism exists for

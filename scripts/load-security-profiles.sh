@@ -4,7 +4,7 @@
 # ships (Issue #23).
 #
 # Background: `srt` (which wraps `opencode`/`pi` by default in the
-# `agent-workspace`, `docker-standard`, and `embedded-linux` Coder
+# `agent-workspace`, `docker-workspace`, and `embedded-linux` Coder
 # templates) shells out to `bwrap`, which needs to (1) create an
 # unprivileged user namespace and (2) perform one `mount --make-rslave`
 # remount immediately after entering it. Docker's default seccomp profile

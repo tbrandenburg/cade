@@ -74,7 +74,7 @@ data "coder_parameter" "github_token" {
 }
 
 # This template exists specifically for long-running Coder Agent sessions,
-# so `agent_capable` defaults to true here (unlike `docker-standard`, where
+# so `agent_capable` defaults to true here (unlike `docker-workspace`, where
 # it defaults to false for human-only workspaces).
 data "coder_parameter" "agent_capable" {
   name         = "agent_capable"
@@ -154,7 +154,7 @@ resource "coder_agent" "main" {
   # discovered (verified: the agent had no lab-sim tools available and
   # instead hallucinated a shell command). Setting `dir` here is what
   # makes MCP auto-discovery actually find the file. The base
-  # `docker-standard` template has this same gap but fixing it there is
+  # `docker-workspace` template has this same gap but fixing it there is
   # out of scope for issue #13.
   dir = local.workspace_dir
 
@@ -721,7 +721,7 @@ resource "docker_container" "workspace" {
   # Issue #13 Task 8b: attach to the `platform-workspaces` Docker network
   # (defined in the repo-root compose.yaml) so the workspace container can
   # resolve/reach `lab-sim` by its compose service name. Neither
-  # `docker-standard` nor `embedded-linux` templates currently attach to
+  # `docker-workspace` nor `embedded-linux` templates currently attach to
   # this network (verified: no `networks_advanced` block in either), so
   # this is a new addition here, not an inherited/duplicated one.
   networks_advanced {

@@ -35,7 +35,7 @@ data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
 # Optional token for cloning `repo_url` when it is not publicly readable.
-# Same pattern as the docker-standard template (coder/templates/docker-workspace/main.tf).
+# Same pattern as the docker-workspace template (coder/templates/docker-workspace/main.tf).
 data "coder_parameter" "github_token" {
   name         = "github_token"
   display_name = "GitHub Token"

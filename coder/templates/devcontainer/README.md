@@ -1,6 +1,6 @@
 # `devcontainer` Coder template (Issue #6, MVP)
 
-Additive third template alongside `docker-standard`/`embedded-linux`: instead
+Additive third template alongside `docker-workspace`/`embedded-linux`: instead
 of referencing a fixed pre-built workspace image, it clones the target repo
 and builds/runs the workspace from **that repo's own**
 `.devcontainer/devcontainer.json` via Coder's native `coder_devcontainer`
@@ -15,7 +15,7 @@ resource and `@devcontainers/cli`.
   Docker-in-Docker daemon** (`privileged = true` + a dedicated
   `/var/lib/docker` volume) instead of bind-mounting the host's Docker
   socket. See "Why Docker-in-Docker, not docker-outside-of-docker" below.
-- `variables.tf` — `docker_socket`, `repo_url` (same as docker-standard), and
+- `variables.tf` — `docker_socket`, `repo_url` (same as docker-workspace), and
   `bootstrap_image` (the *outer* container's image — contains the Docker
   engine, Node.js, and `@devcontainers/cli`, not the project toolchain).
 
@@ -50,7 +50,7 @@ make devcontainer-workspace-build   # tags cade/devcontainer-bootstrap:latest
 | Parameter | Default | Notes |
 |---|---|---|
 | `github_token` | `""` | Optional, for private `repo_url` clones (injected via `GIT_ASKPASS`, see `coder/devcontainer/Dockerfile`). |
-| `agent_capable` | `false` | Same autostop-relaxation semantics as docker-standard. |
+| `agent_capable` | `false` | Same autostop-relaxation semantics as docker-workspace. |
 | `devcontainer_path` | `.devcontainer` | Path (relative to the cloned repo root) containing `devcontainer.json`. Its *parent* directory is passed to `coder_devcontainer.workspace_folder`. |
 
 Example:

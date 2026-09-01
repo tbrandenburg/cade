@@ -28,14 +28,14 @@ ACTIVITY_TIMEOUT = timedelta(minutes=5)
 BUILD_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Issue #8: small lookup table mapping a Coder workspace template name to
-# its pre-built image tag, so a caller can say "docker-standard" instead
+# its pre-built image tag, so a caller can say "docker-workspace" instead
 # of hardcoding "cade/coder-workspace:latest" everywhere. Kept in sync
 # with `governance/opa/policy/build_authz.rego`'s `allowed_images` set
 # (read-only reference for this issue's scope) — both entries here MUST
 # stay on that allow-list or every templated call will be denied by OPA.
 DEFAULT_IMAGE = "cade/coder-workspace:latest"
 TEMPLATE_IMAGES: dict[str, str] = {
-    "docker-standard": "cade/coder-workspace:latest",
+    "docker-workspace": "cade/coder-workspace:latest",
     "embedded-linux": "cade/embedded-linux-workspace:latest",
 }
 
