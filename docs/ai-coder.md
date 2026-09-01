@@ -280,6 +280,111 @@ field/type); and file uploads for chats go through
 `/api/v2/files` endpoint, which rejects non-tar content types), requiring
 a `Content-Disposition: attachment; filename="..."` header.
 
+## Omnigent opencode-native badge workaround (Issue #82)
+
+Omnigent's own opencode-native harness readiness check
+(`omnigent/onboarding/opencode_auth.py`) has no concept of OpenCode's free,
+credential-less default "Zen" model (`opencode/big-pickle`) — it only
+recognizes a stored `auth.json` provider entry or a provider env var as
+"configured", and reports a `needs-auth` badge for any workspace running
+purely on the free default model, even though that workspace's
+`opencode-native` harness works perfectly fine. `coder/templates/
+docker-workspace/main.tf` and `coder/templates/agent-workspace/main.tf`
+both work around this, gated entirely behind `enable_omnigent=true`
+(zero effect on workspaces that don't use Omnigent), purely cosmetically
+— it satisfies the dashboard badge only, and must never be treated as a
+path to a real, working OpenCode provider. A user who wants real
+inference against a real provider should still run `omnigent setup`/
+`opencode auth login` normally.
+
+### Rejected variants (all confirmed live, not assumed)
+
+1. **A dummy `OPENAI_API_KEY` or dummy `auth.json` entry, with no model
+   pin.** Silently redirects OpenCode's own default-model selection away
+   from `big-pickle` to whichever provider now looks "configured":
+   ```
+   $ OPENAI_API_KEY=sk-dummy... opencode run "say hi"
+   > build · gpt-5.3-chat-latest
+   Error: Incorrect API key provided: sk-dummy...
+   ```
+   This breaks the exact default behavior this repo's README documents
+   as its out-of-the-box example (Journey 1) — rejected.
+
+2. **A dummy `OPENAI_API_KEY` env var, even with the model pin in
+   place.** Does not flip Omnigent's badge at all — confirmed via
+   `/proc/<daemon-pid>/environ` showing the var is simply absent from the
+   daemon process's environment.
+
+3. **Root cause of (2), traced to the exact upstream code, not
+   guessed:** `omnigent/cli.py`'s `_build_host_daemon_env()` has two
+   different environment allowlists depending on daemon mode — in LOCAL
+   mode (`server_url` unset) provider secrets like `OPENAI_API_KEY`/
+   `ANTHROPIC_API_KEY` ARE forwarded to the daemon; in REMOTE mode
+   (`server_url` set) they are explicitly excluded, by design, per the
+   function's own docstring: a shared remote server shouldn't inherit
+   the workspace owner's provider secrets just because its daemon runs
+   there. Both `docker-workspace` and `agent-workspace` always invoke
+   `omnigent host "$OMNIGENT_SERVER_URL" --background --non-interactive`
+   — i.e. REMOTE mode, connecting to the shared `omnigent-server`
+   container — so provider env vars are architecturally, deliberately
+   never forwarded to the daemon process in this configuration. This is
+   correct, intentional upstream security design, not a bug to route
+   around via env vars — do not attempt to defeat it with a different
+   env-var channel.
+
+### What actually works, fully verified live, no side effects
+
+1. **Pin the default model explicitly** in
+   `~/.config/opencode/opencode.jsonc`:
+   ```jsonc
+   { "$schema": "https://opencode.ai/config.json", "model": "opencode/big-pickle" }
+   ```
+   Overrides OpenCode's own credential-presence-based default-model
+   selection, so `big-pickle` stays active no matter what other (dummy)
+   credentials exist.
+
+2. **Write a dummy provider entry directly to the file**
+   `~/.local/share/opencode/auth.json` — never an env var, must be the
+   file, since omnigent's `_stored_providers()` re-reads it fresh from
+   disk on every readiness check, entirely independent of the daemon's
+   own filtered/stale environment. This is the only channel that
+   actually reaches the readiness check in remote-daemon mode:
+   ```json
+   {"openai": {"type": "api", "key": "sk-dummy-placeholder"}}
+   ```
+
+With both in place: `opencode run "..."` still uses `big-pickle` and
+works correctly, and Omnigent's own `/v1/hosts` API reports
+`"opencode-native": true` instead of `"needs-auth"`.
+
+### Idempotency / non-destructiveness
+
+Both templates' startup scripts write these two files only when safe:
+
+- `opencode.jsonc` is written only if the file doesn't already exist —
+  never clobbers a real user-customized config (same copy-once guard
+  pattern already used elsewhere in these templates, e.g. the
+  `srt-settings.json` copy).
+- `auth.json` is written only if the file doesn't already exist or is
+  empty/`{}` — never overwrites a genuine `opencode auth login`
+  credential a user may have since configured.
+
+### Live verification performed for this issue
+
+- `terraform fmt -check`/`terraform validate` passed clean for both
+  `coder/templates/docker-workspace/` and `coder/templates/
+  agent-workspace/` (containerized `hashicorp/terraform` image, no
+  network-dependent host binary available in this environment).
+- Static review confirmed both new blocks sit strictly inside the
+  existing `if [ "${enable_omnigent.value}" = "true" ]; then ... fi`
+  conditional in both files, immediately before the `omnigent host
+  ... --background` invocation.
+- Full live E2E (real workspace create, real `opencode run`, real
+  `/v1/hosts` check, real browser Omnigent Chat tile turn) was not
+  performed in this environment/session — see the accompanying
+  handoff for exactly what was and wasn't exercised live. Re-verify
+  against a real workspace before considering this fully closed.
+
 ## Known limitation restated
 
 AI Gateway, Coder-native Agent Firewall, and the AI Governance Add-On are
