@@ -93,10 +93,10 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`, etc.) — data persists across `down`/`up`. |
 | `make status` | — | `docker compose ps` — check container health before assuming the stack is up. As of Phase 4 this covers all 18 services (Coder, Temporal, OpenBao, OPA, MCP lab-sim, Prometheus/Loki/Grafana, self-hosted-runner support, registry, cAdvisor), not just Postgres+Coder. |
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
-| `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-standard` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
+| `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-workspace` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo, so building from a dirty tree would produce an image that doesn't match what a real workspace clones) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
 | `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `cade/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
 | `make agent-workspace-build` | Issue #13 | Depends on `coder-workspace-build` (inherits its dirty-tree refusal guard); builds `cade/agent-workspace:latest` (adds the OSS `boundary` network-isolation CLI) for the `agent-workspace` template, used for long-running Coder Agents sessions. |
-| `make templates-push` | — | Pushes `docker-standard`, `embedded-linux`, `devcontainer`, and `agent-workspace` templates to the running Coder server in one shot (`coder templates push ... --yes` x4). Depends on all four `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
+| `make templates-push` | — | Pushes `docker-workspace`, `embedded-linux`, `devcontainer`, and `agent-workspace` templates to the running Coder server in one shot (`coder templates push ... --yes` x4). Depends on all four `*-workspace-build` targets — also (re)builds the images first (cache-hit, near-instant unless code changed) and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
 | `make runner-build` | M2 | Builds the self-hosted GitHub Actions runner image (pinned Ubuntu digest + checksum-verified runner binary). |
 | `make runner-run` | M2 | Convenience wrapper; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (just-in-time), one-job-then-destroy runner registration. |
 | `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. Pass `CACERT=/path/to/ca-bundle.pem` if operating behind a corporate TLS-intercepting proxy; omit it on unrestricted networks. |
@@ -204,6 +204,14 @@ running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git hist
   `coder create`-based verification — using the stale name would silently
   test outdated Terraform, not the change under review. Follow-up cleanup
   (retire/rename one of the two) not yet filed.
+  **Update (Issue #67):** resolved by retiring `docker-standard` outright
+  — every repo reference (docs, scripts, `Makefile`, `compose.yaml`,
+  `.env.example`, Temporal demo config) was updated to use
+  `docker-workspace` as the sole canonical template name, and the
+  coordinator retired the stale `docker-standard` registration on the
+  live Coder server itself. There is now exactly one template name for
+  this directory; no future verification should reference
+  `docker-standard` at all.
 
 - 2026-09-01 (Node-RED tile brand icon, `docker-workspace` template,
   live-verified): the previously-documented `nodered_icon` fallback

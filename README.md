@@ -92,7 +92,7 @@ cade/
 ├── coder/                         # workspace container images + Terraform templates
 │   ├── Dockerfile
 │   ├── devcontainer/                # devcontainer template's bootstrap image (Issue #6)
-│   └── templates/                  # docker-standard, embedded-linux, devcontainer workspace templates
+│   └── templates/                  # docker-workspace, embedded-linux, devcontainer workspace templates
 ├── agent-host/                    # VS Code Agent Host / sandbox security baseline
 ├── runner/                         # self-hosted GitHub Actions runner (JIT, ephemeral)
 ├── temporal/                       # Temporal worker image + demo durable workflow
@@ -151,14 +151,14 @@ coder login http://localhost:7080
 #    of wiping the deployment.)
 
 # 7. Build the workspace image(s) workspaces will run
-make coder-workspace-build          # docker-standard template
+make coder-workspace-build          # docker-workspace template
 make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
 # 8. Push the Terraform template(s) and create a workspace
 make templates-push                 # pushes all three templates in one shot
-# (or push just one: coder templates push docker-standard -d coder/templates/docker-workspace --yes)
-coder create <owner>/<name> --template docker-standard --yes \
+# (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
+coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 ```
 
@@ -244,8 +244,8 @@ this repo already cloned.
 ```bash
 make up && make status
 make coder-workspace-build
-coder templates push docker-standard -d coder/templates/docker-workspace --yes
-coder create <owner>/<name> --template docker-standard --yes \
+coder templates push docker-workspace -d coder/templates/docker-workspace --yes
+coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token> --parameter agent_capable=true
 scripts/configure-coder-ssh.sh
 ssh coder.<name>   # or open http://<server-ip>:7080 in a browser (code-server)
@@ -400,8 +400,8 @@ close VS Code, by connecting through VS Code's own Agent Host over AHP
 
 ```bash
 make coder-workspace-build
-coder templates push docker-standard -d coder/templates/docker-workspace --yes
-coder create <owner>/<name> --template docker-standard --yes \
+coder templates push docker-workspace -d coder/templates/docker-workspace --yes
+coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 scripts/configure-coder-ssh.sh
 ```
@@ -490,10 +490,10 @@ full "fix it and open a PR" loop — that end-to-end path is not yet proven.
 | `make down` | — | Stop and remove the platform stack's containers (named volumes persist). |
 | `make status` | — | Show status/health of every stack container. |
 | `make logs` | — | Follow logs of the platform stack's containers. |
-| `make coder-workspace-build` | M3 | Build the `docker-standard` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
+| `make coder-workspace-build` | M3 | Build the `docker-workspace` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make templates-push` | — | Push every Coder workspace template (`docker-standard`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Depends on all three `*-workspace-build` targets, so it also (re)builds `cade/coder-workspace`, `cade/embedded-linux-workspace`, and `cade/devcontainer-bootstrap` first (cache-hit, near-instant unless code changed), inheriting their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy. |
+| `make templates-push` | — | Push every Coder workspace template (`docker-workspace`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Depends on all three `*-workspace-build` targets, so it also (re)builds `cade/coder-workspace`, `cade/embedded-linux-workspace`, and `cade/devcontainer-bootstrap` first (cache-hit, near-instant unless code changed), inheriting their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy. |
 | `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
 | `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
 | `make temporal-worker-build` | M8 | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
@@ -606,7 +606,7 @@ claims, and the full walkthrough for re-running the final E2E scenario.
 
 ### Workspace dashboard apps (VS Code, JupyterLab, Node-RED, Temporal, ...)
 
-The `docker-standard` workspace template exposes optional dashboard tiles
+The `docker-workspace` workspace template exposes optional dashboard tiles
 (JupyterLab, Node-RED, a Temporal Workflows link) alongside the always-on
 VS Code Web / SSH tiles, following one consistent three-tier convention:
 

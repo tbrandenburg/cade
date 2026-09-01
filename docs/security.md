@@ -372,7 +372,7 @@ request.
 ### Issue #8 — template-aware image selection
 
 `BuildWorkflow.run`/`demo.build_starter` now accept an optional
-`--template` (`docker-standard` / `embedded-linux`) that resolves via a
+`--template` (`docker-workspace` / `embedded-linux`) that resolves via a
 small lookup table (`demo.build_workflow.TEMPLATE_IMAGES`) to the correct
 pre-built image tag, kept in sync with `build_authz.rego`'s
 `allowed_images` allow-list. Precedence: an explicit `--image` always
@@ -613,7 +613,7 @@ containerized `opa test` run against this worktree's own policy files
 ## Issue #60 — JupyterLab/Node-RED workspace apps: auth model and confinement
 
 Both apps run as plain, unprivileged processes inside the
-`docker-standard` (`docker-workspace`) template's already-confined
+`docker-workspace` (`docker-workspace`) template's already-confined
 container (Issue #23's `security_opts` — untouched by this issue), bound
 explicitly to `127.0.0.1` inside that container. Neither has its own
 login/password/token:

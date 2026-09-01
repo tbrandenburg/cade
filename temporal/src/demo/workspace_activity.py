@@ -82,7 +82,7 @@ def container_name_for(owner: str, name: str) -> str:
     return f"coder-{owner}-{name.lower()}"
 
 
-# Issue #50: every `coder_parameter` of the `docker-standard` template
+# Issue #50: every `coder_parameter` of the `docker-workspace` template
 # (dir `coder/templates/docker-workspace/main.tf`) must be passed
 # explicitly, or workspace creation hangs with an opaque "prepare build:
 # EOF" (documented in AGENTS.md and Issue #17). Verified directly against

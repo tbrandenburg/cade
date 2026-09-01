@@ -105,7 +105,7 @@ Boundary Tests (UI/AHP, Worker/Temporal, Workspace/Coder).
 
 ## Workspace apps: JupyterLab and Node-RED (Issue #60)
 
-Two independent, opt-in dashboard tiles on the `docker-standard`
+Two independent, opt-in dashboard tiles on the `docker-workspace`
 (`docker-workspace`) template, both off by default. Each app runs as a
 plain in-workspace process (baked into `cade/coder-workspace:latest` at
 build time by `coder/Dockerfile`, launched at workspace start by a

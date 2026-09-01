@@ -12,7 +12,7 @@ CACERT ?=
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
 ## AppArmor profile is loaded -- required for `srt`/bwrap to work in the
-## agent-workspace/docker-standard/embedded-linux templates; if missing, run
+## agent-workspace/docker-workspace/embedded-linux templates; if missing, run
 ## `sudo scripts/load-security-profiles.sh` (not run automatically by `make`).
 doctor:
 	@bash scripts/doctor.sh
@@ -39,7 +39,7 @@ status:
 logs:
 	@$(COMPOSE) logs -f
 
-## coder-workspace-build: Build the docker-standard workspace image (Milestone M3).
+## coder-workspace-build: Build the docker-workspace workspace image (Milestone M3).
 coder-workspace-build:
 	@dirty="$$(git status --porcelain -- examples coder Makefile 2>/dev/null)"; \
 	if [ -n "$$dirty" ]; then \
@@ -193,7 +193,7 @@ agent-workspace-build: coder-workspace-build
 			-t cade/agent-workspace:latest --load coder/agent-workspace; \
 	fi
 
-## templates-push: Push every Coder workspace template (docker-standard, embedded-linux,
+## templates-push: Push every Coder workspace template (docker-workspace, embedded-linux,
 ## devcontainer, agent-workspace) to the running Coder server in one shot. Depends on all
 ## four *-workspace-build targets, so it also builds/refreshes cade/coder-workspace,
 ## cade/embedded-linux-workspace, cade/devcontainer-bootstrap, and cade/agent-workspace
@@ -203,7 +203,7 @@ agent-workspace-build: coder-workspace-build
 ## (`coder login`/`coder whoami`), and the Coder server itself already up (`make up`)
 ## and healthy (`make status`).
 templates-push: embedded-workspace-build devcontainer-workspace-build agent-workspace-build
-	@coder templates push docker-standard -d coder/templates/docker-workspace --yes
+	@coder templates push docker-workspace -d coder/templates/docker-workspace --yes
 	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
 	@coder templates push devcontainer -d coder/templates/devcontainer --yes
 	@coder templates push agent-workspace -d coder/templates/agent-workspace --yes

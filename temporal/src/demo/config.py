@@ -81,13 +81,13 @@ CODER_WORKSPACE_API_TOKEN = os.environ.get("CODER_WORKSPACE_API_TOKEN", "")
 CODER_WORKSPACE_OWNER = os.environ.get("CODER_WORKSPACE_OWNER", "temporal-svc")
 # NOTE: the Terraform template *directory* in this repo is
 # `coder/templates/docker-workspace`, but `make templates-push` registers
-# it on the Coder server under the *template name* `docker-standard`
-# (`coder templates push docker-standard -d coder/templates/docker-workspace
+# it on the Coder server under the *template name* `docker-workspace`
+# (`coder templates push docker-workspace -d coder/templates/docker-workspace
 # --yes`) — verified directly against the Makefile rather than assuming
 # dir name == template name. The Coder API's
 # `/organizations/{org}/templates/{template_name}` endpoint needs the
-# registered name, so the default here is `docker-standard`.
-CODER_WORKSPACE_TEMPLATE = os.environ.get("CODER_WORKSPACE_TEMPLATE", "docker-standard")
+# registered name, so the default here is `docker-workspace`.
+CODER_WORKSPACE_TEMPLATE = os.environ.get("CODER_WORKSPACE_TEMPLATE", "docker-workspace")
 CODER_WORKSPACE_TTL_MINUTES = int(os.environ.get("CODER_WORKSPACE_TTL_MINUTES", "120"))
 CODER_WORKSPACE_REAP_ACTION = os.environ.get("CODER_WORKSPACE_REAP_ACTION", "stop")
 CODER_CREATE_TIMEOUT_SECONDS = int(os.environ.get("CODER_CREATE_TIMEOUT_SECONDS", "600"))

@@ -2,7 +2,7 @@
 
 Provisions a workspace type intended specifically for long-running Coder
 Agents sessions. Layers on top of `cade/coder-workspace:latest` (the
-`docker-standard` base image) with the OSS `boundary` network-isolation CLI
+`docker-workspace` base image) with the OSS `boundary` network-isolation CLI
 added, so agent harnesses can have their outbound network access
 constrained/audited.
 
@@ -21,8 +21,8 @@ constrained/audited.
 ## Parameters
 
 - `github_token` — optional token to clone `repo_url` when it is not
-  publicly readable. Same as `docker-standard`.
-- `agent_capable` — same autostop-relaxation parameter as `docker-standard`,
+  publicly readable. Same as `docker-workspace`.
+- `agent_capable` — same autostop-relaxation parameter as `docker-workspace`,
   but **defaults to `true`** here (this template exists specifically for
   long-running unattended Agent Host / Coder Agents sessions, not for
   human-only, editor-attended work).

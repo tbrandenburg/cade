@@ -6,7 +6,7 @@ variable "docker_socket" {
 
 variable "repo_url" {
   default     = "https://github.com/tbrandenburg/cade.git"
-  description = "Repository to auto-clone into every docker-standard workspace"
+  description = "Repository to auto-clone into every docker-workspace workspace"
   type        = string
 }
 
