@@ -83,7 +83,13 @@ services:
       # to the new `coder_app.temporal` dashboard tile's icon, which points
       # at the plain-http temporal_ui_public_url — widen img-src for that
       # already-trusted internal origin too.
-      CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000} http://localhost:${TEMPORAL_UI_PORT:-8088}"
+      # Node-RED tile: Coder ships no bundled Node-RED icon and Node-RED's
+      # own favicon.ico isn't a usable small image; the real Node-RED brand
+      # icon is served (CC0, verified live 200 image/svg+xml) from Simple
+      # Icons at https://cdn.simpleicons.org/nodered — widen img-src for
+      # that one external, read-only CDN origin (see coder-app-tile skill's
+      # icon-source checklist, step 3).
+      CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000} http://localhost:${TEMPORAL_UI_PORT:-8088} https://cdn.simpleicons.org"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder

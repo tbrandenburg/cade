@@ -23,7 +23,7 @@ variable "temporal_ui_public_url" {
 }
 
 variable "nodered_icon" {
-  description = "Icon for the Node-RED tile (Issue #60). Defaults to a Coder-bundled, same-origin icon (no external dependency, no CSP impact). Set to \"https://cdn.simpleicons.org/nodered\" for the brand-accurate icon if outbound Internet from the browser is acceptable."
+  description = "Icon for the Node-RED tile (Issue #60). Defaults to the real Node-RED brand icon via Simple Icons (CC0, https://cdn.simpleicons.org/nodered, verified live 200 image/svg+xml) — needs CODER_ADDITIONAL_CSP_POLICY's img-src widened for that origin (already done in compose.yaml). Set to \"/icon/node.svg\" (Coder-bundled generic Node.js icon, same-origin, no CSP impact) if outbound Internet from the browser is not acceptable."
   type        = string
-  default     = "/icon/node.svg"
+  default     = "https://cdn.simpleicons.org/nodered"
 }

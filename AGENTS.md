@@ -172,6 +172,21 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Node-RED tile brand icon, `docker-workspace` template,
+  live-verified): the previously-documented `nodered_icon` fallback
+  (`/icon/node.svg`, a generic Node.js icon) was switched to the real
+  Node-RED brand SVG at `https://cdn.simpleicons.org/nodered` (CC0,
+  confirmed live 200 `image/svg+xml`) — this was already the documented
+  opt-in override, promoted to the default. Required widening
+  `CODER_ADDITIONAL_CSP_POLICY`'s `img-src` in `compose.yaml` for that
+  one external CDN origin, then `docker compose up -d coder` (confirmed
+  via `docker inspect coder --format '{{.Config.Env}}'` before
+  re-testing — a `compose.yaml` env edit alone does not affect an
+  already-running container, per this file's existing Issue #50 §10
+  lesson). Re-pushing the template and updating a live workspace
+  (`coder update <owner>/<name>`, not just `create`) confirmed the tile
+  renders the correct brand icon with no new CSP console errors.
+
 - 2026-09-01 (Issue #63, `@tbrandenburg/node-red-agents` `engines.node`
   mismatch, follow-up to Issue #60): a merged upstream PR fixing a
   dependency's `package.json` on `main` does **not** mean the fix is live
