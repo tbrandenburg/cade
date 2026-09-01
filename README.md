@@ -7,7 +7,7 @@ inbound Internet exposure and no paid cloud infrastructure required.
 
 ![Seven-layer architecture reference](docs/cade.png)
 
-**Status: `0.1.0` released** — all 16 milestones across 5 phases are
+**Status: `0.3.0` released** — all 16 milestones across 5 phases are
 delivered and evidenced. See [Project status](#project-status) below.
 
 ## Table of contents
@@ -595,10 +595,11 @@ cert directories), so this is also a no-op by default.
 
 ## Project status
 
-**Released: `0.1.0` (2026-08-29)** — all 16 milestones across 5 phases are
-delivered, with committed evidence under
+**Released: `0.1.0` (2026-08-29)**, current: `0.3.0` (2026-09-01) — all 16
+milestones across 5 phases are delivered, with committed evidence under
 [`docs/milestone-reports/`](docs/milestone-reports/) and re-verified,
-live handover evidence under [`docs/plan/demo/`](docs/plan/demo/):
+live handover evidence under [`docs/plan/demo/`](docs/plan/demo/). See
+[`VERSION.md`](VERSION.md) for what's shipped in each release since:
 
 | Phase | Milestones | Delivers |
 |---|---|---|
@@ -609,7 +610,7 @@ live handover evidence under [`docs/plan/demo/`](docs/plan/demo/):
 | 5 — Integration & Release | M14, M15, M16 | Backup/restore, full E2E acceptance, `0.1.0` tag |
 
 Two known, documented (not silently worked-around) limitations remain open
-at `0.1.0` — see [Known limitations](#known-limitations).
+as of `0.1.0` — see [Known limitations](#known-limitations).
 
 Optional, order-independent **Phase 6** (wide-area/Tailscale remote access)
 is deferred until a genuinely separate network exists to test from.
