@@ -757,6 +757,8 @@ resource "coder_app" "omnigent" {
 }
 
 resource "docker_volume" "home_volume" {
+  name = "coder-${data.coder_workspace.me.id}-home"
+
   # Protect the volume from being deleted due to changes in attributes.
   # This is the same persistent volume M4 uses for Agent Host state
   # (~/.vscode, ~/.vscode-server) alongside the cloned repository.
