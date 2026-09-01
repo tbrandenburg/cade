@@ -1,6 +1,6 @@
 {
   "network": {
-    "allowedDomains": ["github.com", "*.github.com", "api.github.com", "copilot-proxy.githubusercontent.com"],
+    "allowedDomains": ["github.com", "*.github.com", "api.github.com", "copilot-proxy.githubusercontent.com", "opencode.ai", "*.opencode.ai"],
     "deniedDomains": [],
     "allowAllUnixSockets": true
   },
