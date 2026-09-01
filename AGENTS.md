@@ -195,6 +195,43 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-01 (Issue #75, Omnigent tile ported to `docker-workspace`,
+  coordinator integration review): a subagent's otherwise-correct porting
+  diff silently deleted the pre-existing `name =
+  "coder-${data.coder_workspace.me.id}-home"` line from
+  `docker_volume.home_volume` while splicing a new `coder_app.omnigent`
+  resource in just above it — `terraform validate`/`fmt` both pass fine
+  with the line missing (a valid, differently-behaving config), so
+  neither the subagent's own validation nor a first glance at `terraform
+  plan`'s "Plan to create" output caught it; only a manual re-read of the
+  full diff against `main` did. Without the fixed name, Terraform falls
+  back to an auto-generated volume name, silently breaking Durability
+  Test 3 (the home volume must survive `coder stop`/`start` under a
+  *stable* name — an already-documented lesson in this same file, now
+  proven to be re-breakable by an unrelated, nearby edit). Always
+  manually diff a subagent's changes against the target branch line by
+  line before merging, especially any edit that lands immediately next
+  to a resource with a previously-hardcoded identifier/name — passing
+  `terraform validate` is necessary but never sufficient evidence that a
+  splice didn't silently drop an adjacent, semantically-critical line.
+  Separately, live E2E verification of the ported mechanism (`coder
+  create --parameter enable_omnigent=true`, real `/auth/login`, real
+  `omnigent host --background` daemon, and — the actual claim under
+  test — a real unsandboxed `curl`/`POST /session` through the reverse
+  Unix-socket bridge reaching a real `srt`-sandboxed `opencode serve`)
+  worked identically to `agent-workspace`'s Issue #45 first try, with
+  zero new bridge-specific bugs — confirming this really was a pure
+  porting exercise, not new architecture, exactly as the issue predicted.
+  Two small, unrelated live-session frictions, noted for future
+  `docker-workspace`/`agent-workspace` verification passes: (1)
+  `repo_url` is a plain Terraform `variable`, not a `coder_parameter` —
+  do not pass it via `coder create --parameter`, it 400s with "parameter
+  ... is not present in the template"; (2) `omnigent_admin_password` must
+  be the real `OMNIGENT_ACCOUNTS_INIT_ADMIN_PASSWORD` value from `.env`,
+  not a guessed/placeholder value — a wrong password 401s cleanly at
+  `/auth/login` (logged, non-fatal) with no ambiguity about which side
+  failed.
+
 - 2026-09-01 (Issue #74, `docker-workspace` agent_capable autostop-disable):
   the pre-existing `coder schedule stop "$(hostname)" --disable-ttl` call in
   the startup script was broken in **two independent ways**, not just the
