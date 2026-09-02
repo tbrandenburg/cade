@@ -714,7 +714,7 @@ resource "coder_script" "jupyter" {
       # dedent/render pipeline before bash ever sees it, live-verified
       # during Issue #94's implementation).
       {
-        printf '%s\n' ':8888 {'
+        printf '%s\n' '127.0.0.1:8888 {'
         printf '\t%s\n' \
           '# Coder'"'"'s real proxy has already stripped the "/@owner/ws/apps/slug"' \
           '# prefix from the incoming request before it reaches us -- so we' \
