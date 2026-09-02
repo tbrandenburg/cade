@@ -226,6 +226,40 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-02 (Issue #96, Omnigent opencode-native EROFS fix,
+  `agent-host/srt-settings.json`): the omnigent-native `opencode serve`
+  process (launched via `~/.omnigent-bin/opencode`'s Issue #45 reverse-bridge
+  shim) writes its per-session XDG state under `~/.omnigent/opencode-native/
+  <bridge-id>/xdg-data/...` — a path outside srt's `filesystem.allowWrite`
+  allowlist (which only had `.", "/tmp", "~/.local", "~/.cache", "~/.config`)
+  — causing an intermittent `EROFS` on `mkdir .../repos` that Omnigent's own
+  code discards (both stdout/stderr redirected to `DEVNULL`), leaving only a
+  generic `RuntimeError: opencode serve exited early with code 1` visible
+  anywhere. Fixed by adding `~/.omnigent` to `allowWrite`. Two reproduction
+  pitfalls worth remembering for any future srt-policy test: (1) srt's
+  `allowWrite` entry `"."` resolves relative to the *sandboxed process's
+  cwd*, not the repo/project root — if a reproduction script sets
+  `workspace=/home/coder` (same as `$HOME`), `.` silently covers the *entire*
+  home directory including `~/.omnigent`, masking the real bug regardless of
+  whether the fix is applied; the reproduction must set `workspace` to a
+  path that does NOT contain the bridge dir (e.g. `~/project`) to actually
+  exercise the allowlist boundary — confirmed live both ways (false-pass
+  with `workspace=$HOME`, correct EROFS-then-fixed with `workspace=$HOME/project`).
+  (2) A direct `subprocess.Popen` call to `omnigent`'s `find_opencode_cli()`
+  resolution (`shutil.which("opencode")`) inside a bare `docker exec` shell
+  does not use the same `PATH` the real Omnigent host daemon uses — the
+  `~/.omnigent-bin` shim (which wraps the call in `srt` at all) is only
+  prepended to `PATH` in `~/.bashrc`, which a non-interactive `docker exec`
+  does not source; a repro must either pass `opencode_path=~/.omnigent-bin/
+  opencode` explicitly or use `bash -lc` so the fix's actual enforcement
+  path (the srt sandbox) is genuinely exercised, not bypassed by resolving
+  the raw unsandboxed binary. Full live evidence (isolated
+  `OpenCodeNativeServer.start()` repro showing EROFS pre-fix / clean
+  post-fix through the real `srt` shim, plus a full real-browser Omnigent
+  Chat tile session completing a real chat turn against a fresh
+  `enable_omnigent=true` workspace) confirms the fix with no regression to
+  `srt opencode --`/`srt pi --` or the Issue #45 bridge.
+
 - 2026-09-02 (Issue #94, Jupyter tile: fixed-prefix Caddy sidecar,
   supersedes #83's wildcard-DNS lesson entry below): #83's `subdomain =
   true` fix worked but required every client's DNS resolver to reach the
