@@ -4,6 +4,16 @@ Tracks the platform's release version, not individual milestones or
 phases (see `docs/plan/plan.md` M16 "Versioning Policy" — milestones and
 phases are implementation stages, not releases).
 
+## 0.3.1 — 2026-09-02
+
+Patch release, no behavior change. Fixed Issue #96 (Omnigent
+opencode-native terminal EROFS — `agent-host/srt-settings.json`'s
+`filesystem.allowWrite` now covers `~/.omnigent`) and removed the
+top-of-file `README.md` "Status: vX.Y.Z released" banner, which
+duplicated (and regularly drifted out of sync with) the structured,
+already-maintained [Project status](README.md#project-status) section
+further down the same file.
+
 ## 0.3.0 — 2026-09-01
 
 Per-workspace agentic-session sandboxing/bridging, dashboard-app tile
