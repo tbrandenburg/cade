@@ -714,15 +714,18 @@ resource "coder_script" "jupyter" {
       # dedent/render pipeline before bash ever sees it, live-verified
       # during Issue #94's implementation).
       {
-        printf '%s\n' 'http://127.0.0.1:8888 {'
-        # Caddy treats a site address' host part as a Host-header match
-        # filter, NOT the TCP listener bind address (`caddy adapt`
-        # live-verified this: without an explicit `bind` directive the
-        # generated listener is bare ":8888", reachable from ANY other
-        # container on the same Docker network, not just loopback --
-        # found only by testing real cross-container reachability, not by
-        # reading the Caddyfile). `bind` is what actually restricts the
-        # listener itself to the loopback interface.
+        printf '%s\n' 'http://:8888 {'
+        # A Caddyfile site address' host part is a Host-header MATCH
+        # filter, not the listener bind address (`caddy adapt`
+        # live-verified this). Using "127.0.0.1" there would make Caddy
+        # reject every real request proxied through Coder (which forwards
+        # the browser's original "Host: <coder-host>:<port>" unchanged,
+        # not "127.0.0.1") with a silent 200-empty-body non-match -- found
+        # live: it worked from a direct in-container curl (Host:
+        # 127.0.0.1:8888) but returned an empty body through Coder's real
+        # proxy. Leaving the host part empty matches any Host header;
+        # `bind` (below) is what actually restricts the listener itself
+        # to loopback only.
         printf '\t%s\n' 'bind 127.0.0.1'
         printf '\t%s\n' \
           '# Coder'"'"'s real proxy has already stripped the "/@owner/ws/apps/slug"' \
