@@ -268,8 +268,12 @@ VSCODE_SETTINGS
     # home volume on first boot only, so a developer's own later edits to
     # ~/.srt-settings.json are not clobbered on every workspace start (same
     # pattern as .vscode/settings.json above).
-    if [ ! -f ~/.srt-settings.json ] && [ -f "${local.workspace_dir}/agent-host/srt-settings.json" ]; then
-      cp "${local.workspace_dir}/agent-host/srt-settings.json" ~/.srt-settings.json
+    if [ ! -f ~/.srt-settings.json ]; then
+      if [ -f "${local.workspace_dir}/agent-host/srt-settings.json" ]; then
+        cp "${local.workspace_dir}/agent-host/srt-settings.json" ~/.srt-settings.json
+      elif [ -f /etc/cade/srt-settings.default.json ]; then
+        cp /etc/cade/srt-settings.default.json ~/.srt-settings.json
+      fi
     fi
 
     # M9: wrap the `opencode`/`pi` agent harnesses in `srt` by default, and

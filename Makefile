@@ -75,10 +75,10 @@ coder-workspace-build:
 		exit 1; \
 	fi
 	@if [ -n "$(CACERT)" ]; then \
-		docker buildx build -f coder/Dockerfile --secret id=cacert,src=$(CACERT) \
+		docker buildx build -f coder/Dockerfile --build-context agent-host=agent-host --secret id=cacert,src=$(CACERT) \
 			-t cade/coder-workspace:latest --load coder; \
 	else \
-		docker buildx build -f coder/Dockerfile \
+		docker buildx build -f coder/Dockerfile --build-context agent-host=agent-host \
 			-t cade/coder-workspace:latest --load coder; \
 	fi
 
