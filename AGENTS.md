@@ -119,8 +119,8 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 
 | Command | Milestone | What it does |
 |---|---|---|
-| `make doctor` | M0 | Verifies the host (OS, arch, tooling, disk space, outbound connectivity, port availability) meets baseline requirements before anything else is attempted. Run this first on any new host. As of Issue #86, also warns (never fails) if `CODER_WILDCARD_ACCESS_URL` is empty while a template has a subdomain-routed `coder_app` tile (e.g. Jupyter). |
-| `make up` | M1 | Starts the platform control plane (Postgres + Coder) via `docker compose up -d`. Requires `.env` (copy from `.env.example` first). Depends on `temporal-worker-build`/`lab-sim-build` — those two services reference local-only images with no `build:` stanza in `compose.yaml`, so `up` builds them first (cache-hit, near-instant, unless code changed). Prints the main web UI URLs (Coder, Temporal, Grafana) afterward. As of Issue #86, also best-effort auto-derives and persists a default for `CODER_WILDCARD_ACCESS_URL` into `.env` (via `scripts/derive-wildcard-access-url.sh`) if it's unset/empty, using this host's default-route IPv4 — never overwrites an explicit value. |
+| `make doctor` | M0 | Verifies the host (OS, arch, tooling, disk space, outbound connectivity, port availability) meets baseline requirements before anything else is attempted. Run this first on any new host. |
+| `make up` | M1 | Starts the platform control plane (Postgres + Coder) via `docker compose up -d`. Requires `.env` (copy from `.env.example` first). Depends on `temporal-worker-build`/`lab-sim-build` — those two services reference local-only images with no `build:` stanza in `compose.yaml`, so `up` builds them first (cache-hit, near-instant, unless code changed). Prints the main web UI URLs (Coder, Temporal, Grafana) afterward. |
 | `make down` | — | Stops and removes the platform stack's containers. Does not touch named volumes (`coder_db_data`, `coder_home`, etc.) — data persists across `down`/`up`. |
 | `make status` | — | `docker compose ps` — check container health before assuming the stack is up. As of Phase 4 this covers all 18 services (Coder, Temporal, OpenBao, OPA, MCP lab-sim, Prometheus/Loki/Grafana, self-hosted-runner support, registry, cAdvisor), not just Postgres+Coder. |
 | `make logs` | — | `docker compose logs -f` — tail logs when diagnosing a stack issue. |
@@ -225,6 +225,82 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
+
+- 2026-09-02 (Issue #94, Jupyter tile: fixed-prefix Caddy sidecar,
+  supersedes #83's wildcard-DNS lesson entry below): #83's `subdomain =
+  true` fix worked but required every client's DNS resolver to reach the
+  public internet to resolve the `*.<ip>.nip.io` wildcard hostname — a
+  hard blocker in locked-down enterprise/private networks. Replaced with
+  a tiny in-workspace Caddy reverse-proxy sidecar (127.0.0.1:8888) that
+  unconditionally re-adds the workspace's own fixed prefix
+  (`/@owner/ws/apps/jupyter`, known at Terraform-plan time) before
+  forwarding to `jupyter-lab` (127.0.0.1:8889, launched with a matching
+  `--ServerApp.base_url`) — this reconstructs exactly the invariant
+  JupyterHub's own `configurable-http-proxy` relies on (a
+  prefix-preserving proxy + a matching `base_url`), just enforced
+  locally instead of relying on Coder's own proxy to preserve the prefix
+  (it never has, see #60/#62/#76/#81). `coder_app.jupyter` is back to
+  `subdomain = false`, identical to Node-RED's tile — zero DNS/wildcard
+  dependency. `CODER_WILDCARD_ACCESS_URL` and its auto-derivation
+  machinery (`scripts/derive-wildcard-access-url.sh`, `doctor.sh`'s
+  `check_wildcard_access_url`) were removed entirely — no template in
+  this repo uses `subdomain = true` anymore.
+
+  Four real, live-reproduced bugs along the way, each invisible until
+  tested against the *real* Coder proxy / a real sibling container, not
+  a synthetic reproduction (same recurring lesson-class as #60's own
+  entry below): (1) A Caddyfile heredoc nested inside this
+  `coder_script`'s own Terraform `<<-EOT` heredoc silently lost its
+  closing delimiter somewhere in Terraform's render pipeline before bash
+  ever saw it (`here-document ... delimited by end-of-file`) — fixed by
+  writing the Caddyfile with `printf` instead of any nested heredoc;
+  never nest a heredoc inside a Terraform `<<-EOT`-templated script
+  string, however innocuous the indentation looks in the `.tf` source.
+  (2) A Caddyfile site address' host part (e.g. `127.0.0.1:8888`) is a
+  Host-*header match filter*, not the TCP listener bind address —
+  `caddy adapt` on the naive version showed the real listener was bare
+  `:8888` (all interfaces), confirmed exploitable live: a sibling
+  container on the same Docker network could reach the sidecar directly
+  (`200`) while Node-RED's genuinely-loopback-bound listener correctly
+  refused (`000`). Fixed with an explicit `bind 127.0.0.1` directive —
+  always verify a Caddy (or any reverse-proxy) "loopback-only" claim by
+  actually curling it from a second container on the same Docker
+  network, not just by reading the config or curling from inside the
+  same container. (3) Even after adding `bind 127.0.0.1`, keeping the
+  site address' host part as `127.0.0.1` broke every *real* proxied
+  request through Coder's dashboard with a silent `200`-empty-body
+  response (no error, no redirect) — Coder's own proxy forwards the
+  browser's original `Host: <coder-host>:<port>` header unchanged, not
+  `127.0.0.1`, so Caddy's host-match filter rejected every real request
+  while a direct in-container curl (which naturally sends
+  `Host: 127.0.0.1:8888`) kept working, masking the bug during the first
+  round of local verification. Fixed by dropping the host part entirely
+  (`http://:8888` + `bind 127.0.0.1`) — a `200` with `Content-Length: 0`
+  and no error from a proxy is not evidence of success; always check
+  `size_download`/response body length, not just the status code, and
+  always re-verify through the actual dashboard proxy after any
+  Caddyfile change, never trust a same-container smoke test alone. (4)
+  `coder stop`/`start` does **not** pick up a newly-active template
+  version on an existing workspace (it rebuilds pinned to whatever
+  version the workspace was already on) — only `coder update` (or a
+  fresh `coder create`) does; re-testing a template change against an
+  existing throwaway workspace via stop/start alone silently re-tests
+  the *old* version and can make an already-fixed bug look unfixed.
+  Separately (unrelated to this issue's own code, but blocking its own
+  verification): recreating the `coder` container mid-session
+  (`docker compose up -d coder`, needed to pick up `compose.yaml`'s
+  `CODER_WILDCARD_ACCESS_URL` removal) surfaced that `.env` had no
+  `DOCKER_GID` set, so `group_add` fell back to a stale default (`998`)
+  that no longer matched this host's real `docker` group gid (`988`,
+  confirmed via `getent group docker`) — every subsequent
+  `coder_volume`/`docker_container` Terraform apply failed with
+  `permission denied` on `/var/run/docker.sock` until `DOCKER_GID=988`
+  was added to `.env` and `coder` recreated again. A working `.env`
+  circa one host/session is not guaranteed to still match the *current*
+  host's docker group gid after any host-level change — verify
+  `getent group docker` against the deployed `.env`'s `DOCKER_GID`
+  whenever a `coder` container recreate fails with a docker-socket
+  permission error, don't assume the compose config itself regressed.
 
 - 2026-09-01 (Issue #83, Jupyter tile switched to subdomain routing,
   superseding the #62 shim): closing #83's own hard-gate cross-user

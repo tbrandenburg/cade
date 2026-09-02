@@ -6,6 +6,12 @@
 # M9 adds bubblewrap, socat, ripgrep, and tmux, plus the `opencode`/`pi`
 # agent CLIs and Anthropic's Sandbox Runtime (`srt`), to support the
 # Agent/Harness Plane (LLM/agent harness integration).
+# Caddy static binary, copied out of the official image below (Issue #94:
+# fixed-prefix reverse-proxy sidecar for JupyterLab, replacing #83's
+# wildcard-DNS subdomain routing).
+ARG CADDY_VERSION=2.8.4
+FROM caddy:${CADDY_VERSION}-alpine AS caddy
+
 FROM ubuntu:24.04
 
 ARG USERNAME=coder
@@ -85,6 +91,17 @@ RUN python3 -m venv /opt/jupyter \
     && /opt/jupyter/bin/pip install --no-cache-dir "jupyterlab==${JUPYTERLAB_VERSION}" \
     && ln -s /opt/jupyter/bin/jupyter /usr/local/bin/jupyter \
     && ln -s /opt/jupyter/bin/jupyter-lab /usr/local/bin/jupyter-lab
+
+# --- Caddy sidecar (Issue #94) -----------------------------------------------
+# Fixed-prefix reverse-proxy sidecar in front of JupyterLab. Coder's
+# path-based coder_app proxy strips the "/@owner/ws/apps/jupyter" prefix
+# before forwarding with no X-Forwarded-Prefix header and no opt-out
+# (coder/coder#14483) -- jupyter_server has no way to reconstruct that
+# prefix on its own. This Caddy binary re-adds the fixed prefix (known at
+# Terraform-plan time) to every incoming bare request before forwarding to
+# jupyter_server, which is launched with a matching --ServerApp.base_url.
+# No DNS/wildcard hostname of any kind is required (supersedes #83).
+COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 # --- Node-RED (Issue #60) ---------------------------------------------------
 # Node.js 20 is already installed above (NODE_MAJOR). Palette packages are

@@ -207,32 +207,6 @@ check_registry_htpasswd() {
   fi
 }
 
-# ── Issue #86: CODER_WILDCARD_ACCESS_URL needed for subdomain coder_apps? ──
-# `make up` best-effort auto-derives this (scripts/derive-wildcard-access-url.sh)
-# but can legitimately fail to (no default route / air-gapped host) or an
-# operator may have deliberately left it empty. Only warn if some template
-# actually has a subdomain-routed coder_app that needs it -- never fail,
-# since a deployment with no such tiles enabled doesn't need this at all.
-check_wildcard_access_url() {
-  local value=""
-  if [ -f "$ENV_FILE" ]; then
-    value="$(grep -E '^CODER_WILDCARD_ACCESS_URL=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2-)"
-  fi
-  if [ -n "$value" ]; then
-    pass "CODER_WILDCARD_ACCESS_URL is set (${value})"
-    return
-  fi
-
-  local hits
-  hits="$(grep -lE 'subdomain[[:space:]]*=[[:space:]]*true' coder/templates/*/main.tf 2>/dev/null)"
-  if [ -z "$hits" ]; then
-    pass "CODER_WILDCARD_ACCESS_URL is empty, but no template currently has a subdomain-routed coder_app -- no action needed"
-    return
-  fi
-
-  warn "CODER_WILDCARD_ACCESS_URL is empty and $(echo "$hits" | tr '\n' ' ' | sed 's/ $//') has a subdomain-routed coder_app -- the Jupyter tile will not be reachable until CODER_WILDCARD_ACCESS_URL is set (run 'make up' to auto-derive a best-effort default, or set it manually in ${ENV_FILE}; see .env.example)"
-}
-
 # ── Port availability ──────────────────────────────────────────────────────
 check_ports() {
   local port in_use
@@ -273,7 +247,6 @@ main() {
   check_security_profiles
   check_openbao_cert
   check_registry_htpasswd
-  check_wildcard_access_url
   check_ports
 
   echo
