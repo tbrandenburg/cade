@@ -34,21 +34,14 @@ ARG BOUNDARY_VERSION=v0.10.0
 RUN curl -fsSL https://raw.githubusercontent.com/coder/boundary/main/install.sh \
       | bash -s -- --version ${BOUNDARY_VERSION}
 
-# Omnigent host CLI (Issue #43), pinned to the PyPI `omnigent` package —
-# NOT the upstream omnigent-sandbox `deploy/docker/Dockerfile.host` image
-# (that one builds omnigent from source and bundles multiple coding-
-# harness CLIs); this workspace already has its own agent CLIs, so only
-# the `omnigent` package itself is needed for `omnigent login`/`omnigent
-# host` to register this workspace with the Omnigent server. Version must
-# stay in lockstep with `omnigent-server`'s pin in ../../compose.yaml and
-# within the OpenCode range `coder/Dockerfile`'s OPENCODE_VERSION (1.18.25)
-# supports. Installed into its own venv, same isolation rationale as the
-# upstream Dockerfile.host, so it can't collide with any Python OpenCode
-# itself might shell out to.
-ARG OMNIGENT_VERSION=0.11.0
-RUN python3 -m venv /opt/omnigent-venv \
- && /opt/omnigent-venv/bin/pip install --no-cache-dir "omnigent==${OMNIGENT_VERSION}" \
- && ln -s /opt/omnigent-venv/bin/omnigent /usr/local/bin/omnigent \
- && omnigent --version
+# Omnigent host CLI (Issue #43): the duplicate venv install that used to
+# live here was removed (Issue #92) — `cade/coder-workspace:latest` (this
+# image's own FROM base) already provides `/opt/omnigent-venv` and
+# `/usr/local/bin/omnigent` since Issue #75 ported that install into
+# `coder/Dockerfile` directly. Re-running it here collided with the base
+# image's own symlink at `/usr/local/bin/omnigent` (`ln: File exists`).
+# The version pin now lives solely in `coder/Dockerfile`'s
+# `OMNIGENT_VERSION` ARG and must stay in lockstep with `omnigent-server`'s
+# pin in ../../compose.yaml, as before.
 
 USER coder
