@@ -1,17 +1,35 @@
 # `embedded-linux` Coder template (Milestone M6)
 
 Same Coder/Docker workspace mechanics as `docker-workspace` (Milestone M3):
-repository auto-cloned into `/home/coder/project`, persistent per-workspace
-home volume, code-server access. The only difference is the workspace
-image, which adds a pinned embedded-style cross-compilation toolchain on
-top of the standard image — see `../../embedded-linux/Dockerfile`.
+an optional repository auto-cloned into `/home/coder/project` (empty by
+default — bring your own project), persistent per-workspace home volume,
+code-server access. The only difference is the workspace image, which
+adds a pinned embedded-style cross-compilation toolchain on top of the
+standard image — see `../../embedded-linux/Dockerfile`.
 
 ## Contents
 
-Identical `main.tf`/`variables.tf` structure to `../docker-workspace`,
-except `variables.tf`'s `workspace_image` default points at
-`cade/embedded-linux-workspace:latest` instead of
-`cade/coder-workspace:latest`.
+Identical `main.tf`/`variables.tf` structure to `../docker-workspace`
+(including `repo_url` defaulting to empty), except `variables.tf`'s
+`workspace_image` default points at `cade/embedded-linux-workspace:latest`
+instead of `cade/coder-workspace:latest`.
+
+## Bring your own project (default) vs. dogfooding cade
+
+By default `repo_url` is empty and `coder create` gives you a blank
+`/home/coder/project` directory. To develop cade itself instead
+(dogfooding/contributing), pass the override explicitly.
+
+`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
+cannot be set via `coder create --parameter`; set it via `--var` at
+`coder templates push` time or a `TF_VAR_repo_url` environment variable
+on the Coder provisioner:
+
+```bash
+coder templates push embedded-linux \
+  --directory coder/templates/embedded-linux \
+  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+```
 
 ## Build the workspace image first
 
@@ -27,8 +45,7 @@ then `cade/embedded-linux-workspace:latest` on top of it.
 
 ```bash
 coder templates push embedded-linux \
-  --directory coder/templates/embedded-linux \
-  --var repo_url=https://github.com/<org>/cade.git
+  --directory coder/templates/embedded-linux
 ```
 
 ## Toolchain provenance

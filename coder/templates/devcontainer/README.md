@@ -15,9 +15,34 @@ resource and `@devcontainers/cli`.
   Docker-in-Docker daemon** (`privileged = true` + a dedicated
   `/var/lib/docker` volume) instead of bind-mounting the host's Docker
   socket. See "Why Docker-in-Docker, not docker-outside-of-docker" below.
-- `variables.tf` — `docker_socket`, `repo_url` (same as docker-workspace), and
-  `bootstrap_image` (the *outer* container's image — contains the Docker
-  engine, Node.js, and `@devcontainers/cli`, not the project toolchain).
+- `variables.tf` — `docker_socket`, `repo_url` (repository to auto-clone;
+  empty by default — bring your own project, same as docker-workspace),
+  `default_devcontainer_image` (base image used to bootstrap a minimal
+  `.devcontainer/devcontainer.json` when `repo_url` is empty — see "Bring
+  your own project" below), and `bootstrap_image` (the *outer* container's
+  image — contains the Docker engine, Node.js, and `@devcontainers/cli`,
+  not the project toolchain).
+
+## Bring your own project (default) vs. dogfooding cade
+
+`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
+cannot be passed via `coder create --parameter`; set it via `--var` (at
+`coder templates push` time, changing the default for every future
+workspace) or a `TF_VAR_repo_url` environment variable on the Coder
+provisioner. By default it is empty: `module.git-clone`'s own vendored
+`coder_script` skips cloning gracefully, and this template's
+`coder_script.empty_workspace_bootstrap` (gated on `repo_url == ""`)
+writes a minimal `.devcontainer/devcontainer.json` referencing
+`default_devcontainer_image` so `coder_devcontainer.repo` still has a
+valid config to build against — a blank workspace works out of the box,
+no separate fallback flag needed. To develop cade itself instead
+(dogfooding/contributing), push (or re-push) the template with the
+override:
+
+```bash
+coder templates push devcontainer -d coder/templates/devcontainer \
+  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+```
 
 ## Why Docker-in-Docker, not docker-outside-of-docker
 

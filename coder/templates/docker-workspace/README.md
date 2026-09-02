@@ -1,8 +1,9 @@
 # `docker-workspace` Coder template (Milestone M3)
 
 Provisions the first `docker-workspace` workspace type: a Docker container built
-from `coder/Dockerfile`, with the repository auto-cloned into
-`/home/coder/project` and a persistent per-workspace home volume.
+from `coder/Dockerfile`, with an optional repository auto-cloned into
+`/home/coder/project` (or a blank project directory if none is given) and a
+persistent per-workspace home volume.
 
 ## Contents
 
@@ -10,8 +11,27 @@ from `coder/Dockerfile`, with the repository auto-cloned into
   module, `docker_volume` (persistent `/home/coder`), and `docker_container`
   (uses the pre-built `workspace_image`).
 - `variables.tf` — `docker_socket` (optional Docker socket override),
-  `repo_url` (repository to clone; defaults to this repository), and
-  `workspace_image` (pre-built image tag; see below).
+  `repo_url` (repository to auto-clone; empty by default — bring your own
+  project), and `workspace_image` (pre-built image tag; see below).
+
+## Bring your own project (default) vs. dogfooding cade
+
+By default `repo_url` is empty and `coder create` gives you a blank
+`/home/coder/project` directory — cade is a generic devenv for *your*
+project, not just for developing itself. To develop cade itself instead
+(dogfooding/contributing), pass the override explicitly.
+
+`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
+cannot be set via `coder create --parameter`; set it via `--var` at
+`coder templates push` time (changes the default for every future
+workspace created from this template) or a `TF_VAR_repo_url` environment
+variable on the Coder provisioner:
+
+```bash
+coder templates push docker-workspace \
+  --directory coder/templates/docker-workspace \
+  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+```
 
 ## Build the workspace image first
 
@@ -32,9 +52,16 @@ This produces `cade/coder-workspace:latest`, the default value of
 
 ```bash
 coder templates push docker-workspace \
-  --directory coder/templates/docker-workspace \
-  --var repo_url=https://github.com/<org>/cade.git
+  --directory coder/templates/docker-workspace
 ```
+
+`--var repo_url=...` on this push command would change the template
+variable's server-side *default* for every future `coder create` from
+this template (`repo_url` is a plain Terraform `variable`, not a
+`coder_parameter` — it cannot be overridden per-workspace via `coder
+create --parameter`) — leave it unset to keep the empty, bring-your-own-
+project default; only set it here if you deliberately want a different
+default for every workspace created from this template.
 
 Per Coder's security best practices, push from CI using a dedicated
 non-human account with the minimum required role — do not grant Template

@@ -5,8 +5,8 @@ variable "docker_socket" {
 }
 
 variable "repo_url" {
-  default     = "https://github.com/tbrandenburg/cade.git"
-  description = "Repository to auto-clone into every agent-workspace workspace"
+  default     = ""
+  description = "Repository to auto-clone into the workspace on first start. Leave empty for a blank workspace (bring your own project). To dogfood cade itself, pass --parameter repo_url=https://github.com/tbrandenburg/cade.git at `coder create` time."
   type        = string
 }
 

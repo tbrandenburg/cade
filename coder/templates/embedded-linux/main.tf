@@ -80,16 +80,20 @@ resource "coder_agent" "main" {
     set -e
 
     if [ ! -d "${local.workspace_dir}/.git" ]; then
-      if [ -n "$GITHUB_TOKEN" ]; then
-        cat > /tmp/git-askpass.sh <<'ASKPASS'
+      if [ -n "${local.repo_url}" ]; then
+        if [ -n "$GITHUB_TOKEN" ]; then
+          cat > /tmp/git-askpass.sh <<'ASKPASS'
 #!/bin/sh
 echo "$GITHUB_TOKEN"
 ASKPASS
-        chmod +x /tmp/git-askpass.sh
-        export GIT_ASKPASS=/tmp/git-askpass.sh
-        export GIT_TERMINAL_PROMPT=0
+          chmod +x /tmp/git-askpass.sh
+          export GIT_ASKPASS=/tmp/git-askpass.sh
+          export GIT_TERMINAL_PROMPT=0
+        fi
+        git clone "${local.repo_url}" "${local.workspace_dir}"
+      else
+        mkdir -p "${local.workspace_dir}"
       fi
-      git clone "${local.repo_url}" "${local.workspace_dir}"
     fi
 
     echo 'cd ${local.workspace_dir}' >> ~/.bashrc
