@@ -648,14 +648,20 @@ adopted here**. `coder/templates/docker-workspace/security/*` (Issue
 this issue at all; JupyterLab and Node-RED run under the exact same
 confinement every other in-workspace process already does.
 
-**Superseded by Issue #83**: Coder's real path-based `coder_app` proxy
-(v2.36.3) strips the app's URL prefix before forwarding, which broke
+**Superseded by Issue #83, then #94**: Coder's real path-based `coder_app`
+proxy (v2.36.3) strips the app's URL prefix before forwarding, which broke
 JupyterLab's own domain-absolute static-asset loading in a real browser
-under path-based mode. Fixed by switching `coder_app.jupyter` to
-`subdomain = true` (requires `CODER_WILDCARD_ACCESS_URL` set — see
-`docs/operations.md`) — purely a routing-mode change, no impact on the
-auth/confinement model described above: the underlying JupyterLab
-process is still reachable only via Coder's authenticated proxy, on a
-127.0.0.1-only listener, either way.
+under path-based mode. #83 fixed this by switching `coder_app.jupyter` to
+`subdomain = true` (requires `CODER_WILDCARD_ACCESS_URL`) — but that
+requires every client's DNS resolver to reach the public internet, a hard
+blocker in locked-down enterprise/private networks. Issue #94 replaced
+this with a fixed-prefix Caddy reverse-proxy sidecar inside the workspace
+container (see `docs/operations.md`) that restores the stripped prefix
+locally, so `coder_app.jupyter` is back to path-based routing
+(`subdomain = false`) with zero DNS dependency. Neither change has any
+impact on the auth/confinement model described above: the underlying
+JupyterLab process (and now the Caddy sidecar in front of it) is still
+reachable only via Coder's authenticated proxy, on 127.0.0.1-only
+listeners, in every routing mode this template has ever used.
 
 

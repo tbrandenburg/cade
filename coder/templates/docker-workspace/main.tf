@@ -650,20 +650,32 @@ resource "coder_app" "temporal" {
 # `jupyter-proxy-shim.py` this superseded) could ever be a complete fix
 # while `coder_app.jupyter` stayed path-based — the shim covered HTML/JS/
 # CSS rewriting but was extra maintained surface for a proxy-mode problem.
-# Issue #83 fixes this properly: `coder_app.jupyter` now uses
-# `subdomain = true` (needs `CODER_WILDCARD_ACCESS_URL` set — see
-# compose.yaml/.env.example), so the browser talks to Jupyter's own
-# subdomain directly with no path-prefix stripping at all — unmodified
-# `jupyter-lab`, no shim, no `base_url` flag needed. One new flag IS
-# required though, live-verified during #83's own rollout: JupyterLab's
-# own Tornado server 403s any request whose Host header isn't
-# localhost/a local IP (DNS-rebinding protection) — reproduced directly
-# against jupyter-lab with `curl -H "Host: jupyter--ws--owner...` even
-# though `curl http://127.0.0.1:8889/api` with no Host override worked
-# fine. `--ServerApp.allow_remote_access=True` disables that check; this
-# is safe here for the same reason the missing token/password already is
-# (see above) — the ONLY network path to this port is still Coder's own
-# authenticated subdomain proxy.
+# Issue #83 then switched to `subdomain = true` (+ `CODER_WILDCARD_ACCESS_URL`)
+# to sidestep prefix-stripping entirely — it worked, but requires every
+# client's DNS resolver to reach the public internet to resolve the
+# `*.<ip>.nip.io` wildcard hostname, a hard blocker in locked-down
+# enterprise/private networks with no external DNS path. SUPERSEDED by
+# Issue #94 below.
+#
+# Issue #94 fixes this properly, with zero DNS dependency: since this
+# workspace's own fixed prefix (`/@<owner>/<workspace>/apps/jupyter`) is
+# known at Terraform-plan time, a tiny local Caddy reverse-proxy sidecar
+# (127.0.0.1:8888) unconditionally re-adds that same fixed prefix to every
+# bare/stripped incoming request before forwarding to jupyter_server
+# (127.0.0.1:8889, launched with a matching `--ServerApp.base_url`) — this
+# reconstructs exactly the invariant JupyterHub's own `configurable-http-
+# proxy` relies on (prefix-preserving proxy + matching `base_url`), just
+# enforced locally instead of by Coder's proxy. `coder_app.jupyter` now
+# points at Caddy (8888), not jupyter_server (8889) directly, and is back
+# to `subdomain = false` (plain path-based routing, identical to Node-RED).
+# Live-validated prototype: real jupyter-lab + real Caddy, main page,
+# static assets, API, and the WebSocket kernel channel (real 101 upgrade +
+# streamed kernel status messages) all confirmed working. Same
+# `--ServerApp.allow_remote_access=True` flag is still required (Tornado's
+# DNS-rebinding Host-header check — unrelated to Coder's proxy, safe here
+# since the only network path to jupyter_server is still this local Caddy
+# sidecar, which is itself only reachable via Coder's own authenticated
+# proxy on 127.0.0.1:8888).
 resource "coder_script" "jupyter" {
   count              = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id           = coder_agent.main.id
@@ -677,18 +689,41 @@ resource "coder_script" "jupyter" {
     # PID-file guard, NOT `pgrep -f` — a `pgrep -f` inside a script that is
     # itself run as `sh -c "<script text>"` can self-match its own command
     # line (AGENTS.md Issue #45 lesson).
-    PIDFILE=/tmp/jupyter.pid
-    if ! { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }; then
+    JUPYTER_PREFIX="/@${data.coder_workspace_owner.me.name}/${data.coder_workspace.me.name}/apps/jupyter"
+
+    JUPYTER_PIDFILE=/tmp/jupyter.pid
+    if ! { [ -f "$JUPYTER_PIDFILE" ] && kill -0 "$(cat "$JUPYTER_PIDFILE")" 2>/dev/null; }; then
       nohup /usr/local/bin/jupyter-lab \
         --ServerApp.ip=127.0.0.1 \
         --ServerApp.port=8889 \
+        --ServerApp.base_url="$JUPYTER_PREFIX" \
         --IdentityProvider.token='' \
         --ServerApp.password='' \
         --ServerApp.root_dir="${local.workspace_dir}" \
         --ServerApp.allow_remote_access=True \
         --no-browser \
         > /tmp/jupyter.log 2>&1 &
-      echo $! > "$PIDFILE"
+      echo $! > "$JUPYTER_PIDFILE"
+    fi
+
+    CADDY_PIDFILE=/tmp/jupyter-caddy.pid
+    if ! { [ -f "$CADDY_PIDFILE" ] && kill -0 "$(cat "$CADDY_PIDFILE")" 2>/dev/null; }; then
+      cat > /tmp/jupyter-caddy.Caddyfile <<-CADDYFILE
+        :8888 {
+        	# Coder's real proxy has already stripped the
+        	# "/@owner/ws/apps/slug" prefix from the incoming request before it
+        	# reaches us -- so we receive BARE paths. We must add the prefix
+        	# back before forwarding to jupyter_server, which was launched with
+        	# a matching --ServerApp.base_url and therefore only understands
+        	# prefixed paths.
+        	rewrite * $JUPYTER_PREFIX{uri}
+
+        	reverse_proxy 127.0.0.1:8889
+        }
+        CADDYFILE
+      nohup /usr/local/bin/caddy run --config /tmp/jupyter-caddy.Caddyfile --adapter caddyfile \
+        > /tmp/jupyter-caddy.log 2>&1 &
+      echo $! > "$CADDY_PIDFILE"
     fi
   EOT
 }
@@ -730,22 +765,26 @@ resource "coder_script" "nodered" {
 # live 200 at /icon/jupyter.svg) — NO CODER_ADDITIONAL_CSP_POLICY change
 # needed, unlike Issue #47/#50's plain-http-origin tiles.
 #
-# Issue #83: subdomain-routed (not path-based) — requires
-# CODER_WILDCARD_ACCESS_URL set server-wide (see compose.yaml). This is the
-# only coder_app in this template using subdomain mode; see #60/#62/#76/#81
-# for the full history of why path-based mode could never work for Jupyter.
+# Issue #94: back to path-based routing (subdomain = false), via the Caddy
+# fixed-prefix sidecar started by coder_script.jupyter above — supersedes
+# #83's subdomain-routed approach (no CODER_WILDCARD_ACCESS_URL dependency
+# anymore). See coder_script.jupyter's comment for the full history.
 resource "coder_app" "jupyter" {
   count        = data.coder_parameter.enable_jupyter.value ? 1 : 0
   agent_id     = coder_agent.main.id
   slug         = "jupyter"
   display_name = "JupyterLab"
   icon         = "/icon/jupyter.svg"
-  url          = "http://localhost:8889"
-  subdomain    = true
-  share        = "owner"
-  order        = 2
+  # Points at the Caddy sidecar (8888), not jupyter_server (8889) directly
+  # — see coder_script.jupyter's comment above (Issue #94).
+  url       = "http://localhost:8888"
+  subdomain = false
+  share     = "owner"
+  order     = 2
   healthcheck {
-    url       = "http://localhost:8889/api"
+    # Bare path — Caddy re-adds the fixed prefix before forwarding to
+    # jupyter_server, same as every other request through this sidecar.
+    url       = "http://localhost:8888/api"
     interval  = 5
     threshold = 10
   }
