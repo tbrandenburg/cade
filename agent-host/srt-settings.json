@@ -6,7 +6,7 @@
   },
   "filesystem": {
     "denyRead": ["~/.ssh", "~/.aws", ".env", "~/.claude", "~/.copilot"],
-    "allowWrite": [".", "/tmp", "~/.local", "~/.cache", "~/.config"],
+    "allowWrite": [".", "/tmp", "~/.local", "~/.cache", "~/.config", "~/.omnigent"],
     "denyWrite": [".env", "**/secrets/**"]
   },
   "enableWeakerNestedSandbox": true
