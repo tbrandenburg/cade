@@ -111,18 +111,20 @@ authenticated agent proxy, so neither has its own login. See
 `docs/operations.md` and `docs/security.md` for the full
 design/data-location/log-location writeup.
 
-**JupyterLab requires `CODER_WILDCARD_ACCESS_URL` (Issue #83)**: unlike
-every other `coder_app` in this template, `coder_app.jupyter` uses
-`subdomain = true` — Coder's real path-based proxy strips the
-`/@owner/ws.../apps/<slug>` prefix with no `X-Forwarded-Prefix` header,
-so path-based mode can never work for an app (like JupyterLab) whose own
-static assets use domain-absolute paths (see #60/#62/#76/#81/#83 history
-in `main.tf`'s comments). The deployment's `.env` must set
-`CODER_WILDCARD_ACCESS_URL` to a real wildcard-resolvable hostname (e.g.
-`*.<host-ip>.nip.io`) for the tile to resolve at all; without it, the
-tile link 404s/refuses to connect. Node-RED stays path-based
-(`subdomain = false`) and is unaffected either way — its own HTML emits
-relative asset paths.
+**JupyterLab uses a fixed-prefix Caddy sidecar, no DNS required (Issue
+#94)**: Coder's real path-based proxy strips the `/@owner/ws.../apps/<slug>`
+prefix with no `X-Forwarded-Prefix` header, so plain path-based mode alone
+can never work for an app (like JupyterLab) whose own static assets use
+domain-absolute paths (see #60/#62/#76/#81/#83/#94 history in `main.tf`'s
+comments). #83 previously worked around this with `subdomain = true` +
+`CODER_WILDCARD_ACCESS_URL`, but that required every client's DNS resolver
+to reach the public internet — a hard blocker on locked-down networks.
+`coder_script.jupyter` now also starts a small in-workspace Caddy process
+(127.0.0.1:8888) that re-adds the workspace's own fixed prefix to every
+request before forwarding to `jupyter-lab` (127.0.0.1:8889, launched with
+a matching `--ServerApp.base_url`); `coder_app.jupyter` points at Caddy
+and is back to `subdomain = false`, identical to Node-RED's tile. No
+`CODER_WILDCARD_ACCESS_URL`/DNS setup of any kind is required anymore.
 
 ### Tier 3 — optional, post-instantiation
 

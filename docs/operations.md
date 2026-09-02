@@ -169,36 +169,28 @@ listener, proxied HTTP round trip (with vs. without a session token), and
 (Node-RED only) that the dashboard/agents palettes are discovered and
 `/flows` returns real JSON.
 
-### Known limitation: JupyterLab requires wildcard DNS (Issue #83)
+### JupyterLab: fixed-prefix sidecar, no DNS required (Issue #94)
 
-Superseded (Issue #83): the previous shim-based workaround
-(`jupyter-proxy-shim.py`, Issue #62) has been removed. `coder_app.jupyter`
-now uses `subdomain = true` instead of path-based routing — the browser
-talks to Jupyter's own subdomain directly, so Coder's path-prefix-stripping
-proxy (which broke JupyterLab's domain-absolute static assets under
-path-based mode, see #60/#62/#76/#81) no longer applies at all. This
-requires the platform's `CODER_WILDCARD_ACCESS_URL` env var (see
-`compose.yaml`/`.env.example`) to be set to a real wildcard-resolvable
-hostname — without it, the JupyterLab tile's link does not resolve. All
-other `coder_app` tiles in this template (Node-RED, Temporal, Omnigent,
-VS Code Web) remain path-based and are unaffected by this env var being
-set. See `docs/milestone-reports/issue-60-jupyter-nodered.md` for the
-original path-based-proxy investigation history.
-
-Follow-up (Issue #86): `make up` now best-effort auto-derives a default
-for `CODER_WILDCARD_ACCESS_URL` if it's unset/empty in `.env`, using this
-host's default-route source IPv4 (`scripts/derive-wildcard-access-url.sh`)
-composed into a `*.<ip>.nip.io` hostname, and persists it into `.env` —
-for the common single-NIC/LAN deployment (this host included), no manual
-`.env` edit is required at all; `make up` prints what it derived. It
-never overwrites an already-set value, so an explicit override (needed
-for a cloud VM, a NAT'd home server, a Tailscale-only deployment, or any
-topology where the default-route IP isn't the address browsers should
-use) still works exactly as before — just set `CODER_WILDCARD_ACCESS_URL`
-in `.env` yourself before running `make up`. `make doctor` warns (not
-fails) if the value is still empty while a template has a subdomain-
-routed `coder_app` tile, naming the concrete consequence (the Jupyter
-tile won't be reachable) rather than just noting the value is empty.
+Superseded (Issue #94): #83's subdomain-routed (`subdomain = true` +
+`CODER_WILDCARD_ACCESS_URL`) approach worked, but required every client's
+DNS resolver to reach the public internet to resolve the `*.<ip>.nip.io`
+wildcard hostname — a hard blocker in locked-down enterprise/private
+networks with no external DNS path. `coder_app.jupyter` is now back to
+plain path-based routing (`subdomain = false`, identical mechanism to
+Node-RED's tile), fronted by a small in-workspace Caddy reverse-proxy
+sidecar (127.0.0.1:8888) that unconditionally re-adds the workspace's own
+fixed prefix (`/@<owner>/<workspace>/apps/jupyter`, known at
+Terraform-plan time) to every bare/stripped request before forwarding it
+to `jupyter-lab` (127.0.0.1:8889), which is launched with a matching
+`--ServerApp.base_url`. This reconstructs the same invariant JupyterHub's
+own `configurable-http-proxy` relies on (prefix-preserving proxy + a
+matching `base_url`) — Coder's real path-based proxy still strips the
+prefix with no `X-Forwarded-Prefix` header and no opt-out
+(`coder/coder#14483`, see #60/#62/#76/#81 for the full history), but now
+the sidecar restores it locally instead. **No DNS/wildcard hostname setup
+of any kind is required** — `CODER_WILDCARD_ACCESS_URL` and its
+auto-derivation machinery have been removed entirely (no template in this
+repo uses `subdomain = true` anymore).
 
 
 
