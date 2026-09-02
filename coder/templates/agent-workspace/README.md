@@ -14,18 +14,43 @@ constrained/audited.
   `boundary`-wrapped harness aliases (`boundary-opencode`, `boundary-pi`)
   added to `~/.bashrc`.
 - `variables.tf` — `docker_socket` (optional Docker socket override),
-  `repo_url` (repository to clone; defaults to this repository), and
-  `workspace_image` (pre-built image tag; defaults to
+  `repo_url` (repository to auto-clone; empty by default — bring your own
+  project), and `workspace_image` (pre-built image tag; defaults to
   `cade/agent-workspace:latest`).
 
 ## Parameters
 
 - `github_token` — optional token to clone `repo_url` when it is not
-  publicly readable. Same as `docker-workspace`.
+  publicly readable. GitHub-specific by design (see "Bring your own
+  project" below) — same as `docker-workspace`.
 - `agent_capable` — same autostop-relaxation parameter as `docker-workspace`,
   but **defaults to `true`** here (this template exists specifically for
   long-running unattended Agent Host / Coder Agents sessions, not for
   human-only, editor-attended work).
+
+## Bring your own project (default) vs. dogfooding cade
+
+By default `repo_url` is empty and `coder create` gives you a blank
+`/home/coder/project` directory. To develop cade itself instead
+(dogfooding/contributing), pass the override explicitly.
+
+`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
+cannot be set via `coder create --parameter`; set it via `--var` at
+`coder templates push` time or a `TF_VAR_repo_url` environment variable
+on the Coder provisioner:
+
+```bash
+coder templates push agent-workspace \
+  --directory coder/templates/agent-workspace \
+  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+```
+
+`github_token`/`data.coder_external_auth.github` are named/scoped for
+GitHub specifically, even though `repo_url` itself is a fully generic
+HTTPS URL — public-repo cloning already works against any git host today
+(GitLab, Bitbucket, self-hosted Gitea, etc.); only *authenticated* cloning
+is GitHub-scoped, deliberately, rather than adding speculative
+multi-provider auth support before it's actually needed.
 
 ## No LLM provider credentials
 
@@ -54,8 +79,7 @@ near-instant unless changed) `cade/coder-workspace:latest`.
 
 ```bash
 coder templates push agent-workspace \
-  --directory coder/templates/agent-workspace \
-  --var repo_url=https://github.com/<org>/cade.git
+  --directory coder/templates/agent-workspace
 ```
 
 Per Coder's security best practices, push from CI using a dedicated

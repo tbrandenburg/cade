@@ -171,6 +171,47 @@ module "git-clone" {
   folder_name = "project"
 }
 
+# module.git-clone's own vendored coder_script (registry.coder.com/coder/
+# git-clone) gracefully skips cloning when repo_url is empty
+# (clone_enabled = trimspace(url) != "" in the module's own source), but it
+# never creates local.workspace_dir in that case, and it writes nothing
+# under .devcontainer/ either way. coder_devcontainer.repo below always
+# points workspace_folder at that path regardless -- @devcontainers/cli
+# fails fast with its own "Dev container config (...) not found" error on a
+# directory with no .devcontainer/devcontainer.json, a different clean
+# failure than a missing directory, not a superset fixed by a plain mkdir.
+# This resource bootstraps a minimal devcontainer.json so an empty-repo_url
+# workspace has real parity with the other 3 templates' bare-mkdir fallback.
+resource "coder_script" "empty_workspace_bootstrap" {
+  count              = data.coder_workspace.me.start_count > 0 && local.repo_url == "" ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Empty Workspace Bootstrap"
+  icon               = "/icon/folder.svg"
+  run_on_start       = true
+  start_blocks_login = true
+
+  # Written with printf, not a nested heredoc -- a heredoc nested inside
+  # this resource's own Terraform <<-EOT has previously lost its closing
+  # delimiter somewhere in Terraform's render pipeline (AGENTS.md's Issue
+  # #94 lesson).
+  script = <<-EOT
+    #!/bin/bash
+    set -o errexit
+    set -o pipefail
+
+    mkdir -p "${local.workspace_folder}/.devcontainer"
+
+    if [ ! -f "${local.workspace_folder}/.devcontainer/devcontainer.json" ]; then
+      printf '%s\n' \
+        '{' \
+        '  "name": "cade-blank-workspace",' \
+        '  "image": "${var.default_devcontainer_image}"' \
+        '}' \
+        > "${local.workspace_folder}/.devcontainer/devcontainer.json"
+    fi
+  EOT
+}
+
 # @devcontainers/cli is baked into coder/devcontainer/Dockerfile (npm
 # install -g) rather than installed via the
 # registry.coder.com/coder/devcontainers-cli module: this repo already has a
