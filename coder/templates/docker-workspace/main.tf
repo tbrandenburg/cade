@@ -708,19 +708,24 @@ resource "coder_script" "jupyter" {
 
     CADDY_PIDFILE=/tmp/jupyter-caddy.pid
     if ! { [ -f "$CADDY_PIDFILE" ] && kill -0 "$(cat "$CADDY_PIDFILE")" 2>/dev/null; }; then
-      cat > /tmp/jupyter-caddy.Caddyfile <<-CADDYFILE
-        :8888 {
-        	# Coder's real proxy has already stripped the
-        	# "/@owner/ws/apps/slug" prefix from the incoming request before it
-        	# reaches us -- so we receive BARE paths. We must add the prefix
-        	# back before forwarding to jupyter_server, which was launched with
-        	# a matching --ServerApp.base_url and therefore only understands
-        	# prefixed paths.
-        	rewrite * $JUPYTER_PREFIX{uri}
-
-        	reverse_proxy 127.0.0.1:8889
-        }
-        CADDYFILE
+      # Written with printf (not a nested heredoc) -- a heredoc nested
+      # inside this coder_script's own Terraform <<-EOT heredoc is fragile
+      # (the closing delimiter can get lost across Terraform's own
+      # dedent/render pipeline before bash ever sees it, live-verified
+      # during Issue #94's implementation).
+      {
+        printf '%s\n' ':8888 {'
+        printf '\t%s\n' \
+          '# Coder'"'"'s real proxy has already stripped the "/@owner/ws/apps/slug"' \
+          '# prefix from the incoming request before it reaches us -- so we' \
+          '# receive BARE paths. We must add the prefix back before forwarding' \
+          '# to jupyter_server, which was launched with a matching' \
+          '# --ServerApp.base_url and therefore only understands prefixed paths.' \
+          "rewrite * $JUPYTER_PREFIX{uri}"
+        printf '\n'
+        printf '\t%s\n' 'reverse_proxy 127.0.0.1:8889'
+        printf '%s\n' '}'
+      } > /tmp/jupyter-caddy.Caddyfile
       nohup /usr/local/bin/caddy run --config /tmp/jupyter-caddy.Caddyfile --adapter caddyfile \
         > /tmp/jupyter-caddy.log 2>&1 &
       echo $! > "$CADDY_PIDFILE"
