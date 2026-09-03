@@ -81,7 +81,7 @@ fi
 LIVE_NAME="$(echo "${REPO_INFO}" | jq -r '.nameWithOwner')"
 LIVE_VISIBILITY="$(echo "${REPO_INFO}" | jq -r '.visibility')"
 LIVE_IS_FORK="$(echo "${REPO_INFO}" | jq -r '.isFork')"
-LIVE_PARENT="$(echo "${REPO_INFO}" | jq -r '.parent.nameWithOwner // empty')"
+LIVE_PARENT="$(echo "${REPO_INFO}" | jq -r '.parent | if . then (.owner.login + "/" + .name) else empty end')"
 
 if [[ "${LIVE_NAME}" != "${REPO_SLUG}" ]]; then
   warn "live nameWithOwner '${LIVE_NAME}' != REPO_SLUG '${REPO_SLUG}'"
