@@ -4,6 +4,26 @@ Tracks the platform's release version, not individual milestones or
 phases (see `docs/plan/plan.md` M16 "Versioning Policy" — milestones and
 phases are implementation stages, not releases).
 
+## 0.3.4 — 2026-09-03
+
+Patch release, no behavior change beyond bug fixes. Fixed Issue #110
+(cosmetic `LIVE_PARENT` jq bug in `scripts/verify-repo-identity.sh` —
+`gh repo view --json parent` never returns `.parent.nameWithOwner`; the
+fork-detected warning now correctly names the real parent repo instead
+of printing an empty string). Fixed Issue #107 (the `devcontainer`
+template's empty-workspace bootstrap left its inner Coder Agent stuck
+`timeout`/never `connected` — the nested devcontainer container couldn't
+resolve `host.docker.internal` since neither Coder nor its own
+`--add-host=...:host-gateway` point it at the real Coder server; the
+bootstrap script now resolves and pins the outer container's real IP as
+a literal `--add-host` runArg). Both fixes were live-verified end to end
+against the real running stack (before/after `coder show` states, no
+mocks) — see PR #112 and PR #113. Filed Issue #114 as a follow-up: the
+same `host.docker.internal` gap also affects a *repo-provided*
+`devcontainer.json` (not just the bootstrap-generated one), reproduced
+live against the real `tbrandenburg/cade` repo's own `.devcontainer/`;
+not yet fixed.
+
 ## 0.3.3 — 2026-09-03
 
 Patch release, no behavior change beyond a cosmetic workflow fix. Closed
