@@ -59,6 +59,19 @@ workspace intentionally never receives an LLM provider API key in
 `coder_agent.env`. If a future harness genuinely needs one, that decision
 must be made explicitly and documented here — do not silently add one.
 
+## Private-repo cloning (Issue #105)
+
+The manual `github_token` fallback path (used when the workspace owner's
+GitHub OAuth account isn't linked — the `coalesce()` in `GITHUB_TOKEN`
+falls through to it) has been **live-verified**: created a throwaway
+private github.com repo, minted a token, `coder create ... --parameter
+github_token=<PAT> --var repo_url=<private-url>` with no OAuth link,
+confirmed the cloned content matched byte-for-byte. No code change
+needed for github.com. See `docker-workspace/README.md`'s Issue #105
+section for the same finding and the open gitlab.com gap (not tested in
+this pass — no credentials available); it applies identically here since
+both templates share the exact same askpass mechanism.
+
 ## Build the workspace image first
 
 Coder only uploads this template directory to the provisioner, not the

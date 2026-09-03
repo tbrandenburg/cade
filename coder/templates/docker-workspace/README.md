@@ -33,6 +33,25 @@ coder templates push docker-workspace \
   --var repo_url=https://github.com/tbrandenburg/cade.git --yes
 ```
 
+## Private-repo cloning (Issue #105)
+
+The `github_token` `coder_parameter` (wired into `GIT_ASKPASS`) has been
+**live-verified** to successfully clone a real private github.com
+repository: created a throwaway private repo, minted a token, `coder
+create ... --parameter github_token=<PAT> --var repo_url=<private-url>`,
+confirmed the cloned content matched byte-for-byte via `docker exec ...
+cat <marker-file>`. No code change was needed for github.com.
+
+A second host (gitlab.com, per the issue's own test plan) was **not**
+live-tested in this pass — no gitlab.com credentials were available in
+the verifying environment. GitLab's own official docs state any
+non-empty username is accepted for git-over-HTTPS PAT auth (same
+tolerance as github.com), which suggests (but does not prove) the
+current "echo the same token for both username and password" askpass
+mechanism will also work there unmodified. This remains an open,
+documented gap — see Issue #105 for the live-testing steps a future
+session with gitlab.com access should run before closing it fully.
+
 ## Build the workspace image first
 
 Coder only uploads this template directory to the provisioner, not the
