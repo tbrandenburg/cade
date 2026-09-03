@@ -97,3 +97,14 @@ coder create <owner>/<name> --template devcontainer --yes \
   workspaces (unlike a shared host daemon) — each workspace pays its own
   image-pull/build cost on first start, cached afterward in its own
   `docker_volume.docker_volume`.
+
+## Automatic `host.docker.internal` mapping for cloned repos (Issue #114)
+
+Whether `.devcontainer/devcontainer.json` comes from a non-empty `repo_url`
+clone or the built-in blank-workspace bootstrap, `coder_script` runs before
+`coder_devcontainer.repo` builds and merges a
+`--add-host=host.docker.internal:<resolved-ip>` entry into its `runArgs`
+array (idempotent — skipped if already present), using `jsonc-parser` so
+any existing comments/formatting in the repo's own file are preserved. This
+fixes the inner Coder Agent's permanent "connecting" hang (Issue #107);
+users no longer need to add this entry themselves.

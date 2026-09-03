@@ -228,6 +228,54 @@ resource "coder_script" "empty_workspace_bootstrap" {
   EOT
 }
 
+# Fixes Issue #114 (follow-up to #107): #113 only patched the
+# bootstrap-generated devcontainer.json (coder_script.empty_workspace_bootstrap
+# above, repo_url == "" path). A repo-provided .devcontainer/devcontainer.json
+# cloned by module.git-clone never got the host.docker.internal runArg
+# injection, so its inner devcontainer agent hit the same permanent connect
+# timeout. This script runs after the clone completes and before
+# coder_devcontainer.repo builds, merging the same runArg into whatever
+# devcontainer.json the repo brought (or no-op if none exists), preserving
+# any comments/formatting via merge-devcontainer-runargs.js's jsonc-parser
+# use (a naive jq/regex edit could corrupt JSONC).
+resource "coder_script" "repo_devcontainer_hostmap" {
+  count              = data.coder_workspace.me.start_count > 0 && local.repo_url != "" ? 1 : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Repo Devcontainer Host Mapping"
+  icon               = "/icon/folder.svg"
+  run_on_start       = true
+  start_blocks_login = true
+  depends_on         = [module.git-clone]
+
+  script = <<-EOT
+    #!/bin/bash
+    set -o errexit
+    set -o pipefail
+
+    devcontainer_json="${local.workspace_folder}/.devcontainer/devcontainer.json"
+
+    # module.git-clone's own coder_script has no completion signal beyond
+    # Terraform's depends_on (which only orders script *creation*, not a
+    # guaranteed-finished clone) -- poll briefly for the file the same way
+    # a fresh clone would race it into existence.
+    for i in $(seq 1 30); do
+      if [ -f "$devcontainer_json" ]; then
+        break
+      fi
+      sleep 1
+    done
+
+    if [ ! -f "$devcontainer_json" ]; then
+      echo "no $devcontainer_json found, nothing to patch"
+      exit 0
+    fi
+
+    host_docker_internal_ip=$(getent hosts host.docker.internal | awk '{print $1}' | head -n1)
+
+    node /usr/local/bin/merge-devcontainer-runargs.js "$devcontainer_json" "--add-host=host.docker.internal:$host_docker_internal_ip"
+  EOT
+}
+
 # @devcontainers/cli is baked into coder/devcontainer/Dockerfile (npm
 # install -g) rather than installed via the
 # registry.coder.com/coder/devcontainers-cli module: this repo already has a
@@ -242,6 +290,8 @@ resource "coder_devcontainer" "repo" {
   count            = data.coder_workspace.me.start_count
   agent_id         = coder_agent.main.id
   workspace_folder = local.workspace_folder
+
+  depends_on = [coder_script.repo_devcontainer_hostmap]
 }
 
 resource "docker_volume" "home_volume" {
