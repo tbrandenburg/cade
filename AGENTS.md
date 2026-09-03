@@ -174,6 +174,8 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - Coder's token `lifetime` field is nanoseconds, not seconds, and is capped server-side (168h) regardless of what's requested — verify the created token's actual `expires_at`, not just a non-error create response.
 - A chat/action's run-reuse mechanism can silently ignore a freshly pre-created resource id on repeat runs — set an explicit `force-new` flag rather than assuming reuse detection works.
 - Coder workspace names are capped at 32 characters with a generic validation error that doesn't state the limit — keep generated names short and check the actual count.
+- A nested devcontainer's own `--add-host=...:host-gateway` resolves to *its* bridge gateway, not the outer Coder server — pin the outer container's real `host.docker.internal` IP as a literal `--add-host` runArg instead of relying on the magic value.
+- `gh repo view --json <field>` field names don't always match the CLI docs' apparent shorthand (e.g. `parent` is `{name, owner:{login}}`, never a flat `nameWithOwner`) — pipe one real response through `jq` to confirm the actual shape before writing an extraction filter.
 
 ### Sandbox / security
 

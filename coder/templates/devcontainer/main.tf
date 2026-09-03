@@ -202,10 +202,26 @@ resource "coder_script" "empty_workspace_bootstrap" {
     mkdir -p "${local.workspace_folder}/.devcontainer"
 
     if [ ! -f "${local.workspace_folder}/.devcontainer/devcontainer.json" ]; then
+      # The inner Coder Agent that @devcontainers/cli starts inside the
+      # nested devcontainer inherits this outer container's own
+      # host.docker.internal-rewritten access URL verbatim (see
+      # docker_container.workspace's entrypoint `replace()` below), but
+      # `coder_devcontainer` does not add a matching /etc/hosts entry to
+      # that nested container, and the nested Docker daemon's own
+      # `--add-host=...:host-gateway` resolves to *its* bridge gateway
+      # (this outer container), not the real Coder server -- causing a
+      # permanent "no such host" connect timeout (Issue #107). Resolving
+      # the outer container's own host.docker.internal IP here (already
+      # present in its /etc/hosts via the `host` block below) and pinning
+      # it as a literal `--add-host` runArg gives the nested container the
+      # same, correct, working route.
+      host_docker_internal_ip=$(getent hosts host.docker.internal | awk '{print $1}' | head -n1)
+
       printf '%s\n' \
         '{' \
         '  "name": "cade-blank-workspace",' \
-        '  "image": "${var.default_devcontainer_image}"' \
+        '  "image": "${var.default_devcontainer_image}",' \
+        "  \"runArgs\": [\"--add-host=host.docker.internal:$host_docker_internal_ip\"]" \
         '}' \
         > "${local.workspace_folder}/.devcontainer/devcontainer.json"
     fi
