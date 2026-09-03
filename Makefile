@@ -7,6 +7,16 @@ COMPOSE := docker compose
 # no-op. Example: make coder-workspace-build CACERT=/path/to/ca-bundle.pem
 CACERT ?=
 
+# Canonical repository identity (Issue #102), read from .env if present
+# (falls back to the literal below for a pre-#102 .env with no REPO_SLUG
+# line). Used by templates-push's --variable repo_url=... override so the
+# dogfooding case stays sourced from one canonical value instead of
+# re-hardcoded 4 times.
+REPO_SLUG ?= $(shell grep -m1 '^REPO_SLUG=' .env 2>/dev/null | cut -d= -f2-)
+ifeq ($(strip $(REPO_SLUG)),)
+REPO_SLUG := tbrandenburg/cade
+endif
+
 .PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
@@ -75,10 +85,10 @@ coder-workspace-build:
 		exit 1; \
 	fi
 	@if [ -n "$(CACERT)" ]; then \
-		docker buildx build -f coder/Dockerfile --secret id=cacert,src=$(CACERT) \
+		docker buildx build -f coder/Dockerfile --build-context agent-host=agent-host --secret id=cacert,src=$(CACERT) \
 			-t cade/coder-workspace:latest --load coder; \
 	else \
-		docker buildx build -f coder/Dockerfile \
+		docker buildx build -f coder/Dockerfile --build-context agent-host=agent-host \
 			-t cade/coder-workspace:latest --load coder; \
 	fi
 
@@ -227,10 +237,14 @@ agent-workspace-build: coder-workspace-build
 ## (`coder login`/`coder whoami`), and the Coder server itself already up (`make up`)
 ## and healthy (`make status`).
 templates-push: embedded-workspace-build devcontainer-workspace-build agent-workspace-build
-	@coder templates push docker-workspace -d coder/templates/docker-workspace --yes
-	@coder templates push embedded-linux -d coder/templates/embedded-linux --yes
-	@coder templates push devcontainer -d coder/templates/devcontainer --yes
-	@coder templates push agent-workspace -d coder/templates/agent-workspace --yes
+	@coder templates push docker-workspace -d coder/templates/docker-workspace \
+		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+	@coder templates push embedded-linux -d coder/templates/embedded-linux \
+		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+	@coder templates push devcontainer -d coder/templates/devcontainer \
+		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+	@coder templates push agent-workspace -d coder/templates/agent-workspace \
+		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
 
 ## templates-verify-vars: Detect Coder server-side template-variable drift (Issue #73).
 ## Coder persists each template variable's *value* server-side across

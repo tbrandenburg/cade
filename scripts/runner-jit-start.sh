@@ -12,7 +12,26 @@
 # runner image built (`make runner-build`).
 set -euo pipefail
 
-REPO="${RUNNER_REPO:-tbrandenburg/cade}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Load .env from repo root if present, without overwriting already-exported
+# variables (matches scripts/verify-template-vars.sh:34-46's exact convention).
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+    key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"
+    [[ -z "${key}" ]] && continue
+    if [[ -z "${!key:-}" ]]; then
+      export "${line?}"
+    fi
+  done < "${REPO_ROOT}/.env"
+fi
+
+# Precedence (Issue #102): explicit RUNNER_REPO override -> .env's REPO_SLUG
+# -> literal fallback, so an operator with a pre-#102 .env isn't broken.
+REPO="${RUNNER_REPO:-${REPO_SLUG:-tbrandenburg/cade}}"
 IMAGE="${RUNNER_IMAGE:-cade/runner:latest}"
 RUNNER_NAME="private-lab-$(date +%s)"
 

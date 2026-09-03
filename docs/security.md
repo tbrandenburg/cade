@@ -12,12 +12,19 @@ The plan requires (`docs/plan/plan.md`, M2): *"Confirm and record repository
 visibility as `Private`"* and *"ONLY private repository workflows may target
 this runner."*
 
+The repo's assumed identity/visibility is recorded once, canonically, in
+`.env`'s `REPO_SLUG`/`ASSUMED_VISIBILITY` (see `.env.example`, Issue #102) —
+this section references that value rather than restating it. Live drift
+against that assumption is checked by `scripts/verify-repo-identity.sh`
+(wired into `make doctor`, warn-only).
+
 ```
 $ gh repo view --json visibility,nameWithOwner
 {"nameWithOwner":"tbrandenburg/cade","visibility":"PUBLIC"}
 ```
 
-`tbrandenburg/cade` is currently **PUBLIC**, not private. This is a
+`tbrandenburg/cade` is currently **PUBLIC** (matching `ASSUMED_VISIBILITY=public`
+in `.env.example`), not private. This is a
 genuine, unresolved conflict with the plan's core M2 security precondition,
 not an oversight to silently work around:
 

@@ -140,6 +140,14 @@ RUN python3 -m venv /opt/omnigent-venv \
  && ln -s /opt/omnigent-venv/bin/omnigent /usr/local/bin/omnigent \
  && omnigent --version
 
+# Bake the platform's own default srt (Sandbox Runtime) policy into the
+# image at a fixed path, independent of whatever repo_url clones (Issue
+# #103) — --build-context agent-host=agent-host in the Makefile's
+# coder-workspace-build target supplies this, since agent-host/ lives at
+# the repo root, one level above this Dockerfile's own build context
+# (coder/).
+COPY --from=agent-host srt-settings.json /etc/cade/srt-settings.default.json
+
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
     else \

@@ -226,6 +226,51 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-03 (Issues #102/#103/#104/#105, parallel + sequential subagent
+  resolution): a 4-issue chain (#103 -> #104 -> #105 strictly sequential,
+  #102 independent) resolved cleanly via disjoint-file-ownership worktrees
+  with zero merge conflicts across all 4 branches — confirming the
+  file-ownership-by-scope strategy (AGENTS.md's existing #80/#81/#82
+  entry) scales to a longer sequential chain, not just parallel siblings.
+  Coordinator-run live E2E after merging surfaced two real findings a
+  subagent's own isolated testing could not have caught: (1) `make
+  templates-verify-vars` correctly flags `repo_url` as `DRIFT` on all 4
+  templates after #104's `.tf` default changed to empty — this is
+  **expected, not a bug**: #102's own `templates-push` mechanism
+  deliberately overrides it via `--variable` for the live dogfooding
+  deployment, exactly as documented in #102's own "Overlap check"
+  section. Always re-read an issue's own documented compose/overlap
+  reasoning before treating a verification script's `DRIFT`/`FAIL`
+  output as a regression — some drift is intentional policy, not decay.
+  (2) A coordinator's own first live-verification attempt at the
+  devcontainer empty-workspace bootstrap (#104) passed the WRONG
+  parameter value (`devcontainer_path=.devcontainer/devcontainer.json`
+  instead of the parameter's real, documented value `.devcontainer` — a
+  *directory*, not the json file path, despite the parameter being named
+  `devcontainer_path` and described as "Path ... containing
+  devcontainer.json"), producing an apparent double-nested-directory bug
+  (`.devcontainer/.devcontainer/devcontainer.json`) that was actually a
+  test-input error, not a code defect — re-reading the `coder_parameter`'s
+  own `description` field before constructing a `coder create --parameter`
+  invocation would have caught this immediately. Once corrected, the fix
+  was proven genuinely correct end-to-end, including a real
+  `@devcontainers/cli` build succeeding against the generated minimal
+  config (confirmed via a real nested Docker-in-Docker container
+  actually starting) — though the inner Coder Agent binary then hit an
+  agent-connect timeout, which looks like a pre-existing nested-DinD
+  networking limitation of this specific host/sandbox (not introduced by
+  this change) and was left as an open, documented follow-up rather than
+  chased further, consistent with this repo's own evidence-first
+  convention of reporting exactly what was and wasn't proven. Separately,
+  a subagent task-tool invocation was interrupted mid-flight before doing
+  any work (zero commits, zero file changes in its worktree) — resuming
+  by directly continuing the coordinator's own live verification (rather
+  than re-spawning an identical subagent) was faster and produced the
+  same real evidence, since the coordinator already had the necessary
+  live credentials/state (an authenticated `gh` session, a live Coder
+  session, and a throwaway private repo + marker file that had already
+  been created by the interrupted attempt's earlier partial progress).
+
 - 2026-09-02 (Issue #96, Omnigent opencode-native EROFS fix,
   `agent-host/srt-settings.json`): the omnigent-native `opencode serve`
   process (launched via `~/.omnigent-bin/opencode`'s Issue #45 reverse-bridge

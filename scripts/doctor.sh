@@ -10,6 +10,8 @@
 
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MIN_DISK_GB="${DOCTOR_MIN_DISK_GB:-100}"
 REQUIRED_PORTS="${DOCTOR_REQUIRED_PORTS:-7080}"
 CONNECT_TIMEOUT="${DOCTOR_CONNECT_TIMEOUT:-5}"
@@ -207,6 +209,21 @@ check_registry_htpasswd() {
   fi
 }
 
+# ── Issue #102: repo identity/visibility drift ────────────────────────────
+# Delegates to the standalone scripts/verify-repo-identity.sh detector (kept
+# out of this host-preconditions script since it's a repo-level, not
+# host-level, concern). Warn-only: verify-repo-identity.sh never exits
+# non-zero unless --exit-code is passed (not done here), so this never
+# contributes to FAIL_COUNT, even with gh uninstalled/unauthenticated.
+check_repo_identity() {
+  local script="${SCRIPT_DIR}/verify-repo-identity.sh"
+  if [ ! -f "$script" ]; then
+    warn "scripts/verify-repo-identity.sh not found -- skipping repo identity/visibility drift check"
+    return
+  fi
+  bash "$script"
+}
+
 # ── Port availability ──────────────────────────────────────────────────────
 check_ports() {
   local port in_use
@@ -247,6 +264,7 @@ main() {
   check_security_profiles
   check_openbao_cert
   check_registry_htpasswd
+  check_repo_identity
   check_ports
 
   echo
