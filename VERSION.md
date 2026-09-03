@@ -4,6 +4,20 @@ Tracks the platform's release version, not individual milestones or
 phases (see `docs/plan/plan.md` M16 "Versioning Policy" — milestones and
 phases are implementation stages, not releases).
 
+## 0.3.3 — 2026-09-03
+
+Patch release, no behavior change beyond a cosmetic workflow fix. Closed
+out Issue #102 by executing its required Manual E2E Test for real against
+live GitHub state (identity/visibility drift detection, fork detection,
+`make doctor` warn-only behavior, `runner-jit-start.sh` resolution, and
+`make templates-verify-vars` all confirmed live — see PR #109). Fixed
+Issue #102's T7: `.github/workflows/agent-chat.yml`'s `workflow_dispatch`
+dry-run `github-url` fallback no longer hardcodes `tbrandenburg/cade` —
+it's now computed from `github.server_url`/`github.repository` at
+step-body time, so a fork's manual dry-run correctly falls back to its
+own repo. Filed Issue #110 as a follow-up (cosmetic `LIVE_PARENT` jq bug
+in `scripts/verify-repo-identity.sh`, not fixed in this release).
+
 ## 0.3.2 — 2026-09-03
 
 Patch release. Fixed Issue #103 (`srt` sandbox policy silently failed
