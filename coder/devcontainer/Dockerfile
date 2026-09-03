@@ -52,6 +52,23 @@ RUN apt-get update \
 # cloned repo's own `.devcontainer/devcontainer.json`.
 RUN npm install -g @devcontainers/cli
 
+# `jsonc-parser` (the tiny, dependency-free package VS Code itself uses for
+# comment/formatting-preserving JSONC edits) as its own explicit global
+# install -- @devcontainers/cli is shipped as a single webpacked `dist` file
+# whose bundled copy is NOT resolvable via `require('jsonc-parser')` from a
+# separate script (Issue #114). Used by merge-devcontainer-runargs.js below
+# to surgically inject a host.docker.internal runArg into a cloned repo's
+# own .devcontainer/devcontainer.json without a naive/corrupting jq-or-regex
+# edit.
+RUN npm install -g jsonc-parser
+
+# npm's global install location isn't on Node's default module resolution
+# path for a script invoked as `node /usr/local/bin/...`; NODE_PATH makes
+# `require('jsonc-parser')` in merge-devcontainer-runargs.js resolve there.
+ENV NODE_PATH=/usr/lib/node_modules
+
+COPY merge-devcontainer-runargs.js /usr/local/bin/merge-devcontainer-runargs.js
+
 # Referenced by GIT_ASKPASS in coder/templates/devcontainer/main.tf's
 # coder_agent.env -- the `git-clone` registry module has no token/auth input
 # of its own (it only runs `git clone`), so credential injection for
