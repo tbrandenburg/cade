@@ -4,6 +4,22 @@ Tracks the platform's release version, not individual milestones or
 phases (see `docs/plan/plan.md` M16 "Versioning Policy" — milestones and
 phases are implementation stages, not releases).
 
+## 0.3.2 — 2026-09-03
+
+Patch release. Fixed Issue #103 (`srt` sandbox policy silently failed
+OPEN — empty, unrestricted policy — whenever `repo_url` pointed at a repo
+without `agent-host/srt-settings.json`; the platform's default policy is
+now baked into the workspace image at `/etc/cade/srt-settings.default.json`
+and used as a fallback). Genericized `repo_url` across all 4 Coder
+templates (Issue #104): defaults to empty (bring-your-own-project)
+instead of cade's own repo, with a real empty-workspace bootstrap path
+added for `devcontainer`. Live-verified (Issue #105) that the existing
+manual `github_token`/`GIT_ASKPASS` mechanism successfully clones private
+github.com repos on `docker-workspace` and `agent-workspace`. Added a
+canonical `REPO_SLUG`/`ASSUMED_VISIBILITY` source of truth plus a
+warn-only drift detector wired into `make doctor` (Issue #102). See
+PR #106 for full live E2E evidence.
+
 ## 0.3.1 — 2026-09-02
 
 Patch release, no behavior change. Fixed Issue #96 (Omnigent
