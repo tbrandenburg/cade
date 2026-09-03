@@ -44,9 +44,9 @@ on:
         required: false
         default: "Manual dry-run test triggered via workflow_dispatch (Issue #17 S6)."
       github_url:
-        description: "github-url to use for a manual workflow_dispatch dry-run only (must be a real issue/PR URL on this repo — the action rejects bare repo URLs and non-github.com hosts). Ignored on a real issues:labeled trigger."
+        description: "github-url to use for a manual workflow_dispatch dry-run only (must be a real issue/PR URL on this repo — the action rejects bare repo URLs and non-github.com hosts). Ignored on a real issues:labeled trigger. Leave blank to fall back to this repo's own issue #17 (Issue #102: no static default here so this stays correct on a fork -- workflow_dispatch input defaults can't use expression context, so the fallback is computed at github-url: below instead)."
         required: false
-        default: "https://github.com/tbrandenburg/cade/issues/17"
+        default: ""
 
 permissions:
   contents: read
@@ -165,5 +165,5 @@ jobs:
             ${{ github.event.issue.title || inputs.chat_prompt }}
 
             ${{ github.event.issue.body }}
-          github-url: ${{ github.event.issue.html_url || inputs.github_url }}
+          github-url: ${{ github.event.issue.html_url || inputs.github_url || format('{0}/{1}/issues/17', github.server_url, github.repository) }}
           github-token: ${{ github.token }}
