@@ -226,6 +226,43 @@ Reference: `docs/plan/plan.md` M16 "Final E2E Test Request" (A–L) and
 _(Actionable, still-relevant lessons only — concise, imperative pitfalls to check while
 running `scripts/factory.sh` steps. Historical blow-by-blow pruned; see git history if needed.)_
 
+- 2026-09-03 (Issue #102 Manual E2E Test, real `tbrandenburg` gh account,
+  no mocks): closed the one part of #102 left undone since its T1-T6
+  implementation — running the issue's own 7-step Manual E2E Test against
+  real GitHub state. Three real, non-obvious findings: (1) GitHub
+  hard-blocks `gh repo fork` back onto the *same* owner
+  ("cannot own both a parent and fork") — a same-account fork
+  substitution (as the issue itself suggested for a single-account
+  environment) is not literally possible; the workable substitute is
+  forking into an *org* the same account belongs to (`gh repo fork
+  <repo> --org <org> --fork-name ...`), which still requires that org
+  grant the account fork-creation rights (`AIOriented` allowed it here,
+  `dynamous-community` returned `403: Must have admin rights` — org
+  fork permission is not guaranteed just from being a member). This
+  produces a *real* fork (`isFork: true`, real `parent` link), unlike a
+  same-account plain-copy repo, so it's a strictly better substitution
+  than the issue's own suggested fallback where an org is available.
+  (2) `scripts/verify-repo-identity.sh`'s `LIVE_PARENT` extraction
+  (`jq -r '.parent.nameWithOwner // empty'`) is a real, reproducible bug
+  — `gh repo view --json parent` returns `parent.name` +
+  `parent.owner.login`, never a `parent.nameWithOwner` field, so
+  `LIVE_PARENT` is always empty and the fork-detected warning always
+  prints `"...is a fork of ''"` instead of naming the real parent repo;
+  cosmetic only (the `isFork: true` detection and warning still fire
+  correctly), filed as a follow-up rather than fixed in this pass
+  (script wasn't in this task's allowed-files scope). (3) `gh repo
+  delete` needs the OAuth token's own `delete_repo` scope, separate from
+  `repo` — a token with only `repo` scope (this environment's real
+  token) gets `403` on every delete attempt regardless of the caller's
+  actual admin rights on the target repo, and granting it requires `gh
+  auth refresh -s delete_repo`, an interactive device-code browser flow
+  with no non-interactive equivalent found. Any future automated
+  throwaway-repo-creation test in a non-interactive environment should
+  budget for this: either request `delete_repo` scope up front during
+  initial `gh auth login`, or accept that cleanup will need a follow-up
+  manual/human step — don't assume `gh repo create` + `gh repo delete`
+  round-trips cleanly just because creation succeeded.
+
 - 2026-09-03 (Issues #102/#103/#104/#105, parallel + sequential subagent
   resolution): a 4-issue chain (#103 -> #104 -> #105 strictly sequential,
   #102 independent) resolved cleanly via disjoint-file-ownership worktrees
