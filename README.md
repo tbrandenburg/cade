@@ -595,7 +595,7 @@ cert directories), so this is also a no-op by default.
 
 ## Project status
 
-**Released: `0.1.0` (2026-08-29)**, current: `0.3.3` (2026-09-03) — all 16
+**Released: `0.1.0` (2026-08-29)**, current: `0.3.4` (2026-09-03) — all 16
 milestones across 5 phases are delivered, with committed evidence under
 [`docs/milestone-reports/`](docs/milestone-reports/) and re-verified,
 live handover evidence under [`docs/plan/demo/`](docs/plan/demo/). See
