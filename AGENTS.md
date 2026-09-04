@@ -187,6 +187,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - A network-namespace-isolating sandbox (`bwrap --unshare-net`) makes a sandboxed process's listening port unreachable from an external, unsandboxed caller — a Unix-domain socket (crossing via a shared bind-mount) is a viable bridge; a dead socket file is not auto-removed, so liveness must be actively probed, not inferred from file existence.
 - A `pgrep -f '<script-name>'` self-check inside a script invoked as `sh -c "<script text>"` can match its own already-running process (the full script text is the command line) — use a PID file instead.
 - A PATH-shadowing shim's own directory left on PATH can cause a tool it invokes to recurse back into the shim itself — always pass an absolute path to anything a shim launches, never a bare command name.
+- `srt`/`@anthropic-ai/sandbox-runtime` hardcodes `.claude/commands`/`.claude/agents` as mandatory-deny-write (project-wide, not just `$HOME`), independent of `srt-settings.json`'s `denyRead`/`allowWrite` — no granular escape hatch exists short of `filesystem.disabled` (drops all FS protection); see `docs/security.md` Issue #118.
 
 ### Environment / process
 

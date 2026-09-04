@@ -671,4 +671,75 @@ JupyterLab process (and now the Caddy sidecar in front of it) is still
 reachable only via Coder's authenticated proxy, on 127.0.0.1-only
 listeners, in every routing mode this template has ever used.
 
+## Issue #118 — `srt` mandatory-deny of project-local `.claude/commands/`, `.claude/agents/`
+
+### Known limitation: srt forces project-local `.claude/commands/`/`.claude/agents/` read-only, breaking OpenCode/pi slash-commands (confirmed upstream design, no workaround)
+
+Running `opencode`/`pi` via `coder/Dockerfile`'s `srt`-wrapped alias inside a
+real workspace fails as soon as OpenCode tries to write to its project-local
+`.claude/commands/` directory:
+
+```
+bwrap: Can't create file at /home/coder/project/.claude/commands: Read-only file system
+```
+
+**Confirmed root cause** (verified directly against the published npm
+package source, `@anthropic-ai/sandbox-runtime@0.0.75` — the version
+`coder/Dockerfile:78`'s `npm install -g @anthropic-ai/sandbox-runtime`
+resolves to today, since the Dockerfile installs it unpinned and `0.0.75`
+is also the current npm `latest`; re-check with `npm view
+@anthropic-ai/sandbox-runtime version` before relying on these line numbers
+if the pin ever changes):
+
+- `dist/sandbox/sandbox-utils.js:25` hardcodes
+  `DANGEROUS_DIRECTORIES = ['.git', '.vscode', '.idea']`, and
+  `getDangerousDirectories()` (lines 31-36) returns that list (minus
+  `.git`, handled separately) **plus `'.claude/commands'` and
+  `'.claude/agents'`, unconditionally** — independent of anything in
+  `srt-settings.json`.
+- `dist/sandbox/linux-sandbox-utils.js`'s `linuxGetMandatoryDenyPaths`
+  (~line 172) runs a single ripgrep scan of `cwd` (the project directory,
+  not just `$HOME`) for these dangerous directory names and adds every
+  match to the mandatory `denyPaths` list, which is why this hits the
+  *project-local* `.claude/`, not just a home-directory one.
+- For each match, `linux-sandbox-utils.js:1079` does
+  `fs.mkdtempSync(path.join(tmpdir(), 'claude-empty-'))` then
+  `--ro-bind <emptyDir> <path>` — this is the exact `claude-empty-XXXXXX`
+  empty read-only overlay the original bug report's mount table shows.
+- `dist/sandbox/sandbox-config.js:743` (`FilesystemConfigSchema.disabled`)
+  is the **only** escape hatch in the entire `SandboxRuntimeConfigSchema`
+  (`network`, `filesystem`, `credentials`, `ignoreViolations`,
+  `enableWeakerNestedSandbox`, `enableWeakerNetworkIsolation`,
+  `allowAppleEvents`, `ripgrep`, `mandatoryDenySearchDepth`, `allowPty`,
+  `seccomp`, `bwrapPath`, `socatPath`, `gitConfig.safeDirectories` — none
+  narrow this specific pair of directories), and setting
+  `filesystem.disabled: true` turns off **all** filesystem policy
+  enforcement at once — `denyRead`/`allowRead`/`allowWrite`/`denyWrite`
+  *and* every other built-in mandatory-write protection (`.git/hooks`,
+  `.git/config`, shell rc files, `.mcp.json`, `.vscode`/`.idea`), which
+  would also drop the legitimate `~/.ssh`/`~/.aws`/`.env` protections this
+  repo's `srt-settings.json` relies on. Not an acceptable trade-off.
+- The package's own `README.md:668` lists "Claude config directories:
+  `.claude/commands/`, `.claude/agents/`" among its protected paths **by
+  design** — this is a deliberate upstream security choice (stopping a
+  project's own `.claude/` from smuggling in config a sandboxed session
+  could otherwise exploit), not a bug in this repo's configuration.
+
+**Not a regression risk for `~/.claude` (home)**: home-directory `~/.claude`
+masking is a **separate, already-correct** mechanism — `denyRead` in
+`agent-host/srt-settings.json:8` (`["~/.ssh", "~/.aws", ".env", "~/.claude",
+"~/.copilot"]`) — unrelated to the mandatory-deny-write directories above.
+This was confirmed from source, not live-tested in this issue's scope; no
+change was made to that list, so no regression is introduced.
+
+**Practical impact**: any interactive `opencode`/`pi` session relying on
+project-local `.claude/commands/` slash-commands, run inside an `srt`-wrapped
+workspace shell, will fail on write the moment the harness tries to create
+or update a file under that directory. There is currently **no working
+configuration** that keeps `.claude/commands/`/`.claude/agents/` writable
+while `srt` is active; this is a confirmed, version-verifiable upstream
+`sandbox-runtime` design decision, not an open investigation — do not
+re-derive this from scratch without first re-checking whether a newer
+`sandbox-runtime` release has added a narrower escape hatch.
+
 
