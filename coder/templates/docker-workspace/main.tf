@@ -208,8 +208,9 @@ locals {
 }
 
 resource "coder_agent" "main" {
-  arch = data.coder_provisioner.me.arch
-  os   = "linux"
+  arch                    = data.coder_provisioner.me.arch
+  os                      = "linux"
+  startup_script_behavior = "non-blocking"
 
   # Clone the repository (idempotent) and land the shell in the project
   # directory, per the M3 objective: "start in project directory".
@@ -227,7 +228,7 @@ ASKPASS
           export GIT_ASKPASS=/tmp/git-askpass.sh
           export GIT_TERMINAL_PROMPT=0
         fi
-        git clone "${local.repo_url}" "${local.workspace_dir}"
+        git clone --filter=blob:none "${local.repo_url}" "${local.workspace_dir}"
       else
         mkdir -p "${local.workspace_dir}"
       fi
