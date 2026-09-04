@@ -10,9 +10,10 @@ persistent per-workspace home volume.
 - `main.tf` — the Coder/Terraform resources: `coder_agent`, code-server
   module, `docker_volume` (persistent `/home/coder`), and `docker_container`
   (uses the pre-built `workspace_image`).
-- `variables.tf` — `docker_socket` (optional Docker socket override),
-  `repo_url` (repository to auto-clone; empty by default — bring your own
-  project), and `workspace_image` (pre-built image tag; see below).
+- `variables.tf` — `docker_socket` (optional Docker socket override) and
+  `workspace_image` (pre-built image tag; see below). `repo_url` (repository
+  to auto-clone; empty by default — bring your own project) is a
+  `coder_parameter` in `main.tf`, not a variable — see below.
 
 ## Bring your own project (default) vs. dogfooding cade
 
@@ -21,24 +22,23 @@ By default `repo_url` is empty and `coder create` gives you a blank
 project, not just for developing itself. To develop cade itself instead
 (dogfooding/contributing), pass the override explicitly.
 
-`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
-cannot be set via `coder create --parameter`; set it via `--var` at
-`coder templates push` time (changes the default for every future
-workspace created from this template) or a `TF_VAR_repo_url` environment
-variable on the Coder provisioner:
+`repo_url` is a `coder_parameter` (same mechanism as `github_token`), so it
+is genuinely settable per workspace via `--parameter` at `coder create`
+time — different concurrent workspaces from the same template can clone
+different repositories:
 
 ```bash
-coder templates push docker-workspace \
-  --directory coder/templates/docker-workspace \
-  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+coder create <owner>/<name> --template docker-workspace --yes \
+  --parameter repo_url=https://github.com/tbrandenburg/cade.git
 ```
+
 
 ## Private-repo cloning (Issue #105)
 
 The `github_token` `coder_parameter` (wired into `GIT_ASKPASS`) has been
 **live-verified** to successfully clone a real private github.com
 repository: created a throwaway private repo, minted a token, `coder
-create ... --parameter github_token=<PAT> --var repo_url=<private-url>`,
+create ... --parameter github_token=<PAT> --parameter repo_url=<private-url>`,
 confirmed the cloned content matched byte-for-byte via `docker exec ...
 cat <marker-file>`. No code change was needed for github.com.
 
@@ -74,13 +74,10 @@ coder templates push docker-workspace \
   --directory coder/templates/docker-workspace
 ```
 
-`--var repo_url=...` on this push command would change the template
-variable's server-side *default* for every future `coder create` from
-this template (`repo_url` is a plain Terraform `variable`, not a
-`coder_parameter` — it cannot be overridden per-workspace via `coder
-create --parameter`) — leave it unset to keep the empty, bring-your-own-
-project default; only set it here if you deliberately want a different
-default for every workspace created from this template.
+`repo_url` is a `coder_parameter`, not a Terraform `variable` — it is
+settable per workspace via `--parameter repo_url=...` at `coder create`
+time, not via this push command; there is no template-wide default to
+override here.
 
 Per Coder's security best practices, push from CI using a dedicated
 non-human account with the minimum required role — do not grant Template
