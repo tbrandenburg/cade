@@ -105,7 +105,9 @@ import json, sys
 data = json.load(sys.stdin)
 for w in data.get("workspaces", []):
     if w.get("latest_build", {}).get("status") == "running":
-        print(f"{w[\"owner_name\"]}/{w[\"name\"]}")
+        owner = w.get("owner_name")
+        name = w.get("name")
+        print(f"{owner}/{name}")
 ')
 
 if [ "${#running_refs[@]}" -eq 0 ]; then
