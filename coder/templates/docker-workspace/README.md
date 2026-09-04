@@ -32,7 +32,6 @@ coder create <owner>/<name> --template docker-workspace --yes \
   --parameter repo_url=https://github.com/tbrandenburg/cade.git
 ```
 
-
 ## Private-repo cloning (Issue #105)
 
 The `github_token` `coder_parameter` (wired into `GIT_ASKPASS`) has been
