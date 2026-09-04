@@ -159,8 +159,9 @@ locals {
 }
 
 resource "coder_agent" "main" {
-  arch = data.coder_provisioner.me.arch
-  os   = "linux"
+  arch                    = data.coder_provisioner.me.arch
+  os                      = "linux"
+  startup_script_behavior = "non-blocking"
   # Real bug found live at E2E test time (T13): without an explicit `dir`,
   # Coder Agents' Chats API defaults a chat's working directory to $HOME
   # (/home/coder), NOT wherever the repo is cloned — so a .mcp.json
@@ -188,7 +189,7 @@ ASKPASS
           export GIT_ASKPASS=/tmp/git-askpass.sh
           export GIT_TERMINAL_PROMPT=0
         fi
-        git clone "${local.repo_url}" "${local.workspace_dir}"
+        git clone --filter=blob:none "${local.repo_url}" "${local.workspace_dir}"
       else
         mkdir -p "${local.workspace_dir}"
       fi
