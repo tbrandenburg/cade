@@ -17,7 +17,7 @@ ifeq ($(strip $(REPO_SLUG)),)
 REPO_SLUG := tbrandenburg/cade
 endif
 
-.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule
+.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule workspaces-restart
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -43,6 +43,7 @@ up: temporal-worker-build lab-sim-build
 	@$(COMPOSE) up -d
 	@bash scripts/print-urls.sh
 	@bash scripts/ai-bootstrap.sh --best-effort || true
+	@bash scripts/restart-disconnected-workspaces.sh --check || true
 
 ## down: Stop and remove the platform stack's containers.
 down:
@@ -157,6 +158,19 @@ temporal-build-demo-start:
 ## coder-svc-token: Mint a scoped Coder API token for the temporal-svc user (Issue #50).
 coder-svc-token:
 	@bash scripts/coder-svc-token.sh
+
+## workspaces-restart: Recover Coder workspace agents left disconnected by a
+## host/Docker Desktop restart (Issue #117). `docker_container.workspace`
+## resources are created directly by Coder's own Terraform/Docker
+## provisioner, entirely outside docker compose's view, so `make up` never
+## touches them; a host restart kills them without Coder ever noticing.
+## Explicit opt-in only — NOT run automatically by `make up` (which only
+## prints a one-line hint if any disconnected-but-should-be-running
+## workspace is detected). Safe to run speculatively: already-healthy
+## workspaces are left untouched, and no per-workspace volume is ever
+## touched directly.
+workspaces-restart:
+	@bash scripts/restart-disconnected-workspaces.sh
 
 ## temporal-workspace-demo-start: Start one execution of the Issue #50 persistent-workspace demo workflow.
 temporal-workspace-demo-start:
