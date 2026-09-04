@@ -11,7 +11,7 @@ terraform {
 
 locals {
   username      = data.coder_workspace_owner.me.name
-  repo_url      = var.repo_url
+  repo_url      = data.coder_parameter.repo_url.value
   workspace_dir = "/home/coder/project"
   # Issue #75 (ported from agent-workspace/main.tf's Issue #43 Step 5):
   # legible per-workspace omnigent host name/id, only meaningful when
@@ -51,6 +51,20 @@ data "coder_workspace_owner" "me" {}
 # Any NEW opt-in app MUST follow Tier 2 (bool coder_parameter, default
 # false, count-gated coder_app/coder_script pair) — it then gets Tier 3
 # for free via scripts/set-workspace-parameter.sh with no new script.
+
+# Issue #122: per-workspace repo to auto-clone on first start. Genuinely
+# settable per `coder create --parameter repo_url=...` invocation (unlike a
+# plain Terraform `variable`, which is a template-wide default only
+# overridable via `coder templates push --variable`).
+data "coder_parameter" "repo_url" {
+  name         = "repo_url"
+  display_name = "Repository URL"
+  description  = "Repository to auto-clone into this workspace on first start. Leave empty for a blank workspace (bring your own project)."
+  type         = "string"
+  default      = ""
+  mutable      = true
+  order        = 0
+}
 
 # Optional token for cloning `repo_url` when it is not publicly readable.
 # Left empty, `git clone` behaves exactly as before (anonymous HTTPS clone).

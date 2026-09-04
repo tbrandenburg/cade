@@ -13,10 +13,11 @@ constrained/audited.
   `/home/coder`, `docker_container`), plus first-boot-only, non-clobbering
   `boundary`-wrapped harness aliases (`boundary-opencode`, `boundary-pi`)
   added to `~/.bashrc`.
-- `variables.tf` — `docker_socket` (optional Docker socket override),
-  `repo_url` (repository to auto-clone; empty by default — bring your own
-  project), and `workspace_image` (pre-built image tag; defaults to
-  `cade/agent-workspace:latest`).
+- `variables.tf` — `docker_socket` (optional Docker socket override) and
+  `workspace_image` (pre-built image tag; defaults to
+  `cade/agent-workspace:latest`). `repo_url` (repository to auto-clone;
+  empty by default — bring your own project) is a `coder_parameter` in
+  `main.tf`, not a variable — see below.
 
 ## Parameters
 
@@ -34,15 +35,14 @@ By default `repo_url` is empty and `coder create` gives you a blank
 `/home/coder/project` directory. To develop cade itself instead
 (dogfooding/contributing), pass the override explicitly.
 
-`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
-cannot be set via `coder create --parameter`; set it via `--var` at
-`coder templates push` time or a `TF_VAR_repo_url` environment variable
-on the Coder provisioner:
+`repo_url` is a `coder_parameter` (same mechanism as `github_token`), so it
+is genuinely settable per workspace via `--parameter` at `coder create`
+time — different concurrent workspaces from the same template can clone
+different repositories:
 
 ```bash
-coder templates push agent-workspace \
-  --directory coder/templates/agent-workspace \
-  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+coder create <owner>/<name> --template agent-workspace --yes \
+  --parameter repo_url=https://github.com/tbrandenburg/cade.git
 ```
 
 `github_token`/`data.coder_external_auth.github` are named/scoped for
@@ -65,7 +65,7 @@ The manual `github_token` fallback path (used when the workspace owner's
 GitHub OAuth account isn't linked — the `coalesce()` in `GITHUB_TOKEN`
 falls through to it) has been **live-verified**: created a throwaway
 private github.com repo, minted a token, `coder create ... --parameter
-github_token=<PAT> --var repo_url=<private-url>` with no OAuth link,
+github_token=<PAT> --parameter repo_url=<private-url>` with no OAuth link,
 confirmed the cloned content matched byte-for-byte. No code change
 needed for github.com. See `docker-workspace/README.md`'s Issue #105
 section for the same finding and the open gitlab.com gap (not tested in

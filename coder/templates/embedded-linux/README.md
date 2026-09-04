@@ -20,15 +20,14 @@ By default `repo_url` is empty and `coder create` gives you a blank
 `/home/coder/project` directory. To develop cade itself instead
 (dogfooding/contributing), pass the override explicitly.
 
-`repo_url` is a plain Terraform `variable`, not a `coder_parameter` — it
-cannot be set via `coder create --parameter`; set it via `--var` at
-`coder templates push` time or a `TF_VAR_repo_url` environment variable
-on the Coder provisioner:
+`repo_url` is a `coder_parameter` (same mechanism as `github_token`), so it
+is genuinely settable per workspace via `--parameter` at `coder create`
+time — different concurrent workspaces from the same template can clone
+different repositories:
 
 ```bash
-coder templates push embedded-linux \
-  --directory coder/templates/embedded-linux \
-  --var repo_url=https://github.com/tbrandenburg/cade.git --yes
+coder create <owner>/<name> --template embedded-linux --yes \
+  --parameter repo_url=https://github.com/tbrandenburg/cade.git
 ```
 
 ## Build the workspace image first
