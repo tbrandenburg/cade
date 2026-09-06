@@ -8,9 +8,9 @@
 #      -> release), proving the MCP server's live wiring to OPA, not just
 #      the policy in isolation.
 #
-# Requires: `docker compose up -d opa lab-sim` already running, and
-# mcp/lab-sim's uv-managed venv (`uv sync` in mcp/lab-sim) for step 3's
-# Python MCP client.
+# Requires: `docker compose up -d opa lab-sim` already running, and `uv` on
+# PATH. Step 3 auto-runs `uv sync` in mcp/lab-sim on first use if its venv
+# is missing (e.g. a fresh clone/worktree) - no manual setup needed.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -93,6 +93,10 @@ echo "${WS_DELETE_DENY}" | grep -q '"result":false' || {
 
 echo ""
 echo "==> [3/3] Live MCP round trip through lab-sim (reserve -> run_test -> flash_device x2 -> release)"
+if [[ ! -f "mcp/lab-sim/.venv/bin/activate" ]]; then
+	echo "    mcp/lab-sim/.venv missing - running 'uv sync' to create it"
+	(cd mcp/lab-sim && uv sync)
+fi
 (
 	cd mcp/lab-sim
 	source .venv/bin/activate
