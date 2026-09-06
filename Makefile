@@ -55,9 +55,10 @@ down:
 	@$(COMPOSE) down
 
 ## status: Show the status/health of the platform stack's containers.
-## Issue #128: appends a one-line actionable hint if openbao is unhealthy
-## specifically because it's sealed - the plain `docker compose ps` output
-## other tooling relies on is unchanged/still the first thing printed.
+## Appends actionable one-line hints for known unhealthy/restarting causes
+## (openbao sealed - Issue #128; registry never bootstrapped) - the plain
+## `docker compose ps` output other tooling relies on is unchanged/still
+## the first thing printed.
 status:
 	@bash scripts/openbao-status-hint.sh
 
