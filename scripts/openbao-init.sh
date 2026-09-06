@@ -7,7 +7,9 @@
 #      unseal using the freshly generated key shares.
 #   3. Enable the `kv-v2` secrets engine at `secret/` and write every
 #      Phase 1-3 credential into it under a NEW, rotated value (never the
-#      value that was live in `.env` before this script ran).
+#      value that was live in `.env` before this script ran). Issue #128:
+#      only on first-ever bootstrap (or FORCE_ROTATE=1 / --force-rotate) -
+#      a routine re-unseal-only run (after a restart) skips rotation.
 #   4. Enable the AppRole auth method and a least-privilege policy so
 #      services can fetch only their own secrets going forward, instead of
 #      operating under the initial root token.
@@ -16,10 +18,25 @@
 #      shares and where the operator must store them out-of-band, plus a
 #      redacted rotation log.
 #
+# For an automatic, rotation-free re-unseal (e.g. wired into `make up`
+# after a container restart), see scripts/openbao-reunseal.sh instead.
+#
 # Never commit `.env`, the init output, or the unseal keys - see
 # docs/security.md "M12 - Governance Foundation" for the non-secret record
 # of *what* was rotated and *where* key material is expected to be stored.
 set -euo pipefail
+
+# Issue #128: credential rotation below is opt-in unless this is the very
+# first-ever bootstrap (no init.json yet). A routine re-unseal-only run
+# (e.g. after a container restart) must NOT silently generate a fresh,
+# unconsumed rotation record every time - pass FORCE_ROTATE=1 (or
+# --force-rotate) to rotate anyway.
+FORCE_ROTATE="${FORCE_ROTATE:-0}"
+for arg in "$@"; do
+	case "${arg}" in
+	--force-rotate) FORCE_ROTATE=1 ;;
+	esac
+done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -61,7 +78,9 @@ try:
 except Exception:
     print('false')")
 
+FIRST_INIT=false
 if [[ "${INITIALIZED}" != "True" && "${INITIALIZED}" != "true" ]]; then
+	FIRST_INIT=true
 	echo "==> Initializing OpenBao (5 key shares, threshold 3)"
 	docker exec openbao bao operator init -tls-skip-verify -address="${BAO_ADDR}" \
 		-key-shares=5 -key-threshold=3 -format=json >"${INIT_FILE}"
@@ -90,6 +109,14 @@ export ROOT_TOKEN
 
 echo "==> Enabling kv-v2 secrets engine at secret/ (skips if already enabled)"
 bao_cli secrets enable -path=secret kv-v2 2>/dev/null || echo "    secret/ already enabled"
+
+if [[ "${FIRST_INIT}" != "true" && "${FORCE_ROTATE}" != "1" ]]; then
+	echo ""
+	echo "==> Skipping Phase 1-3 credential rotation (already initialized -"
+	echo "    this is a re-unseal-only run, not first-time bootstrap)."
+	echo "    Pass FORCE_ROTATE=1 (or --force-rotate) to rotate anyway."
+	exit 0
+fi
 
 rotate() {
 	local name="$1"
