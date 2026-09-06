@@ -38,10 +38,15 @@ doctor:
 ## clone. Registry credentials still require an explicit one-time
 ## `make registry-bootstrap USER=... PASSWORD=...` — they can't be invented
 ## automatically, see that target's own doc comment.
+## Also best-effort re-unseals openbao (Issue #128) if it came back up
+## sealed (e.g. after a restart) using the key shares already recorded in
+## governance/openbao/unseal/init.json — no credential rotation happens
+## here; first-time bootstrap remains `make governance-bootstrap`.
 up: temporal-worker-build lab-sim-build
 	@bash scripts/openbao-gen-cert.sh
 	@$(COMPOSE) up -d
 	@bash scripts/print-urls.sh
+	@bash scripts/openbao-reunseal.sh || true
 	@bash scripts/ai-bootstrap.sh --best-effort || true
 	@bash scripts/restart-disconnected-workspaces.sh --check || true
 
@@ -50,8 +55,11 @@ down:
 	@$(COMPOSE) down
 
 ## status: Show the status/health of the platform stack's containers.
+## Issue #128: appends a one-line actionable hint if openbao is unhealthy
+## specifically because it's sealed - the plain `docker compose ps` output
+## other tooling relies on is unchanged/still the first thing printed.
 status:
-	@$(COMPOSE) ps
+	@bash scripts/openbao-status-hint.sh
 
 ## registry-bootstrap: Generate cache/registry/auth/htpasswd for the local
 ## registry service (Issue #69). Credentials are operator-chosen and cannot
@@ -190,6 +198,9 @@ temporal-reaper-schedule:
 		cade/temporal-worker:latest /tmp/temporal-schedule-reaper.py
 
 ## governance-bootstrap: Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token (Milestone M12).
+## Issue #128: credential rotation is skipped on a re-unseal-only run
+## (already initialized, not first-time bootstrap) unless FORCE_ROTATE=1
+## is passed, e.g. `FORCE_ROTATE=1 make governance-bootstrap`.
 governance-bootstrap:
 	@bash scripts/openbao-init.sh
 
