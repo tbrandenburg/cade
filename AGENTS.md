@@ -194,6 +194,10 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-10-15: Pitfall: readiness waited for a request-lazy backend before sending a request. Prevention: separate supervisor/listener readiness from authenticated protocol readiness; attest backend process binding after the first real request.
+- 2026-10-15: Pitfall: runc's procfs ENOENT concealed an unavailable AppArmor label. Prevention: correlate startup errors with kernel audit events and default/custom-label controls before attributing a failure to runtime upgrades or changing confinement.
+- 2026-10-15: Pitfall: an absent development service was treated as an external blocker. Prevention: verify safe scoped startup first; isolate historical volumes and credentials, and distinguish full-platform recommendations from local development prerequisites.
+- 2026-10-14: Pitfall: syntax/lint checks missed unsafe continuation in runbook commands. Prevention: use fail-fast Bash subshells for download/build recipes and inject checksum, revision and build failures to verify downstream execution stops.
 - Fully detach any backgrounded long-lived process in a persistent shell-tool session (`setsid ... </dev/null >file 2>&1 & disown`) — otherwise it holds the tool's stdout pipe open and every later command in that session appears to hang.
 - An apparent hang on a chained shell command is not proof of a functional bug — re-run each step individually with a bounded timeout, and check the real service's own logs, before concluding anything is stuck.
 - docker-outside-of-docker (bind-mounting the host socket) resolves bind-mount paths against the *real host filesystem*, not the calling container's view — it silently fails when the calling container's own workspace is a named volume rather than a real host path; check official reference templates for a supported alternative (e.g. nested DinD) before hand-rolling this.
