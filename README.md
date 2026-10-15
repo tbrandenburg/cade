@@ -39,11 +39,11 @@ plane) and your own LLM provider.
 It is built around three independent **durability levels**, deliberately
 never conflated:
 
-| Level | What survives | Proven by |
-|---|---|---|
-| UI durability | Closing/reopening VS Code | VS Code Agent Host (AHP) |
-| Workspace durability | Workspace container restart | Coder's persistent home volume |
-| Process durability | Worker crash mid-execution | Temporal's Event History (Postgres) |
+| Level                | What survives               | Proven by                           |
+| -------------------- | --------------------------- | ----------------------------------- |
+| UI durability        | Closing/reopening VS Code   | VS Code Agent Host (AHP)            |
+| Workspace durability | Workspace container restart | Coder's persistent home volume      |
+| Process durability   | Worker crash mid-execution  | Temporal's Event History (Postgres) |
 
 On top of that base, the platform adds a full closed loop for real
 engineering work:
@@ -174,9 +174,13 @@ coder create <owner>/<name> --template docker-workspace --yes \
 ```
 
 Once a workspace is running, `scripts/configure-coder-ssh.sh` wires up local
-SSH config so VS Code's Agent Host can connect to it as
-`ssh coder.<workspace-name>`, and `scripts/verify-ahp-session.sh` proves the
-Agent Host protocol handshake actually succeeds end-to-end.
+SSH config for `ssh coder.<workspace-name>`. Microsoft's standalone Agent
+Host and pinned AHPX client are not provisioned by the workspace image.
+The [headless Agent Host runbook](/docs/headless-agent-host.md) provides private,
+user-local provisioning and manual startup. Issue #132 verified real local and
+SSH-forwarded authenticated AHP discovery after human AppArmor profile loading.
+The final corrected-launcher coordinator E2E repeat passed; HUMAN fresh-workspace
+acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unvalidated here.
 
 ### Resetting a Coder user's password
 
@@ -192,7 +196,7 @@ directly rather than wiping the whole deployment.
 **Coder authenticates by email, not username** — the built-in
 `coder reset-password <username>` subcommand (and most other CLI
 subcommands) take a `<username>`, but the login form and
-`/api/v2/users/login` API both need that user's *email*, which isn't
+`/api/v2/users/login` API both need that user's _email_, which isn't
 necessarily the same string. `scripts/coder-reset-password.sh` wraps
 both steps — it looks up the email for the given username, runs
 `reset-password`, then prints the email you actually need to log in with:
@@ -274,6 +278,7 @@ Each agent session gets its own git worktree
 (`scripts/create-agent-worktree.sh`), and runs inside a `tmux` session so it
 survives editor disconnects. See `docs/milestone-reports/M4-agent-host.md`
 and `M5-sessions.md`.
+
 </details>
 
 <details>
@@ -292,6 +297,7 @@ An optional agentic layer (`gh aw compile` → `.github/workflows/investigate-fa
 watches CI failures and can have an AI agent investigate root cause and open
 a scoped GitHub issue (requires provisioning AI-engine credentials as a
 repo secret — see `docs/security.md`).
+
 </details>
 
 <details>
@@ -307,6 +313,7 @@ docker compose restart temporal-worker   # kill it mid-timer, on purpose
 temporal workflow describe --address 127.0.0.1:7233 --workflow-id <id>
 # -> eventually reports Status: COMPLETED, full event history intact
 ```
+
 </details>
 
 <details>
@@ -324,6 +331,7 @@ Wire an `opencode`/`pi` session to the `lab-sim` MCP tools via
 `opencode.jsonc` (set `LAB_SIM_AGENT_TOKEN` first), then:
 `list_devices → reserve_device → run_test` succeeds; `flash_device` without
 `approved=true` is denied by policy, not by convention.
+
 </details>
 
 <details>
@@ -336,6 +344,7 @@ single Grafana dashboard instead of grepping five container logs.
 make temporal-demo-start
 open http://127.0.0.1:3001   # "Phase 4 - Observability (Minimum Dashboard)"
 ```
+
 </details>
 
 <details>
@@ -349,6 +358,7 @@ make restore-test     # destroys and restores from the latest backup set
 See [`docs/disaster-recovery.md`](docs/disaster-recovery.md) for the full
 procedure and the OpenBao-specific gotcha (a restored OpenBao instance
 always comes back **sealed**).
+
 </details>
 
 <details>
@@ -378,6 +388,7 @@ docker run --rm --network platform-control -e TEMPORAL_ADDRESS=temporal:7233 \
 
 See `docs/security.md`'s "Issue #5" section for the `build-docker-proxy`
 isolation this runs through.
+
 </details>
 
 <details>
@@ -401,6 +412,7 @@ Docker-in-Docker daemon (not a shared host socket) so `devcontainer.json`
 builds/pulls/execs stay isolated per workspace. See
 `docs/devcontainer-security-notes.md` for the full design rationale and
 its accepted `privileged`-container tradeoff.
+
 </details>
 
 <details>
@@ -418,31 +430,31 @@ coder create <owner>/<name> --template docker-workspace --yes \
 scripts/configure-coder-ssh.sh
 ```
 
-In VS Code Desktop: open the Agents window → select `coder.<name>` → start
+**Intended Desktop scenario — unverified; operator acceptance required:**
+open the Agents window → select `coder.<name>` → start
 an agent session → give it a multi-minute task → close the project window
-→ reopen the Agents window later → reconnect to `coder.<name>` → the same
-session is still there, and the agent kept working while no editor was
-attached.
+→ reopen the Agents window later → reconnect to `coder.<name>`. The operator
+must verify that the same session remains available and that the agent kept
+working while no editor was attached; neither result has been demonstrated here.
 
 ```bash
 scripts/verify-agent-host.sh coder.<name>   # process reachable over SSH
-scripts/verify-ahp-session.sh coder.<name>  # actual AHP JSON-RPC handshake
+scripts/verify-ahp-session.sh coder.<name>  # legacy; unvalidated for standalone AHP 0.10.0
 ```
 
-**Verified 2026-08-29** against a live stack: workspace creation with
-`agent_capable=true`, `scripts/configure-coder-ssh.sh`'s SSH bridge
-(`ssh coder.<name>`), and both verification scripts all behave exactly as
-documented. `scripts/verify-agent-host.sh`/`verify-ahp-session.sh` both
-correctly report failure with no Agent Host process found, because VS
-Code's Agent Host is started lazily by a real VS Code Desktop client on
-first Agents-window connect — it is not part of workspace startup, and no
-non-interactive environment can substitute for that client. This matches
-the documented behavior in `scripts/verify-agent-host.sh` itself. **Known
-gap**: `opencode`/`pi` are not AHP adapters and never go through the Agent
-Host — they get session continuity from a detached `tmux` session
-instead (Journey 1). See `docs/phases/phase-1-remote-dev-agent.md`'s M4/M5
-sections and `docs/milestone-reports/M4-agent-host.md` for the full VS
-Code-Desktop-driven proof.
+**Evidence boundary:** August's workspace/SSH check found no host. Subsequent
+issue #132 automation provisioned Microsoft's standalone `code agent host` in
+real `local132` (UID 1000, Node 20.20.2, required AppArmor enforcing) and verified
+local plus private SSH-forwarded AHP initialize/discovery and fresh-client
+reconnect at explicit 0.10.0. Desktop is not a bootstrap prerequisite.
+`copilotcli` and `claude` each advertised zero models; sign-in, inference and
+same-session/restart durability were not tested. Default negotiation actually
+succeeded at 1.0.0; explicit 9.9.9 rejected. Final corrected-launcher remote E2E
+passed; HUMAN fresh-workspace acceptance remains pending. See the
+[headless runbook](/docs/headless-agent-host.md) and
+[M4 report](/docs/milestone-reports/M4-agent-host.md). `opencode`/`pi` are not
+AHP adapters; their detached `tmux` continuity (Journey 1) is separate.
+
 </details>
 
 <details>
@@ -493,30 +505,31 @@ the full evidence and the real bugs found (workspace name length cap,
 token lifetime units, chat-reuse footgun) while proving this live.
 **Known gap**: the agent did real investigative work in testing, not a
 full "fix it and open a PR" loop — that end-to-end path is not yet proven.
+
 </details>
 
 ## Makefile targets
 
-| Target | Milestone | Purpose |
-|---|---|---|
-| `make doctor` | M0 | Verify host OS/arch/tooling/disk/ports meet baseline requirements. |
-| `make up` | M1 | Start the platform control plane (Postgres + Coder) in the background. Also builds the `temporal-worker`/`lab-sim` images first (cache-hit, near-instant unless code changed) since compose.yaml has no `build:` stanza for them, then prints the main web UI URLs (Coder, Temporal, Grafana). |
-| `make down` | — | Stop and remove the platform stack's containers (named volumes persist). |
-| `make status` | — | Show status/health of every stack container. |
-| `make logs` | — | Follow logs of the platform stack's containers. |
-| `make coder-workspace-build` | M3 | Build the `docker-workspace` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make embedded-workspace-build` | M6 | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make devcontainer-workspace-build` | Issue #6 | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make templates-push` | — | Push every Coder workspace template (`docker-workspace`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Depends on all three `*-workspace-build` targets, so it also (re)builds `cade/coder-workspace`, `cade/embedded-linux-workspace`, and `cade/devcontainer-bootstrap` first (cache-hit, near-instant unless code changed), inheriting their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy. |
-| `make runner-build` | M2 | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make runner-run` | M2 | Start one JIT (just-in-time), ephemeral runner container. |
-| `make temporal-worker-build` | M8 | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make lab-sim-build` | M11 | Build the lab-sim MCP service image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies. |
-| `make temporal-demo-start` | M8 | Start one durable-workflow execution against the live Temporal cluster. |
-| `make governance-bootstrap` | M12 | Init/unseal OpenBao, rotate credentials, revoke root token. Re-run whenever the `openbao` container is recreated (does not auto-unseal). |
-| `make governance-verify` | M12 | Run `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip. |
-| `make backup` | M14 | Create a timestamped backup set covering every MUST-BACK-UP category. |
-| `make restore-test` | M14 | Destroy the MUST-BACK-UP resources and restore them from the latest backup set. |
+| Target                              | Milestone | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make doctor`                       | M0        | Verify host OS/arch/tooling/disk/ports meet baseline requirements.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `make up`                           | M1        | Start the platform control plane (Postgres + Coder) in the background. Also builds the `temporal-worker`/`lab-sim` images first (cache-hit, near-instant unless code changed) since compose.yaml has no `build:` stanza for them, then prints the main web UI URLs (Coder, Temporal, Grafana).                                                                                                                                                                                                                                |
+| `make down`                         | —         | Stop and remove the platform stack's containers (named volumes persist).                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `make status`                       | —         | Show status/health of every stack container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `make logs`                         | —         | Follow logs of the platform stack's containers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `make coder-workspace-build`        | M3        | Build the `docker-workspace` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                            |
+| `make embedded-workspace-build`     | M6        | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                            |
+| `make devcontainer-workspace-build` | Issue #6  | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                    |
+| `make templates-push`               | —         | Push every Coder workspace template (`docker-workspace`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Depends on all three `*-workspace-build` targets, so it also (re)builds `cade/coder-workspace`, `cade/embedded-linux-workspace`, and `cade/devcontainer-bootstrap` first (cache-hit, near-instant unless code changed), inheriting their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy. |
+| `make runner-build`                 | M2        | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                         |
+| `make runner-run`                   | M2        | Start one JIT (just-in-time), ephemeral runner container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `make temporal-worker-build`        | M8        | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `make lab-sim-build`                | M11       | Build the lab-sim MCP service image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `make temporal-demo-start`          | M8        | Start one durable-workflow execution against the live Temporal cluster.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `make governance-bootstrap`         | M12       | Init/unseal OpenBao, rotate credentials, revoke root token. Re-run whenever the `openbao` container is recreated (does not auto-unseal).                                                                                                                                                                                                                                                                                                                                                                                      |
+| `make governance-verify`            | M12       | Run `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `make backup`                       | M14       | Create a timestamped backup set covering every MUST-BACK-UP category.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `make restore-test`                 | M14       | Destroy the MUST-BACK-UP resources and restore them from the latest backup set.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 `examples/hello-service/Makefile` and `examples/embedded-sim/Makefile`
 additionally provide their own `build`/`test`/`run`/`clean`/`simulate`
@@ -539,20 +552,20 @@ your corporate CA bundle, baked into the image at build time via a
 BuildKit secret (never a build arg/`COPY`, so it never lands in an image
 layer):
 
-| Target | Image built |
-|---|---|
-| `make coder-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/coder-workspace:latest` |
-| `make embedded-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/embedded-linux-workspace:latest` |
-| `make devcontainer-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/devcontainer-bootstrap:latest` |
-| `make runner-build CACERT=/path/to/ca-bundle.pem` | the self-hosted GitHub Actions runner image |
-| `make temporal-worker-build CACERT=/path/to/ca-bundle.pem` | `cade/temporal-worker:latest` |
-| `make lab-sim-build CACERT=/path/to/ca-bundle.pem` | `cade/lab-sim:latest` |
+| Target                                                            | Image built                                 |
+| ----------------------------------------------------------------- | ------------------------------------------- |
+| `make coder-workspace-build CACERT=/path/to/ca-bundle.pem`        | `cade/coder-workspace:latest`               |
+| `make embedded-workspace-build CACERT=/path/to/ca-bundle.pem`     | `cade/embedded-linux-workspace:latest`      |
+| `make devcontainer-workspace-build CACERT=/path/to/ca-bundle.pem` | `cade/devcontainer-bootstrap:latest`        |
+| `make runner-build CACERT=/path/to/ca-bundle.pem`                 | the self-hosted GitHub Actions runner image |
+| `make temporal-worker-build CACERT=/path/to/ca-bundle.pem`        | `cade/temporal-worker:latest`               |
+| `make lab-sim-build CACERT=/path/to/ca-bundle.pem`                | `cade/lab-sim:latest`                       |
 
 Omit `CACERT` entirely on unrestricted networks — every one of these
 Dockerfiles treats an empty/unset secret as a no-op.
 
 **2. Workspace creation itself** (not a `make *-build` target) — failing
-during Terraform's provider download step, inside the *running* `coder`
+during Terraform's provider download step, inside the _running_ `coder`
 server container:
 
 ```
@@ -595,19 +608,24 @@ cert directories), so this is also a no-op by default.
 
 ## Project status
 
-**Released: `0.1.0` (2026-08-29)**, current: `0.3.4` (2026-09-03) — all 16
-milestones across 5 phases are delivered, with committed evidence under
+**Released: `0.1.0` (2026-08-29)**, current: `0.3.4` (2026-09-03) — the release
+record covers 16 milestones across 5 phases, with committed evidence under
 [`docs/milestone-reports/`](docs/milestone-reports/) and re-verified,
 live handover evidence under [`docs/plan/demo/`](docs/plan/demo/). See
 [`VERSION.md`](VERSION.md) for what's shipped in each release since:
 
-| Phase | Milestones | Delivers |
-|---|---|---|
-| 1 — Remote Dev + Agent | M0, M1, M3, M4, M5, M9, M15 | Coder workspaces, VS Code Agent Host, agent CLIs, git worktrees, tmux persistence |
-| 2 — GitHub Automation | M2, M10 | Ephemeral self-hosted runner, agentic CI-failure investigation (`gh-aw`) |
-| 3 — Durable Orchestration & Capability Fabric | M6, M7, M8, M11 | Embedded toolchain, build cache, Temporal durable workflows, MCP capability fabric |
-| 4 — Governance & Observability | M12, M13 | OpenBao + OPA policy gating, Prometheus/Loki/Grafana dashboard |
-| 5 — Integration & Release | M14, M15, M16 | Backup/restore, full E2E acceptance, `0.1.0` tag |
+**M4 qualification:** automated headless AHP infrastructure is now verified in
+Coder, including the final corrected-launcher E2E repeat. Issue #132's human
+acceptance is pending. Provider sign-in/inference and M4 session/restart durability remain
+untested by this investigation; release history is not evidence for those gates.
+
+| Phase                                         | Milestones                  | Delivers                                                                           |
+| --------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------- |
+| 1 — Remote Dev + Agent                        | M0, M1, M3, M4, M5, M9, M15 | Coder workspaces, VS Code Agent Host, agent CLIs, git worktrees, tmux persistence  |
+| 2 — GitHub Automation                         | M2, M10                     | Ephemeral self-hosted runner, agentic CI-failure investigation (`gh-aw`)           |
+| 3 — Durable Orchestration & Capability Fabric | M6, M7, M8, M11             | Embedded toolchain, build cache, Temporal durable workflows, MCP capability fabric |
+| 4 — Governance & Observability                | M12, M13                    | OpenBao + OPA policy gating, Prometheus/Loki/Grafana dashboard                     |
+| 5 — Integration & Release                     | M14, M15, M16               | Backup/restore, full E2E acceptance, `0.1.0` tag                                   |
 
 Two known, documented (not silently worked-around) limitations remain open
 as of `0.1.0` — see [Known limitations](#known-limitations).
@@ -627,48 +645,49 @@ VS Code Web / SSH tiles, following one consistent three-tier convention:
 
 1. **Core, always on** — no parameter (VS Code Web, SSH/Terminal).
 2. **Optional, at creation** — `coder create ... --parameter
-   enable_jupyter=true` (or `enable_nodered=true`, `temporal_owned=true`).
+enable_jupyter=true` (or `enable_nodered=true`, `temporal_owned=true`).
 3. **Optional, after creation, no recreate needed** —
    `scripts/set-workspace-parameter.sh <owner>/<workspace> <param_name>
-   <value>`.
+<value>`.
 
 See `AGENTS.md`'s "Workspace-app tiers" guideline and
 `coder/templates/docker-workspace/README.md` for the full breakdown.
 
 #### Where does each integrated service actually run?
 
-A dashboard tile linking out to a service doesn't tell you *where* that
+A dashboard tile linking out to a service doesn't tell you _where_ that
 service runs — some pieces genuinely execute inside your workspace
 container, others are shared platform services your workspace just links
 to. Quick overview:
 
-| Service | Where it runs | Why |
-|---|---|---|
-| VS Code Web, SSH/Terminal, JupyterLab, Node-RED | Inside your workspace container | Started by the workspace itself; only reachable through your workspace |
-| Temporal (server + worker + UI) | Shared platform service, separate containers | One shared workflow engine for the whole platform; reaches into your workspace only when a workflow needs to run something there |
-| omnigent-server (accounts/dashboard) | Shared platform service, separate containers | One shared login/orchestration backend for every workspace |
-| omnigent host daemon + sandboxed agent session | Inside your workspace container | The actual AI coding session runs locally, in a network-isolated sandbox, on your workspace's own files |
+| Service                                         | Where it runs                                | Why                                                                                                                              |
+| ----------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| VS Code Web, SSH/Terminal, JupyterLab, Node-RED | Inside your workspace container              | Started by the workspace itself; only reachable through your workspace                                                           |
+| Temporal (server + worker + UI)                 | Shared platform service, separate containers | One shared workflow engine for the whole platform; reaches into your workspace only when a workflow needs to run something there |
+| omnigent-server (accounts/dashboard)            | Shared platform service, separate containers | One shared login/orchestration backend for every workspace                                                                       |
+| omnigent host daemon + sandboxed agent session  | Inside your workspace container              | The actual AI coding session runs locally, in a network-isolated sandbox, on your workspace's own files                          |
 
-Rule of thumb: anything you *interact with directly through the file
-system or a sandbox* runs locally in your workspace; anything that's a
-*shared dashboard/UI serving every user at once* is a platform service
+Rule of thumb: anything you _interact with directly through the file
+system or a sandbox_ runs locally in your workspace; anything that's a
+_shared dashboard/UI serving every user at once_ is a platform service
 your workspace merely links to. See `AGENTS.md`'s "Guidelines" for the
 full technical breakdown and reasoning.
 
 ## Documentation map
 
-| Doc | Purpose |
-|---|---|
-| [`docs/INITIAL.md`](docs/INITIAL.md) | Authoritative implementation plan (source of truth) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Condensed C4-model summary (Context/Container/Component) |
-| [`docs/security.md`](docs/security.md) | Security posture, threat model, known limitations |
-| [`docs/ai-coder.md`](docs/ai-coder.md) | Coder AI integration: entitlement matrix, repeatability model, MCP/CI automation (Issue #13) |
-| [`docs/disaster-recovery.md`](docs/disaster-recovery.md) | Backup/restore runbook |
-| [`docs/phases/`](docs/phases/README.md) | `INITIAL.md` split into 5 phases + milestones |
-| [`docs/milestone-reports/`](docs/milestone-reports/) | Evidence report per completed milestone |
-| [`docs/plan/demo/`](docs/plan/demo/) | Live, per-phase handover reports with fresh re-verification evidence |
-| [`VERSION.md`](VERSION.md) | Release history |
-| [`AGENTS.md`](AGENTS.md) | Agent-facing operational knowledge, lessons learned, full E2E walkthrough |
+| Doc                                                      | Purpose                                                                                                    |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [`docs/INITIAL.md`](docs/INITIAL.md)                     | Authoritative implementation plan (source of truth)                                                        |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)           | Condensed C4-model summary (Context/Container/Component)                                                   |
+| [`docs/security.md`](docs/security.md)                   | Security posture, threat model, known limitations                                                          |
+| [`docs/ai-coder.md`](docs/ai-coder.md)                   | Coder AI integration: entitlement matrix, repeatability model, MCP/CI automation (Issue #13)               |
+| [`docs/disaster-recovery.md`](docs/disaster-recovery.md) | Backup/restore runbook                                                                                     |
+| [Headless Agent Host](/docs/headless-agent-host.md)      | Private bootstrap/manual start, verified local/SSH discovery, controls and pending human acceptance (#132) |
+| [`docs/phases/`](docs/phases/README.md)                  | `INITIAL.md` split into 5 phases + milestones                                                              |
+| [`docs/milestone-reports/`](docs/milestone-reports/)     | Evidence report per completed milestone                                                                    |
+| [`docs/plan/demo/`](docs/plan/demo/)                     | Live, per-phase handover reports with fresh re-verification evidence                                       |
+| [`VERSION.md`](VERSION.md)                               | Release history                                                                                            |
+| [`AGENTS.md`](AGENTS.md)                                 | Agent-facing operational knowledge, lessons learned, full E2E walkthrough                                  |
 
 ## Known limitations
 
@@ -680,11 +699,17 @@ full technical breakdown and reasoning.
   (trigger wiring, permission scoping, network allowlisting, safe-outputs
   configuration, runner job pickup) is confirmed working. See
   `docs/security.md`.
-- **VS Code Agent Host (AHP) session persistence requires a real VS Code
-  Desktop GUI client** to drive — it cannot be exercised from a headless
-  CLI-only environment (the Agent Host starts lazily on first interactive
-  connection). The wiring and both verification scripts are confirmed
-  working; see `docs/milestone-reports/M4-agent-host.md`.
+- **Headless Agent Host acceptance is pending, not blocked on AppArmor.**
+  Human profile loading resolved startup; real non-root workspace local and
+  SSH-forwarded authenticated discovery passed. Microsoft host/client remain
+  opt-in user-local tools, not image defaults. CLI 1.139.1 resolves server 1.142.0
+  independently; bootstrap fails closed on latest-runtime drift. Corrected
+  launchers passed 18 focused tests and their final real remote E2E repeat.
+  HUMAN fresh-workspace acceptance remains pending. Two providers/zero models
+  do not prove sign-in, inference or session durability. The separate srt
+  secret-glob failure [#134](https://github.com/tbrandenburg/cade/issues/134)
+  remains unfixed; no complete agent-isolation claim. See the
+  [runbook](/docs/headless-agent-host.md) and [M4 report](/docs/milestone-reports/M4-agent-host.md).
 - **OpenBao does not auto-unseal** across a container restart/recreate —
   rerun `make governance-bootstrap` whenever the `openbao` container is
   recreated.
