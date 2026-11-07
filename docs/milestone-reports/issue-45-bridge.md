@@ -105,3 +105,19 @@ merges — it is a testing workaround, not a defect in the fix itself.
 | Full Stage B chat turn via real omnigent web UI | **PASS** |
 | Issue #23 sandbox regression check (`denyRead`/`denyWrite`) | **PASS** |
 | Cleanup (throwaway workspaces/containers) | **PASS** — all deleted after each pass |
+
+## OpenCode 2 modernization re-check (Issue #146)
+
+Omnigent v0.21.0 is the supported replacement for the former v0.11.0
+server/host pair. Its release notes require OpenCode 2.0.18 through 2.0.x
+and its official install documentation pins `@opencode/cli@2.0.32`. In a
+fresh Coder `docker-workspace`, the matching host registered and reported
+connected under v0.21.0; the installed CLI reported `opencode v2.0.32`.
+An actual no-key `srt /usr/bin/opencode run` returned the requested response
+from the documented `big-pickle` model. Sandboxed requests to an
+unallowlisted network destination and `/etc/shadow` were denied, and the
+workspace retained the enforcing `cade-bwrap-workspace` AppArmor profile.
+
+This is not evidence that the reverse bridge is obsolete: no real Omnigent
+web chat was driven in this pass. The bridge, PATH shim, and watchdog remain
+until a real sandboxed Omnigent chat proves they can be removed safely.
