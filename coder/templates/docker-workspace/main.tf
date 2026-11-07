@@ -586,12 +586,9 @@ OMNIGENT_DUMMY_AUTH
     OMNIGENT_ADMIN_USERNAME = data.coder_parameter.omnigent_admin_username.value
     OMNIGENT_ADMIN_PASSWORD = data.coder_parameter.omnigent_admin_password.value
     OMNIGENT_SANDBOX_MODE   = var.omnigent_sandbox_mode
-    # Issue #43: OMNIGENT_SANDBOX_MODE is NOT in omnigent's own daemon/
-    # runner environment allowlist — OMNIGENT_RUNNER_ENV_PASSTHROUGH is
-    # omnigent's own documented mechanism for forwarding extra var names,
-    # and IS itself allowlisted. See agent-workspace/main.tf's identical
-    # env block for the full rationale.
-    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
+    # Omnigent forwards these named variables to the daemon and runner so
+    # native OpenCode resolves the SRT PATH shim instead of the unconfined CLI.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE,PATH"
   }
 
   metadata {

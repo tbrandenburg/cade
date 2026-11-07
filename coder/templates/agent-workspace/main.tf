@@ -689,7 +689,8 @@ OMNIGENT_DUMMY_AUTH
     # is exactly the Stage A verification checkpoint. OMNIGENT_RUNNER_ENV_PASSTHROUGH
     # is omnigent's own documented mechanism for this (a comma-separated list
     # of extra var names to forward) and IS itself allowlisted.
-    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
+    # Preserve the SRT wrapper path through Omnigent's host and runner env filters.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE,PATH"
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
   }
