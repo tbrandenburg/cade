@@ -142,12 +142,10 @@ published to the host or the platform's Docker networks.
   installed globally at image-build time (`/usr/lib/node_modules`), not
   per-workspace — a brand-new home volume needs zero network access for
   the palette to be available. `@tbrandenburg/node-red-agents` is pinned
-  to `>=0.3.8` (Issue #63) — earlier `0.3.x` releases declared
-  `engines.node >=22` despite having no Node-22-only API usage, which
-  produced a non-fatal `EBADENGINE` warning under this image's Node 20;
-  `0.3.8` relaxed `engines.node` to `>=20`, clearing the warning. Re-check
-  this pin whenever `coder/Dockerfile`'s `NODE_RED_AGENTS_VERSION` or
-  `NODE_MAJOR` ARGs are next changed.
+  to `>=0.3.8` (Issue #63). Earlier `0.3.x` releases declared
+  `engines.node >=22`; `0.3.8` relaxed this to `>=20`. That constraint is
+  compatible with the workspace image's Node 24. Re-check this pin whenever
+  `coder/Dockerfile`'s `NODE_RED_AGENTS_VERSION` or `NODE_MAJOR` ARGs change.
 
 ### Where logs are
 
@@ -191,6 +189,5 @@ the sidecar restores it locally instead. **No DNS/wildcard hostname setup
 of any kind is required** — `CODER_WILDCARD_ACCESS_URL` and its
 auto-derivation machinery have been removed entirely (no template in this
 repo uses `subdomain = true` anymore).
-
 
 

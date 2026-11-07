@@ -17,7 +17,7 @@ FROM ubuntu:24.04
 ARG USERNAME=coder
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG NODE_MAJOR=20
+ARG NODE_MAJOR=24
 # Pinned OpenCode CLI version (Issue #43). Must stay within Omnigent's
 # opencode-native harness supported range [1.17.7, 1.19.0) -- re-check this
 # range whenever Omnigent is upgraded, and bump with
@@ -104,14 +104,13 @@ RUN python3 -m venv /opt/jupyter \
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 # --- Node-RED (Issue #60) ---------------------------------------------------
-# Node.js 20 is already installed above (NODE_MAJOR). Palette packages are
+# Node.js 24 is already installed above (NODE_MAJOR). Palette packages are
 # installed globally here rather than into the userDir, so a fresh
 # /home/coder/.node-red on a brand-new home volume needs zero network access
 # to boot with the dashboard + agent nodes already available.
 # NODE_RED_AGENTS_VERSION pinned to >=0.3.8: earlier 0.3.x releases declared
 # engines.node >=22 (Issue #63) despite having no Node-22-only API usage;
-# 0.3.8 relaxes engines.node to >=20, matching this image's actual Node
-# major version and clearing the prior EBADENGINE warning at install time.
+# 0.3.8 relaxes engines.node to >=20, compatible with this image's Node 24.
 ARG NODE_RED_VERSION=4.1.0
 ARG NODE_RED_DASHBOARD_VERSION=1.31.0
 ARG NODE_RED_AGENTS_VERSION=0.3.8
