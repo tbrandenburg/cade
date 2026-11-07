@@ -552,7 +552,15 @@ OMNIGENT_HOST_IDENTITY
           cat > ~/.config/opencode/opencode.jsonc <<'OMNIGENT_OPENCODE_MODEL_PIN'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/big-pickle"
+  "model": "opencode/big-pickle",
+  "mcp": {
+    "devenv-docs": {
+      "type": "local",
+      "command": ["uv", "run", "python", "-m", "docs_server.server"],
+      "cwd": "mcp/docs-server",
+      "enabled": true
+    }
+  }
 }
 OMNIGENT_OPENCODE_MODEL_PIN
         fi

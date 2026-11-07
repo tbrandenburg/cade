@@ -118,6 +118,25 @@ from the documented `big-pickle` model. Sandboxed requests to an
 unallowlisted network destination and `/etc/shadow` were denied, and the
 workspace retained the enforcing `cade-bwrap-workspace` AppArmor profile.
 
-This is not evidence that the reverse bridge is obsolete: no real Omnigent
-web chat was driven in this pass. The bridge, PATH shim, and watchdog remain
-until a real sandboxed Omnigent chat proves they can be removed safely.
+The initial modernization pass did not exercise Omnigent web chat. A later
+real browser chat through the Omnigent tile verified streamed completion,
+writing an exact scratch-file marker, and denial of `curl https://example.com`
+(CONNECT tunnel 403, exit 56). Process inspection confirmed the native
+OpenCode servers were launched through the shim, each with a distinct network
+namespace and the enforcing `cade-bwrap-workspace` AppArmor profile.
+
+That pass exposed an MCP acceptance gap: the generated per-session config
+contained the Omnigent bridge but no native user MCP servers, and the chat
+could not discover `search_docs`. A manually launched JSON-RPC shim was used
+in that investigation and is **not** native MCP acceptance evidence. Issue
+#146 therefore seeds `devenv-docs` in the first-boot global OpenCode config
+and installs pinned `uv` in the workspace image. Omnigent v0.21.0's
+`maybe_merge_user_provider_config` reads the user's global OpenCode config
+and merges its MCP entries into the generated per-session config; synthesized
+entries take precedence. The existing remote `devenv-lab-sim` endpoint is
+not seeded because its loopback URL is not reachable from the sandbox.
+
+The docs-MCP fix still requires a fresh image/workspace and a real browser
+chat proving `search_docs` discovery and invocation. The bridge, PATH shim,
+and watchdog remain in place; this issue does not establish that they can be
+removed safely.

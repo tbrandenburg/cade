@@ -21,6 +21,7 @@ ARG NODE_MAJOR=24
 # Omnigent 0.21.0 requires OpenCode 2.0.18 through 2.0.x and documents
 # 2.0.32 as its supported CLI pin. Keep this exact version in the 2.0 line.
 ARG OPENCODE_VERSION=2.0.32
+ARG UV_VERSION=0.9.5
 
 # Optional corporate/TLS-intercepting-proxy CA bundle. Passed as a BuildKit
 # secret (never a build arg or COPY) so it never lands in an image layer:
@@ -67,6 +68,12 @@ RUN apt-get update \
       ripgrep \
       tmux \
     && rm -rf /var/lib/apt/lists/*
+
+# The global OpenCode config seeds the repository's docs MCP server for
+# Omnigent's generated per-session config. Keep uv in the shared workspace
+# image so the configured stdio server can start without a user-local install.
+RUN python3 -m pip install --break-system-packages --no-cache-dir "uv==${UV_VERSION}" \
+    && uv --version
 
 # M9: Agent/Harness Plane CLIs — `opencode` and `pi`, the two supported
 # harnesses for this platform (Rule: install both, not optional), plus
