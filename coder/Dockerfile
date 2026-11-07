@@ -18,11 +18,9 @@ ARG USERNAME=coder
 ARG USER_UID=1000
 ARG USER_GID=1000
 ARG NODE_MAJOR=24
-# Pinned OpenCode CLI version (Issue #43). Must stay within Omnigent's
-# opencode-native harness supported range [1.17.7, 1.19.0) -- re-check this
-# range whenever Omnigent is upgraded, and bump with
-# `--build-arg OPENCODE_VERSION=<x.y.z>` rather than editing the Dockerfile.
-ARG OPENCODE_VERSION=1.18.25
+# Omnigent 0.21.0 requires OpenCode 2.0.18 through 2.0.x and documents
+# 2.0.32 as its supported CLI pin. Keep this exact version in the 2.0 line.
+ARG OPENCODE_VERSION=2.0.32
 
 # Optional corporate/TLS-intercepting-proxy CA bundle. Passed as a BuildKit
 # secret (never a build arg or COPY) so it never lands in an image layer:
@@ -76,9 +74,8 @@ RUN apt-get update \
 # Installed system-wide (not per-user) so both are on PATH for the
 # non-root `coder` user created below.
 RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent \
-    && curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} \
-    && mv /root/.opencode/bin/opencode /usr/local/bin/opencode \
-    && rm -rf /root/.opencode
+    && npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
+    && opencode --version
 
 # --- JupyterLab (Issue #60) -------------------------------------------------
 # Own venv, not the system Python: Ubuntu 24.04 is PEP-668 "externally
@@ -133,7 +130,7 @@ COPY workspace-apps/node-red-settings.js /opt/node-red/settings.js
 # happens entirely in coder/templates/docker-workspace/main.tf's startup
 # script, not here; a few extra MB in the image is an acceptable trade-off
 # for keeping this Dockerfile a single shared artifact.
-ARG OMNIGENT_VERSION=0.11.0
+ARG OMNIGENT_VERSION=0.21.0
 RUN python3 -m venv /opt/omnigent-venv \
  && /opt/omnigent-venv/bin/pip install --no-cache-dir "omnigent==${OMNIGENT_VERSION}" \
  && ln -s /opt/omnigent-venv/bin/omnigent /usr/local/bin/omnigent \
