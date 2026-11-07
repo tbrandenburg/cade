@@ -74,8 +74,9 @@ RUN apt-get update \
 # Installed system-wide (not per-user) so both are on PATH for the
 # non-root `coder` user created below.
 RUN npm install -g @anthropic-ai/sandbox-runtime @earendil-works/pi-coding-agent \
-    && npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
-    && opencode --version
+    && npm install --global --prefix=/usr/local "@opencode/cli@${OPENCODE_VERSION}" \
+    && test -x /usr/local/bin/opencode \
+    && /usr/local/bin/opencode --version
 
 # --- JupyterLab (Issue #60) -------------------------------------------------
 # Own venv, not the system Python: Ubuntu 24.04 is PEP-668 "externally
