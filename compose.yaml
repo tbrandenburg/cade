@@ -6,7 +6,7 @@ name: devenv-cloud # pinned explicitly: the eventual devenv-cloud -> cade rebran
 
 services:
   coder-db:
-    image: postgres:17.6-alpine
+    image: postgres:17.11-alpine
     container_name: coder-db
     restart: unless-stopped
     environment:
@@ -232,7 +232,7 @@ services:
   # the Temporal-supported major version pinned upstream at the time this
   # was written).
   temporal-db:
-    image: postgres:16.10-alpine
+    image: postgres:16.15-alpine
     container_name: temporal-db
     restart: unless-stopped
     environment:
@@ -537,7 +537,7 @@ services:
   # credential-rotation log. Bound to 127.0.0.1 only, same posture as
   # `lab-sim`/`opa` above.
   openbao:
-    image: openbao/openbao:2.6.2
+    image: openbao/openbao:2.6.5
     container_name: openbao
     restart: unless-stopped
     cap_add:
@@ -730,7 +730,7 @@ services:
   # "own -db service, platform-control only, no host port" pattern as
   # `coder-db`/`temporal-db` above.
   omnigent-db:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine
     container_name: omnigent-db
     restart: unless-stopped
     environment:
