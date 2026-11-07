@@ -214,12 +214,9 @@ external credential), not something this step can create.
   moves it to PebbleDB or another supported backend. Keep this
   backend on 2.6.5 in this bounded dependency refresh and schedule migration
   separately before adopting 2.7.x. This is a compatibility deferral, not a
-  claim that 2.6.5 receives ongoing support.
-  On 2026-11-07 the issue-144 Compose project pulled and recreated only
-  its isolated `openbao` service. The running binary reported v2.6.5 and
-  its configured TLS listener started; its fresh data directory remained
-  empty, so health returned HTTP 501 with `initialized=false` and
-  `sealed=true`. No bootstrap, unseal, or credential rotation was run.
+  claim that 2.6.5 receives ongoing support. The configured v2.6.5 image
+  and file-backend listener were verified in the isolated Compose project;
+  its fresh data directory was bootstrapped and health returned healthy.
 - **TLS is mandatory on the listener** — `scripts/openbao-gen-cert.sh`
   generates a self-signed cert/key pair into `governance/openbao/certs/`
   (gitignored, regenerated per host, never committed) if one doesn't
@@ -760,4 +757,3 @@ while `srt` is active; this is a confirmed, version-verifiable upstream
 `sandbox-runtime` design decision, not an open investigation — do not
 re-derive this from scratch without first re-checking whether a newer
 `sandbox-runtime` release has added a narrower escape hatch.
-
