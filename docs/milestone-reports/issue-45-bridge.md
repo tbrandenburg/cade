@@ -136,7 +136,32 @@ and merges its MCP entries into the generated per-session config; synthesized
 entries take precedence. The existing remote `devenv-lab-sim` endpoint is
 not seeded because its loopback URL is not reachable from the sandbox.
 
-The docs-MCP fix still requires a fresh image/workspace and a real browser
-chat proving `search_docs` discovery and invocation. The bridge, PATH shim,
-and watchdog remain in place; this issue does not establish that they can be
-removed safely.
+The native MCP check now has two distinct results. First, a direct OpenCode 2
+process inside the enforced sandbox, in the fresh `oc2chat5` workspace,
+successfully invoked the configured `devenv-docs` MCP `search_docs` tool via
+OpenCode's normal tool API (Node query: 20 hits; architecture query: 14,787
+characters). It used the repository `opencode.jsonc` and required no `uv` shim
+or hand-written JSON-RPC. This proves the server, workspace config, and SRT
+compatibility work in that direct-CLI path.
+
+It does **not** prove the Omnigent browser-session path. A fresh Omnigent
+v0.21.0 session did generate an XDG config containing `devenv-docs` and
+`omnigent`, but OpenCode logged MCP connect request timeouts for both servers;
+the app-server API returned `503 Location plugins did not finish activating`
+and the chat ended in a read timeout. The configured absolute `cwd` was also
+tested and did not resolve this. Omnigent v0.21.0 source confirms that
+`maybe_merge_user_provider_config` reads the user's global config, merges user
+MCP entries with synthesized entries taking precedence, and that orchestration
+does so before writing the per-session config and starting the OpenCode server
+(`omnigent/harnesses/opencode_native/provider.py:927-988`,
+`omnigent/runner/native/orchestration.py:1948-1995`). That merge explains why
+the entry appears, but does not establish why both configured MCP connections
+stall. Root cause of the Omnigent startup timeout remains unresolved; no
+product workaround is justified by the current evidence.
+
+Acceptance remains **incomplete**: no successful Omnigent browser-streamed
+session invoking native `search_docs`, writing a file, and demonstrating the
+actual sandbox network denial in the same acceptance run. The bridge, PATH
+shim, and watchdog remain in place; this issue does not establish that they can
+be removed safely. Do not claim #146 acceptance or open a PR until that full
+path passes.
