@@ -557,7 +557,7 @@ OMNIGENT_HOST_IDENTITY
     "devenv-docs": {
       "type": "local",
       "command": ["uv", "run", "python", "-m", "docs_server.server"],
-      "cwd": "mcp/docs-server",
+      "cwd": "/home/coder/project/mcp/docs-server",
       "enabled": true
     }
   }
