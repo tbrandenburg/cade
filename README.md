@@ -232,18 +232,6 @@ If the verified existing project differs, explicitly select it in this shell,
 for example `export COMPOSE_PROJECT_NAME=your-existing-project`, then repeat
 the checks. Do not select or create a different database volume for the upgrade.
 
-Before scheduling downtime or stopping writes, pull the target image and run
-preflight while the existing Coder is still running. Both commands must succeed;
-if either fails, resolve the error and repeat this step before proceeding:
-
-```bash
-(
-  set -euo pipefail
-  docker compose pull coder
-  make coder-preflight
-)
-```
-
 Before upgrading an existing deployment, record its workspace names and
 templates (`coder list`). Schedule downtime, stop user and automation writes
 (including Temporal workspace operations and direct database writers), wait for
@@ -253,18 +241,23 @@ complete. This procedure requires Coder and its database to be running before
 the stop; if either is already stopped, investigate rather than starting it just
 to satisfy the check. Immediately before migration, dump the Coder database;
 this creates a private directory and checks the archive's table of contents
-while the database stays running:
+while the database stays running. The single fail-fast block pulls the image and
+runs preflight before attempting the stop; do not continue if it fails.
 
-If the stop or backup fails, the procedure attempts to restart the original
-Coder container only if it can confirm that it is still the selected container
-and is stopped. If that check or restart fails, investigate manually. A verified
-backup intentionally leaves Coder stopped for migration. Uncatchable signals or
-host failure can prevent cleanup; check Coder's state before retrying.
+If the stop or backup fails, no restart or recreation is attempted. Coder's state
+may still be changing: wait for any in-flight stop to finish, then re-check the
+original Coder and database container IDs, selected project and database volume,
+and the database migration schema before any manual restart. Investigate any
+change or uncertainty instead of restarting. A verified backup intentionally
+leaves Coder stopped for migration. Uncatchable signals or host failure can
+prevent the warning; check Coder's state before retrying.
 
 ```bash
 (
   set -euo pipefail
   umask 077
+  docker compose pull coder
+  make coder-preflight
   metadata="$(docker compose config --format json | python3 -c '
 import json, sys
 c = json.load(sys.stdin)
@@ -310,33 +303,8 @@ print(c["volumes"][mounts[0]["source"]]["name"])
     echo 'ERROR: Coder and its database must be running before this procedure' >&2
     exit 1
   fi
-  backup_verified=false
-  recover_coder() {
-    status=$?
-    trap - EXIT INT TERM HUP
-    if [ "$backup_verified" = true ]; then
-      return
-    fi
-    if ! current_id="$(docker inspect --format '{{.Id}}' coder)" ||
-       [ "$current_id" != "$coder_id" ] ||
-       ! current_compose_id="$(docker compose ps --all -q coder)" ||
-       [ -z "$current_compose_id" ] ||
-       ! current_compose_id="$(docker inspect --format '{{.Id}}' "$current_compose_id")" ||
-       [ "$current_compose_id" != "$coder_id" ] ||
-       ! running="$(docker inspect --format '{{.State.Running}}' "$coder_id")"; then
-      echo 'ERROR: cannot confirm the original Coder container; restart refused' >&2
-    elif [ "$running" = false ]; then
-      if docker start "$coder_id"; then
-        echo 'Original Coder container restarted after backup failure' >&2
-      else
-        echo 'ERROR: failed to restart the original Coder container; investigate manually' >&2
-      fi
-    elif [ "$running" != true ]; then
-      echo 'ERROR: cannot determine Coder state; restart refused' >&2
-    fi
-    exit "$status"
-  }
-  trap 'recover_coder' EXIT
+  printf 'Original Coder ID: %s; database ID: %s; project: %s; database volume: %s\n' "$coder_id" "$db_id" "$project" "$volume"
+  trap 'printf "ERROR: Coder state may still be changing. Wait for any in-flight stop; re-check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before any manual restart. No restart or recreation was attempted.\n" "$coder_id" "$db_id" "$project" "$volume" >&2' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
@@ -351,8 +319,7 @@ print(c["volumes"][mounts[0]["source"]]["name"])
   backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
   docker exec "$db_id" sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
   docker exec -i "$db_id" pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
-  backup_verified=true
-  recover_coder
+  trap - EXIT INT TERM HUP
   printf 'Coder database archive verified: %s/coder.dump\n' "$backup_dir"
 )
 ```

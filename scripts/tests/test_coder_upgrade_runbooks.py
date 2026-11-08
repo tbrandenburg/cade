@@ -49,6 +49,9 @@ if args[:2] == ['compose', 'ps']:
           else os.environ.get('PS_ID', 'id-coder'))
     sys.exit(0)
 if args[:2] == ['compose', 'stop']:
+    if os.environ.get('STOP_DELAYED'):
+        pathlib.Path(os.environ['STOPPED'] + '-pending').touch()
+        sys.exit(1)
     if not os.environ.get('STOP_NOOP'):
         stopped.touch()
     if os.environ.get('STOP_FAILURE'):
@@ -79,18 +82,16 @@ if args and args[0] == 'inspect':
     sys.exit(0)
 if args and args[0] == 'exec':
     if os.environ.get('SIGNAL_DURING_DUMP'):
-        os.kill(os.getppid(), signal.SIGTERM)
+        os.kill(os.getppid(), getattr(signal, os.environ['SIGNAL_DURING_DUMP']))
+        sys.exit(1)
+    if os.environ.get('REPLACE_DB_DURING_DUMP'):
+        pathlib.Path(os.environ['STOPPED'] + '-db-replaced').touch()
         sys.exit(1)
     if args[1] == '-i' and os.environ.get('RESTORE_FAILURE'):
         sys.exit(1)
     if args[1] != '-i' and os.environ.get('DUMP_FAILURE'):
         sys.exit(1)
     print('synthetic-dump')
-    sys.exit(0)
-if args and args[0] == 'start':
-    if os.environ.get('START_FAILURE'):
-        sys.exit(1)
-    stopped.unlink(missing_ok=True)
     sys.exit(0)
 if args and args[0] in ('stop', 'rm'):
     sys.exit(0)
@@ -119,19 +120,10 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         }
 
     def runbook(self, name, extra=None):
-        if name in ("backup", "prepared_backup"):
-            backup = command(
+        if name == "backup":
+            code = command(
                 ROOT / "README.md", "### Upgrading Coder to 2.38", "backup_dir="
             )
-            if name == "prepared_backup":
-                preparation = command(
-                    ROOT / "README.md",
-                    "### Upgrading Coder to 2.38",
-                    "docker compose pull coder",
-                )
-                code = f"set -e\n{preparation}\n{backup}"
-            else:
-                code = backup
         else:
             code = command(
                 ROOT / "docs/operations.md",
@@ -148,14 +140,16 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         )
 
     def test_preparation_precedes_successful_backup(self):
-        result = self.runbook("prepared_backup")
+        result = self.runbook("backup")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.trace.read_text()
         self.assertLess(
-            calls.index("docker compose pull coder"), calls.index("make coder-preflight")
+            calls.index("docker compose pull coder"),
+            calls.index("make coder-preflight"),
         )
         self.assertLess(
-            calls.index("make coder-preflight"), calls.index("docker compose stop coder")
+            calls.index("make coder-preflight"),
+            calls.index("docker compose stop coder"),
         )
         self.assertIn("Coder database archive verified", result.stdout)
         self.assertTrue((self.root / "stopped").exists())
@@ -164,7 +158,7 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         for values in ({"PULL_FAILURE": "1"}, {"PREFLIGHT_FAILURE": "1"}):
             with self.subTest(values=values):
                 self.trace.write_text("")
-                result = self.runbook("prepared_backup", values)
+                result = self.runbook("backup", values)
                 calls = self.trace.read_text()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("docker compose pull coder", calls)
@@ -174,6 +168,27 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
                 self.assertNotIn("docker compose stop coder", calls)
                 self.assertNotIn("docker exec ", calls)
                 self.assertFalse((self.root / "stopped").exists())
+                self.assert_no_recovery(calls)
+
+    def assert_no_recovery(self, calls):
+        for operation in (
+            "docker start ",
+            "docker compose start ",
+            "docker compose up ",
+            "docker run ",
+            "docker rm ",
+        ):
+            self.assertNotIn(operation, calls)
+
+    def assert_recovery_warning(self, result):
+        self.assertIn("Coder state may still be changing", result.stderr)
+        self.assertIn("Wait for any in-flight stop", result.stderr)
+        self.assertIn("database ID id-coder-db", result.stderr)
+        self.assertIn("project devenv-cloud", result.stderr)
+        self.assertIn("database volume devenv-cloud_coder_db_data", result.stderr)
+        self.assertIn("migration schema before any manual restart", result.stderr)
+        self.assertIn("No restart or recreation was attempted", result.stderr)
+        self.assert_no_recovery(self.trace.read_text())
 
     def test_backup_uses_selected_custom_project_and_immutable_database_id(self):
         result = self.runbook("backup", {"COMPOSE_PROJECT_NAME": "chosen-project"})
@@ -183,7 +198,7 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         self.assertIn("docker compose stop coder", calls)
         self.assertIn("docker exec id-coder-db sh -c", calls)
         self.assertIn("docker exec -i id-coder-db pg_restore --list", calls)
-        self.assertNotIn("docker start ", calls)
+        self.assert_no_recovery(calls)
         self.assertTrue((self.root / "stopped").exists())
 
     def test_backup_refuses_wrong_project_volume_selection_or_absent_container(self):
@@ -211,11 +226,10 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("docker compose stop coder", self.trace.read_text())
                 self.assertNotIn("docker exec ", self.trace.read_text())
-                if "STOP_NOOP" in values:
-                    self.assertNotIn("docker start ", self.trace.read_text())
-                else:
-                    self.assertIn("docker start id-coder", self.trace.read_text())
-                self.assertFalse((self.root / "stopped").exists())
+                self.assert_recovery_warning(result)
+                self.assertEqual(
+                    (self.root / "stopped").exists(), "REPLACE_DB" in values
+                )
 
     def test_backup_does_not_report_success_after_dump_or_archive_failure(self):
         for values in ({"DUMP_FAILURE": "1"}, {"RESTORE_FAILURE": "1"}):
@@ -226,23 +240,41 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("docker exec id-coder-db", self.trace.read_text())
                 self.assertNotIn("Coder database archive verified", result.stdout)
-                self.assertIn("docker start id-coder", self.trace.read_text())
-                self.assertIn("Original Coder container restarted", result.stderr)
-                self.assertFalse((self.root / "stopped").exists())
+                self.assert_recovery_warning(result)
+                self.assertTrue((self.root / "stopped").exists())
                 if "DUMP_FAILURE" in values:
                     self.assertNotIn("docker exec -i", self.trace.read_text())
 
-    def test_backup_recovers_when_stop_fails_after_stopping(self):
+    def test_backup_warns_when_stop_fails_after_stopping(self):
         result = self.runbook("backup", {"STOP_FAILURE": "1"})
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("docker start id-coder", self.trace.read_text())
+        self.assert_recovery_warning(result)
         self.assertNotIn("docker exec ", self.trace.read_text())
-        self.assertFalse((self.root / "stopped").exists())
+        self.assertTrue((self.root / "stopped").exists())
 
-    def test_backup_refuses_restart_if_coder_was_replaced(self):
+    def test_backup_warns_when_failed_stop_may_finish_later(self):
+        result = self.runbook("backup", {"STOP_DELAYED": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_recovery_warning(result)
+        self.assertTrue((self.root / "stopped-pending").exists())
+        self.assertFalse((self.root / "stopped").exists())
+        self.assertNotIn("docker exec ", self.trace.read_text())
+        (self.root / "stopped").touch()
+        self.assertTrue((self.root / "stopped").exists())
+        self.assert_no_recovery(self.trace.read_text())
+
+    def test_backup_does_not_restart_when_database_changes_during_dump(self):
+        result = self.runbook("backup", {"REPLACE_DB_DURING_DUMP": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.root / "stopped-db-replaced").exists())
+        self.assertTrue((self.root / "stopped").exists())
+        self.assertIn("docker exec id-coder-db", self.trace.read_text())
+        self.assert_recovery_warning(result)
+
+    def test_backup_warns_if_coder_or_database_identity_changes(self):
         for values in (
             {"REPLACE_CODER": "1"},
-            {"REPLACE_SELECTION": "1", "DUMP_FAILURE": "1"},
+            {"REPLACE_DB": "1"},
             {"MISSING_AFTER_STOP": "id-coder"},
         ):
             with self.subTest(values=values):
@@ -250,23 +282,20 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
                 (self.root / "stopped").unlink(missing_ok=True)
                 result = self.runbook("backup", values)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("restart refused", result.stderr)
-                self.assertNotIn("docker start ", self.trace.read_text())
+                self.assert_recovery_warning(result)
+                self.assertNotIn("docker exec ", self.trace.read_text())
                 self.assertTrue((self.root / "stopped").exists())
 
-    def test_backup_reports_restart_failure(self):
-        result = self.runbook("backup", {"DUMP_FAILURE": "1", "START_FAILURE": "1"})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("failed to restart the original Coder container", result.stderr)
-        self.assertIn("docker start id-coder", self.trace.read_text())
-        self.assertTrue((self.root / "stopped").exists())
-
-    def test_backup_recovers_on_term_during_dump(self):
-        result = self.runbook("backup", {"SIGNAL_DURING_DUMP": "1"})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("docker start id-coder", self.trace.read_text())
-        self.assertNotIn("Coder database archive verified", result.stdout)
-        self.assertFalse((self.root / "stopped").exists())
+    def test_backup_warns_on_signal_during_dump(self):
+        for sig in ("SIGTERM", "SIGHUP"):
+            with self.subTest(signal=sig):
+                self.trace.write_text("")
+                (self.root / "stopped").unlink(missing_ok=True)
+                result = self.runbook("backup", {"SIGNAL_DURING_DUMP": sig})
+                self.assertNotEqual(result.returncode, 0)
+                self.assert_recovery_warning(result)
+                self.assertNotIn("Coder database archive verified", result.stdout)
+                self.assertTrue((self.root / "stopped").exists())
 
     def test_promtail_removal_uses_selected_custom_project(self):
         result = self.runbook("promtail", {"COMPOSE_PROJECT_NAME": "chosen-project"})
