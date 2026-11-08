@@ -1,6 +1,6 @@
 # M13 Observability: Loki (log storage backend) — single-node, filesystem
 # storage, no external object store required for this local/demo stack.
-# Not published to the host — reachable only from `promtail` (which writes)
+# Not published to the host — reachable only from `alloy` (which writes)
 # and `grafana` (which queries) on the internal `platform-control` network.
 auth_enabled: false
 

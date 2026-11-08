@@ -62,7 +62,9 @@ engineering work:
   explicit approval) with real Rego policy, not hardcoded checks.
 - **Observability** — every execution path (runner, Temporal worker, MCP
   services, containers) emits metrics/logs collected centrally and
-  visualized in Grafana, correlated across services by timestamp.
+  visualized in Grafana, correlated across services by timestamp. Alloy ships
+  Docker logs to Loki; see [`docs/operations.md`](docs/operations.md) for
+  Promtail cutover and verification.
 - **Backup/restore & release discipline** — every category of
   non-regenerable state (repo, Coder DB, Temporal DB, OpenBao, workspace
   home volumes) is backed up and proven restorable end-to-end.

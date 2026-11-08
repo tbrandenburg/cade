@@ -650,7 +650,7 @@ services:
   # "Loki (logs) and/or Tempo (traces)" guidance) because the Manual E2E
   # Test's cross-service timestamp correlation needs per-request log
   # lines, not just aggregate metrics. Not published to the host -
-  # reachable only from `promtail` (writes) and `grafana` (queries).
+  # reachable only from `alloy` (writes) and `grafana` (queries).
   loki:
     image: grafana/loki:3.5.9
     container_name: loki
@@ -662,23 +662,17 @@ services:
     networks:
       - platform-control
 
-  # promtail: Milestone M13. Ships every compose-managed container's
-  # stdout/stderr to Loki (GitHub runner during a job, Temporal
-  # worker/server, MCP lab-sim, Coder/Agent Host) so a single execution can
-  # be found and timestamp-correlated across services in Grafana. Read-only
-  # access to the host's Docker socket for container discovery only - no
-  # exec/build/network privileges (same "minimum privilege" posture as
-  # `runner-docker-proxy` above, just via a different mechanism since
-  # promtail talks to the socket directly rather than through a proxy).
-  promtail:
-    image: grafana/promtail:3.5.9
-    container_name: promtail
+  # Alloy discovers Docker containers and ships their stdout/stderr to Loki.
+  # A read-only socket bind does not restrict Docker API operations: socket
+  # access still grants control of the host daemon, as it did for Promtail.
+  alloy:
+    image: grafana/alloy:v1.21.3
+    container_name: alloy
     restart: unless-stopped
-    command: ["-config.file=/etc/promtail/config.yaml"]
     volumes:
-      - ./observability/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - alloy_data:/var/lib/alloy/data
     networks:
       - platform-control
     depends_on:
@@ -834,6 +828,7 @@ volumes:
   openbao_data:
   prometheus_data:
   loki_data:
+  alloy_data:
   grafana_data:
   omnigent_db_data:
   omnigent_artifact_data:
