@@ -15,21 +15,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS = {
     "docker-workspace": {
-        "docker_socket": "", "workspace_image": "cade/coder-workspace:latest",
+        "docker_socket": "",
+        "workspace_image": "cade/coder-workspace:latest",
         "temporal_ui_public_url": "http://localhost:8088",
         "nodered_icon": "https://cdn.simpleicons.org/nodered",
         "omnigent_server_url": "http://omnigent-server:8000",
-        "omnigent_public_url": "http://localhost:8000", "omnigent_sandbox_mode": "srt",
+        "omnigent_public_url": "http://localhost:8000",
+        "omnigent_sandbox_mode": "srt",
     },
-    "embedded-linux": {"docker_socket": "", "workspace_image": "cade/embedded-linux-workspace:latest"},
+    "embedded-linux": {
+        "docker_socket": "",
+        "workspace_image": "cade/embedded-linux-workspace:latest",
+    },
     "devcontainer": {
-        "docker_socket": "", "repo_url": "", "bootstrap_image": "cade/devcontainer-bootstrap:latest",
+        "docker_socket": "",
+        "repo_url": "",
+        "bootstrap_image": "cade/devcontainer-bootstrap:latest",
         "default_devcontainer_image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     },
     "agent-workspace": {
-        "docker_socket": "", "workspace_image": "cade/agent-workspace:latest",
+        "docker_socket": "",
+        "workspace_image": "cade/agent-workspace:latest",
         "omnigent_server_url": "http://omnigent-server:8000",
-        "omnigent_public_url": "http://localhost:8000", "omnigent_sandbox_mode": "srt",
+        "omnigent_public_url": "http://localhost:8000",
+        "omnigent_sandbox_mode": "srt",
     },
 }
 
@@ -39,17 +48,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Coder-Session-Token") != "fixture-token":
             self.send_error(401)
             return
-        if self.server.fail and (self.server.fail == "all" or self.server.fail in self.path):
+        if self.server.fail and (
+            self.server.fail == "all" or self.server.fail in self.path
+        ):
             self.send_error(500)
             return
         if self.path == "/api/v2/templates":
-            data = [{"name": name, "active_version_id": name} for name in self.server.values]
-        elif self.path.startswith("/api/v2/templateversions/") and self.path.endswith("/variables"):
+            data = [
+                {"name": name, "active_version_id": name} for name in self.server.values
+            ]
+        elif self.path.startswith("/api/v2/templateversions/") and self.path.endswith(
+            "/variables"
+        ):
             name = self.path.split("/")[4]
             if name not in self.server.values:
                 self.send_error(404)
                 return
-            data = [{"name": key, "value": value} for key, value in self.server.values[name].items()]
+            data = [
+                {"name": key, "value": value}
+                for key, value in self.server.values[name].items()
+            ]
         else:
             self.send_error(404)
             return
@@ -85,7 +103,8 @@ class TemplateVarsTest(unittest.TestCase):
         self.thread.start()
         self.addCleanup(self.stop_server)
         self.env = {
-            "PATH": os.environ["PATH"], "HOME": str(self.root),
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.root),
             "CODER_URL": f"http://127.0.0.1:{self.server.server_port}",
             "CODER_SESSION_TOKEN": "fixture-token",
         }
@@ -96,8 +115,15 @@ class TemplateVarsTest(unittest.TestCase):
         self.thread.join(timeout=5)
 
     def run_command(self, *args, env=None):
-        return subprocess.run(args, cwd=self.root, env=env or self.env, text=True,
-                              capture_output=True, timeout=15, check=False)
+        return subprocess.run(
+            args,
+            cwd=self.root,
+            env=env or self.env,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
 
     def test_slug_precedence_and_push_recipe(self):
         scenarios = [
@@ -108,7 +134,9 @@ class TemplateVarsTest(unittest.TestCase):
             ("", None, None, "tbrandenburg/cade"),
         ]
         for file_slug, env_slug, cli_slug, expected in scenarios:
-            with self.subTest(file=file_slug, environment=env_slug, command_line=cli_slug):
+            with self.subTest(
+                file=file_slug, environment=env_slug, command_line=cli_slug
+            ):
                 envfile = self.root / ".env"
                 if file_slug is None:
                     envfile.unlink(missing_ok=True)
@@ -120,14 +148,26 @@ class TemplateVarsTest(unittest.TestCase):
                 url = f"https://github.com/{expected}.git"
                 self.server.values["devcontainer"]["repo_url"] = url
                 cli = [f"REPO_SLUG={cli_slug}"] if cli_slug is not None else []
-                result = self.run_command("make", "templates-verify-vars", *cli, env=env)
+                result = self.run_command(
+                    "make", "templates-verify-vars", *cli, env=env
+                )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("PASS  repo_url", result.stdout)
-                push = self.run_command("make", "-n", "-o", "embedded-workspace-build", "-o",
-                                        "devcontainer-workspace-build", "-o", "agent-workspace-build",
-                                        "templates-push", *cli, env=env)
+                push = self.run_command(
+                    "make",
+                    "-n",
+                    "-o",
+                    "embedded-workspace-build",
+                    "-o",
+                    "devcontainer-workspace-build",
+                    "-o",
+                    "agent-workspace-build",
+                    "templates-push",
+                    *cli,
+                    env=env,
+                )
                 self.assertEqual(push.returncode, 0, push.stderr)
-                self.assertEqual(push.stdout.count(f'repo_url={url}'), 4, push.stdout)
+                self.assertEqual(push.stdout.count(f"repo_url={url}"), 4, push.stdout)
 
     def test_mismatch_and_unrelated_drift(self):
         expected = "https://github.com/tbrandenburg/cade.git"
@@ -143,7 +183,9 @@ class TemplateVarsTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DRIFT workspace_image", result.stdout)
         self.assertIn("PASS  repo_url", result.stdout)
-        self.server.values["embedded-linux"]["workspace_image"] = DEFAULTS["embedded-linux"]["workspace_image"]
+        self.server.values["embedded-linux"]["workspace_image"] = DEFAULTS[
+            "embedded-linux"
+        ]["workspace_image"]
         self.server.values["devcontainer"]["bootstrap_image"] = "wrong"
         result = self.run_command("make", "templates-verify-vars")
         self.assertNotEqual(result.returncode, 0)
@@ -153,16 +195,22 @@ class TemplateVarsTest(unittest.TestCase):
         result = self.run_command("bash", "scripts/verify-template-vars.sh")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS  repo_url", result.stdout)
-        self.server.values["devcontainer"]["repo_url"] = "https://github.com/example/fork.git"
+        self.server.values["devcontainer"]["repo_url"] = (
+            "https://github.com/example/fork.git"
+        )
         result = self.run_command("bash", "scripts/verify-template-vars.sh")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(".tf default=''", result.stdout)
 
     def test_missing_and_error_inputs(self):
-        result = self.run_command("bash", "scripts/verify-template-vars.sh", "--expected-repo-url", "")
+        result = self.run_command(
+            "bash", "scripts/verify-template-vars.sh", "--expected-repo-url", ""
+        )
         self.assertEqual(result.returncode, 2)
         self.assertIn("Usage:", result.stderr)
-        result = self.run_command("bash", "scripts/verify-template-vars.sh", "--expected-repo-url")
+        result = self.run_command(
+            "bash", "scripts/verify-template-vars.sh", "--expected-repo-url"
+        )
         self.assertEqual(result.returncode, 2)
         self.assertIn("Usage:", result.stderr)
         del self.server.values["devcontainer"]["repo_url"]
