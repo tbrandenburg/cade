@@ -157,6 +157,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Coder / Terraform / Docker
 
+- 2026-11-08: Pitfall: Coder can return a deleted user by ID with status `active`. Prevention: verify deletion through the username lookup, `users.deleted`, and rejected authentication.
 - A `server create-admin-user`-bootstrapped admin can never delete or suspend itself via `coder users delete/suspend` — mint throwaway test admins sparingly and clean them up from a *different* already-authenticated session, or accept they accumulate.
 - `coder templates push` never resets an already-pushed variable to its `.tf` default — only an explicit `--variable` overrides the live value; re-run a drift-check script after any `.tf` default change.
 - Pass every `coder_parameter` explicitly on `coder create --yes`, even ones with defaults — otherwise it hangs with an opaque `prepare build: EOF`.
