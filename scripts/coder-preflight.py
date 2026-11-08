@@ -121,6 +121,10 @@ def check_database_volume(compose, baseline, db_id):
         raise ValueError(
             "existing coder-db data mount does not match the effective named volume"
         )
+    check_database_mount_declaration(db_id, name)
+
+
+def check_database_mount_declaration(db_id, name):
     result = run(
         [
             "docker",
@@ -198,35 +202,7 @@ def check_database_pgdata(compose, baseline, db_id):
         raise ValueError("existing coder-db PGDATA is missing, ambiguous or mismatched")
 
 
-def main():
-    effective = config([])
-    project = effective["name"]
-    if not isinstance(project, str) or not project:
-        raise ValueError("effective Compose project name is missing")
-    for name in ("coder", "coder-db"):
-        if effective["services"][name].get("container_name") != name:
-            raise ValueError(f"effective {name} container name must remain fixed")
-    db_id = check_existing(project)
-    baseline_config = config(["-p", project, "-f", str(ROOT / "compose.yaml")])
-    check_database_volume(effective, baseline_config, db_id)
-    check_database_pgdata(effective, baseline_config, db_id)
-    coder = effective["services"]["coder"]
-    baseline = baseline_config["services"]["coder"]
-    raw = config([], raw=True)["services"]["coder"]
-    baseline_raw = config(["-p", project, "-f", str(ROOT / "compose.yaml")], raw=True)[
-        "services"
-    ]["coder"]
-    image = baseline.get("image")
-    match = re.fullmatch(r"ghcr\.io/coder/coder:(v\d+\.\d+\.\d+)", image or "")
-    if not match:
-        raise ValueError("invalid baseline Coder image")
-    version = match.group(1)
-    if raw.get("environment", {}).get(IMAGE_KEY) != baseline_raw.get(
-        "environment", {}
-    ).get(IMAGE_KEY) or raw.get("env_file") != baseline_raw.get("env_file"):
-        raise ValueError("Coder supported image environment must not be overridden")
-    if coder.get("image") != image:
-        raise ValueError(f"effective Coder image must be {image}")
+def check_coder_settings(baseline, coder, image, version):
     for service in (baseline, coder):
         settings = service.get("environment", {})
         if settings.get(IMAGE_KEY) != image:
@@ -242,6 +218,9 @@ def main():
             )
         if not {"mcp-server-http", "*"}.intersection(experiments.split(",")):
             raise ValueError("CODER_EXPERIMENTS must enable mcp-server-http")
+
+
+def check_coder_overrides(baseline, coder):
     for key in (
         "entrypoint",
         "command",
@@ -257,6 +236,8 @@ def main():
         if target in ("/", "/opt", "/opt/coder"):
             raise ValueError("Coder binary cannot be shadowed by a mount")
 
+
+def check_coder_binary(image, version):
     if run(["docker", "image", "inspect", image]).returncode:
         if run(["docker", "pull", image], timeout=600).returncode:
             raise ValueError("could not obtain the supported Coder image")
@@ -288,6 +269,40 @@ def main():
     if actual != version:
         raise ValueError("Coder image contains an unsupported binary")
     print(f"Coder preflight: {image} and binary verified")
+
+
+def main():
+    effective = config([])
+    project = effective["name"]
+    if not isinstance(project, str) or not project:
+        raise ValueError("effective Compose project name is missing")
+    for name in ("coder", "coder-db"):
+        if effective["services"][name].get("container_name") != name:
+            raise ValueError(f"effective {name} container name must remain fixed")
+    db_id = check_existing(project)
+    baseline_config = config(["-p", project, "-f", str(ROOT / "compose.yaml")])
+    check_database_volume(effective, baseline_config, db_id)
+    check_database_pgdata(effective, baseline_config, db_id)
+    coder = effective["services"]["coder"]
+    baseline = baseline_config["services"]["coder"]
+    raw = config([], raw=True)["services"]["coder"]
+    baseline_raw = config(["-p", project, "-f", str(ROOT / "compose.yaml")], raw=True)[
+        "services"
+    ]["coder"]
+    image = baseline.get("image")
+    match = re.fullmatch(r"ghcr\.io/coder/coder:(v\d+\.\d+\.\d+)", image or "")
+    if not match:
+        raise ValueError("invalid baseline Coder image")
+    version = match.group(1)
+    if raw.get("environment", {}).get(IMAGE_KEY) != baseline_raw.get(
+        "environment", {}
+    ).get(IMAGE_KEY) or raw.get("env_file") != baseline_raw.get("env_file"):
+        raise ValueError("Coder supported image environment must not be overridden")
+    if coder.get("image") != image:
+        raise ValueError(f"effective Coder image must be {image}")
+    check_coder_settings(baseline, coder, image, version)
+    check_coder_overrides(baseline, coder)
+    check_coder_binary(image, version)
 
 
 if __name__ == "__main__":
