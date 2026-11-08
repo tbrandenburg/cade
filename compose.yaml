@@ -29,7 +29,8 @@ services:
       start_period: 10s
 
   coder:
-    image: ghcr.io/coder/coder:${CODER_VERSION:-v2.38.6}
+    # One supported server version; the entrypoint rejects stale overrides.
+    image: ghcr.io/coder/coder:v2.38.6
     container_name: coder
     restart: unless-stopped
     # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
@@ -41,6 +42,16 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        if [ "$$CADE_CODER_VERSION" != "v2.38.6" ]; then
+          echo "ERROR: unsupported CODER_VERSION; use v2.38.6. See README upgrading Coder." >&2
+          exit 1
+        fi
+        case ",$$(printf '%s' "$$CODER_EXPERIMENTS" | tr -d '[:space:]')," in
+          *,oauth2,*)
+            echo "ERROR: remove the retired oauth2 experiment from CODER_EXPERIMENTS. See README upgrading Coder." >&2
+            exit 1
+            ;;
+        esac
         if [ -n "$$GITHUB_OAUTH_CLIENT_ID" ]; then
           export CODER_EXTERNAL_AUTH_0_ID=github
           export CODER_EXTERNAL_AUTH_0_TYPE=github
@@ -83,6 +94,7 @@ services:
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_OAUTH2_PROVIDER_ENABLE: "true"
+      CADE_CODER_VERSION: "${CODER_VERSION:-v2.38.6}"
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-mcp-server-http}"
       # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)
       # blocks the `coder_app.omnigent` dashboard tile's icon, which points

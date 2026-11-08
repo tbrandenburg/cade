@@ -199,23 +199,32 @@ acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unva
 
 ### Upgrading Coder to 2.38
 
-The supported image defaults to `v2.38.6` in `compose.yaml`; use a matching
-Coder CLI. Existing `.env` files can override the default: remove the old
+The supported image is pinned to `v2.38.6` in `compose.yaml`; use a matching
+Coder CLI. The container refuses to start if a nonempty `CODER_VERSION`
+override differs from that pin or if `CODER_EXPERIMENTS` contains `oauth2`.
+Before starting the new revision, remove the old
 `CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
 `CODER_EXPERIMENTS=oauth2,mcp-server-http` with `mcp-server-http`. Preserve
 any other experiments you intentionally use. Compose now enables the OAuth2
 provider separately; the retired `oauth2` experiment no longer enables it.
 Check the effective image with `docker compose config --images` before starting.
+The guard runs inside the container, so it does not prevent Compose from
+stopping the old Coder container during recreation; follow the backup and
+quiescence procedure below before starting the new revision.
 
 Before upgrading an existing deployment, record its workspace names and
-templates (`coder list`) and take a Coder database dump. This example creates
-a private directory and checks the archive's table of contents without
-stopping other services:
+templates (`coder list`). Schedule downtime, stop user and automation writes
+(including Temporal workspace operations and direct database writers), wait for
+in-flight operations to finish, and stop Coder. Keep those writers quiescent
+until the upgrade and verification are complete. Immediately before migration,
+dump the Coder database; this creates a private directory and checks the
+archive's table of contents while the database stays running:
 
 ```bash
 (
   set -euo pipefail
   umask 077
+  docker compose stop coder
   backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
   docker exec coder-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
   docker exec -i coder-db pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
@@ -223,7 +232,10 @@ stopping other services:
 )
 ```
 
-Keep the archive safe; do not delete the database or workspace volumes. A
+Keep the archive safe; do not delete the database or workspace volumes. The
+dump is the rollback recovery point: restoring it loses Coder database changes
+made after the dump, including any writes allowed after the upgrade. Workspace
+home volumes are not covered by this dump. A
 schema migration may prevent an old server from starting against the upgraded
 database: a rollback requires restoring the pre-upgrade dump, not just changing
 the image tag. After the backup, pull and recreate only Coder with

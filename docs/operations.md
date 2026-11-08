@@ -85,11 +85,23 @@ Observability (Minimum Dashboard)"). Panels, top to bottom:
 
 ### Migrating from Promtail
 
-Before deploying this revision on an existing installation, use the old
-Compose file to stop and remove the old collector:
+Before deploying Alloy on an existing installation, stop and remove the old
+collector. This also works after checking out this revision, whose Compose file
+no longer defines Promtail. The old service used the explicit container name
+`promtail`; verify its Compose labels before acting on its immutable ID:
 
 ```bash
-docker compose rm --stop --force promtail
+(
+  set -euo pipefail
+  id="$(docker inspect --format '{{.Id}}' promtail)"
+  labels="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
+  if [ "$labels" != 'devenv-cloud:promtail' ]; then
+    printf 'Refusing to remove container with unexpected Compose labels: %s\n' "$labels" >&2
+    exit 1
+  fi
+  docker stop "$id"
+  docker rm "$id"
+)
 ```
 
 Then deploy this revision with `make up`. Compose does not remove orphaned
@@ -103,11 +115,20 @@ Alloy's Docker cursor has whole-second precision, so entries in the last
 recorded second may also be re-sent after a restart; check the resulting Loki
 streams rather than assuming exactly-once delivery.
 
-For acceptance, emit distinct nonsecret stdout and stderr markers in a
-disposable discovered container, then locate them in Grafana Explore with
+For acceptance, before stopping Promtail emit distinct nonsecret stdout and
+stderr markers in a disposable discovered container and record their Loki
+timestamps and counts, using the same streams and time windows after cutover. Compare
+the retained pre-cutover entries and counts after Alloy starts to detect replay;
+allow ingestion to settle before each comparison. In Grafana Explore use
 `{container="<name>", stream="stdout"} |= "<marker>"` and the corresponding
-`stderr` selector. Record timestamps and counts, restart Alloy, emit new
-markers, and repeat; check that each marker appears once and Promtail is absent.
+`stderr` selector. Also emit distinct markers after cutover, record their
+timestamps and counts, restart Alloy, then query those **same pre-restart**
+markers over the same time window and compare counts. Emit new post-restart
+markers to check continued ingestion, and verify Promtail is absent. Report
+missing or increased counts rather than assuming either is impossible: a test
+fixture observed duplication at a whole-second cursor boundary. Loki query
+results, retention, timestamp boundaries and deduplication can obscure what was
+sent; these comparisons are diagnostic, not proof of exactly-once delivery.
 For `docker exec` markers, write to `/proc/1/fd/1` or `/proc/1/fd/2` so Docker
 captures them in the container log.
 
