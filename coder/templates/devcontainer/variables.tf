@@ -6,7 +6,7 @@ variable "docker_socket" {
 
 variable "repo_url" {
   default     = ""
-  description = "Repository to auto-clone into the workspace on first start. Leave empty for a blank workspace (bring your own project). To dogfood cade itself, pass --parameter repo_url=https://github.com/tbrandenburg/cade.git at `coder create` time."
+  description = "Repository to auto-clone into the workspace on first start. The default is empty for a blank workspace. Set at template publish time with `coder templates push --variable repo_url=<url>`; to clear an existing value, explicitly pass --variable 'repo_url='."
   type        = string
 }
 

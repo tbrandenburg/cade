@@ -16,6 +16,7 @@ REPO_SLUG ?= $(shell grep -m1 '^REPO_SLUG=' .env 2>/dev/null | cut -d= -f2-)
 ifeq ($(strip $(REPO_SLUG)),)
 REPO_SLUG := tbrandenburg/cade
 endif
+TEMPLATE_REPO_URL := https://github.com/$(REPO_SLUG).git
 
 .PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule workspaces-restart
 
@@ -264,13 +265,13 @@ agent-workspace-build: coder-workspace-build
 ## and healthy (`make status`).
 templates-push: embedded-workspace-build devcontainer-workspace-build agent-workspace-build
 	@coder templates push docker-workspace -d coder/templates/docker-workspace \
-		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
 	@coder templates push embedded-linux -d coder/templates/embedded-linux \
-		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
 	@coder templates push devcontainer -d coder/templates/devcontainer \
-		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
 	@coder templates push agent-workspace -d coder/templates/agent-workspace \
-		--variable "repo_url=https://github.com/$(REPO_SLUG).git" --yes
+		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
 
 ## templates-verify-vars: Detect Coder server-side template-variable drift (Issue #73).
 ## Coder persists each template variable's *value* server-side across
@@ -278,12 +279,12 @@ templates-push: embedded-workspace-build devcontainer-workspace-build agent-work
 ## `.tf` default (e.g. the devenv-cloud -> cade rebrand) silently never takes
 ## effect on an already-pushed template unless a push explicitly passes
 ## `--variable`. Fetches each of the 4 templates' live variable values via
-## the Coder API and diffs them against their own `variables.tf` defaults,
-## failing loudly (non-zero exit) on any mismatch instead of staying silent.
+## the Coder API and compares them to their `variables.tf` defaults, except
+## devcontainer repo_url, which must match the URL published by templates-push.
 ## Requires: CODER_SESSION_TOKEN (or an existing `coder login` session) and
 ## the Coder server up/healthy (`make status`).
 templates-verify-vars:
-	@bash scripts/verify-template-vars.sh
+	@bash scripts/verify-template-vars.sh --expected-repo-url "$(TEMPLATE_REPO_URL)"
 
 ## ai-bootstrap: Reconcile coder/ai/{providers,models}.yaml into the running Coder deployment.
 ai-bootstrap:

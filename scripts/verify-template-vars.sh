@@ -11,21 +11,25 @@
 #
 # This script fetches each of the 4 live templates' active-version variables
 # via the Coder API and diffs each variable's live `value` against its
-# `default` as declared in that template's own `variables.tf`, printing a
-# PASS/DRIFT line per variable and failing loudly (non-zero exit) if any
-# live value differs from its `.tf` default.
+# `default` as declared in that template's own `variables.tf`. When an
+# expected repo URL is supplied, devcontainer.repo_url is compared to it
+# instead; this is the deliberate override used by make templates-push.
 #
-# A live value that legitimately differs from the `.tf` default on purpose
-# (a deliberate override) is not distinguished from an accidental one by
-# this script -- per Issue #73's acceptance criteria, any such override must
-# be handled by updating the `.tf` default itself (so the two stay in sync)
-# rather than left as a silent, undocumented drift.
-#
-# Usage: scripts/verify-template-vars.sh
+# Usage: scripts/verify-template-vars.sh [--expected-repo-url URL]
+# Without the option, checks devcontainer.repo_url against its blank default.
 # Requires: CODER_SESSION_TOKEN env var (or ~/.config/coderv2/session, same
 # fallback the `coder` CLI itself uses) and the Coder server reachable at
 # CODER_URL (default http://localhost:7080).
 set -euo pipefail
+
+expected_repo_url=""
+if [[ $# -ne 0 ]]; then
+  if [[ $# -ne 2 || "$1" != "--expected-repo-url" || -z "$2" ]]; then
+    echo "Usage: $0 [--expected-repo-url URL] (URL must not be empty)" >&2
+    exit 2
+  fi
+  expected_repo_url="$2"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -98,11 +102,13 @@ for t in data:
 
   echo "=== ${tf_name} (${dir}/variables.tf) ==="
 
-  drift_found="$(python3 - "${vars_tf}" "${live_vars_json}" <<'PYEOF'
+  drift_found="$(python3 - "${vars_tf}" "${live_vars_json}" "${dir}" "${expected_repo_url}" <<'PYEOF'
 import json, re, sys
 
 vars_tf_path = sys.argv[1]
 live_vars = json.loads(sys.argv[2])
+template = sys.argv[3]
+expected_repo_url = sys.argv[4]
 
 with open(vars_tf_path, "r", encoding="utf-8") as f:
     tf_text = f.read()
@@ -118,18 +124,23 @@ for block_match in re.finditer(r'variable\s+"([^"]+)"\s*{([^}]*)}', tf_text, re.
         tf_defaults[name] = default_match.group(1)
 
 any_drift = False
+if template == "devcontainer" and expected_repo_url and not any(v["name"] == "repo_url" for v in live_vars):
+    any_drift = True
+    print(f"  DRIFT repo_url: missing from live variables; expected publish value={expected_repo_url!r}")
 for v in live_vars:
     name = v["name"]
     live_value = v["value"]
     if name not in tf_defaults:
         # Variable has no string default in .tf (e.g. required, no default) -- skip.
         continue
-    tf_default = tf_defaults[name]
-    if live_value == tf_default:
+    is_publish_override = template == "devcontainer" and name == "repo_url" and expected_repo_url
+    expected = expected_repo_url if is_publish_override else tf_defaults[name]
+    label = "expected publish value" if is_publish_override else ".tf default"
+    if live_value == expected:
         print(f"  PASS  {name}")
     else:
         any_drift = True
-        print(f"  DRIFT {name}: live={live_value!r} .tf default={tf_default!r}")
+        print(f"  DRIFT {name}: live={live_value!r} {label}={expected!r}")
 
 print("DRIFT_FOUND" if any_drift else "NO_DRIFT")
 PYEOF
@@ -145,9 +156,9 @@ done
 if [[ "${overall_status}" -ne 0 ]]; then
   echo
   echo "FAIL: template-variable drift detected -- see DRIFT lines above."
-  echo "Fix with: coder templates push <name> -d coder/templates/<dir> --yes --variable '<name>=<tf-default>' ..."
+  echo "Fix with: coder templates push <name> -d coder/templates/<dir> --yes --variable '<name>=<expected-value>' ..."
   exit 1
 fi
 
 echo
-echo "PASS: all live template variables match their .tf defaults."
+echo "PASS: live template variables match their expected values."

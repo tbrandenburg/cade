@@ -167,11 +167,24 @@ make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
 # 9. Push the Terraform template(s) and create a workspace
-make templates-push                 # pushes all three templates in one shot
+make templates-push                 # pushes the workspace templates
+make templates-verify-vars          # checks published values for drift
 # (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
 coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 ```
+
+`make templates-push` publishes the `devcontainer` template with
+`repo_url=https://github.com/<REPO_SLUG>.git`; `make templates-verify-vars`
+expects that exact URL and checks other template variables against their
+Terraform defaults. `REPO_SLUG` comes from the environment, `.env`, or the
+Make command line. Without a Coder session token the verifier reports `SKIP`
+and exits successfully, so check its output. The standalone
+`scripts/verify-template-vars.sh` instead checks the blank Terraform default.
+To switch an existing devcontainer
+template back to blank workspaces, explicitly publish it with
+`coder templates push devcontainer -d coder/templates/devcontainer --yes --variable 'repo_url='`;
+Coder retains prior template values when not explicitly overridden.
 
 Once a workspace is running, `scripts/configure-coder-ssh.sh` wires up local
 SSH config for `ssh coder.<workspace-name>`. Microsoft's standalone Agent
