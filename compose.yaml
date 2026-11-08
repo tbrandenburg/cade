@@ -4,6 +4,8 @@ name: devenv-cloud # pinned explicitly: the eventual devenv-cloud -> cade rebran
 # Compose derives the project name (and every named-volume prefix, e.g.
 # devenv-cloud_coder_db_data) from the directory name unless pinned here.
 
+x-coder-image: &coder-image ghcr.io/coder/coder:v2.38.6
+
 services:
   coder-db:
     image: postgres:17.11-alpine
@@ -29,13 +31,9 @@ services:
       start_period: 10s
 
   coder:
-    # Keep this pin in sync with coder/supported-version.env; startup checks both.
-    image: ghcr.io/coder/coder:v2.38.6
+    image: *coder-image
     container_name: coder
     restart: unless-stopped
-    # Compose resolves this into the container environment at creation time.
-    env_file:
-      - ./coder/supported-version.env
     # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
     # GITHUB_OAUTH_CLIENT_ID is non-empty, then exec the image's real
     # entrypoint/cmd (`/opt/coder server`, confirmed via `docker image
@@ -45,11 +43,10 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        supported=$$CADE_CODER_SUPPORTED_VERSION
-        if [ -z "$$supported" ]; then
-          echo "ERROR: missing supported Coder version; see README upgrading Coder." >&2
-          exit 1
-        fi
+        case "$$CADE_CODER_IMAGE" in
+          ghcr.io/coder/coder:v*) supported=$${CADE_CODER_IMAGE#ghcr.io/coder/coder:} ;;
+          *) echo "ERROR: invalid supported Coder image; see README upgrading Coder." >&2; exit 1 ;;
+        esac
         if [ -n "$$CADE_CODER_VERSION" ] && [ "$$CADE_CODER_VERSION" != "$$supported" ]; then
           echo "ERROR: unsupported CODER_VERSION; see README upgrading Coder." >&2
           exit 1
@@ -110,6 +107,7 @@ services:
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_OAUTH2_PROVIDER_ENABLE: "true"
+      CADE_CODER_IMAGE: *coder-image
       CADE_CODER_VERSION: "${CODER_VERSION:-}"
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-mcp-server-http}"
       # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)

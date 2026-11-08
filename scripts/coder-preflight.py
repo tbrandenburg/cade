@@ -9,8 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = ROOT / "coder/supported-version.env"
-VERSION_KEY = "CADE_CODER_SUPPORTED_VERSION"
+IMAGE_KEY = "CADE_CODER_IMAGE"
 DB_PATH = "/var/lib/postgresql/data"
 
 
@@ -70,14 +69,19 @@ def check_existing(project):
 
 
 def database_volume(compose):
-    mounts = [
-        mount
-        for mount in compose["services"]["coder-db"].get("volumes", [])
-        if posixpath.normpath(mount.get("target", "")) == DB_PATH
-    ]
-    if len(mounts) != 1 or mounts[0].get("type") != "volume":
+    service = compose["services"]["coder-db"]
+    if any(service.get(key) for key in ("tmpfs", "secrets", "configs", "volumes_from")):
+        raise ValueError("Coder database cannot have additional mounts")
+    mounts = service.get("volumes", []) or []
+    if (
+        len(mounts) != 1
+        or mounts[0].get("type") != "volume"
+        or posixpath.normpath(mounts[0].get("target", "")) != DB_PATH
+    ):
         raise ValueError("Coder database must have exactly one named data volume")
-    options = mounts[0].get("volume") or {}
+    options = mounts[0].get("volume")
+    if options is None:
+        options = {}
     if not isinstance(options, dict) or options.get("subpath") not in (None, ""):
         raise ValueError("Coder database volume subpath is not supported")
     volume = compose.get("volumes", {}).get(mounts[0].get("source"), {})
@@ -89,8 +93,15 @@ def database_volume(compose):
 
 def check_database_volume(compose, baseline, db_id):
     name = database_volume(compose)
+    baseline_name = database_volume(baseline)
+    mount = compose["services"]["coder-db"]["volumes"][0]
+    original = baseline["services"]["coder-db"]["volumes"][0]
+    if {key: value for key, value in mount.items() if key != "source"} != {
+        key: value for key, value in original.items() if key != "source"
+    }:
+        raise ValueError("Coder database mount options must match the baseline")
     if db_id is None:
-        if name != database_volume(baseline):
+        if name != baseline_name:
             raise ValueError(
                 "Coder database volume differs from baseline while coder-db is absent"
             )
@@ -100,11 +111,13 @@ def check_database_volume(compose, baseline, db_id):
             "docker",
             "inspect",
             "--format",
-            '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}}:{{.Name}}{{println}}{{end}}{{end}}',
+            "{{range .Mounts}}{{.Destination}} {{.Type}}:{{.Name}}{{println}}{{end}}",
             db_id,
         ]
     )
-    if result.returncode or result.stdout.strip().splitlines() != [f"volume:{name}"]:
+    if result.returncode or result.stdout.strip().splitlines() != [
+        f"{DB_PATH} volume:{name}"
+    ]:
         raise ValueError(
             "existing coder-db data mount does not match the effective named volume"
         )
@@ -113,19 +126,27 @@ def check_database_volume(compose, baseline, db_id):
             "docker",
             "inspect",
             "--format",
-            "{{json .HostConfig.Mounts}}\n{{json .HostConfig.Binds}}",
+            "{{json .HostConfig.Mounts}}\n{{json .HostConfig.Binds}}\n{{json .HostConfig.Tmpfs}}",
             db_id,
         ]
     )
     lines = result.stdout.strip().splitlines()
-    if result.returncode or len(lines) != 2:
+    if result.returncode or len(lines) != 3:
         raise ValueError("could not verify existing coder-db mount configuration")
-    mounts, binds = (json.loads(line) or [] for line in lines)
+    mounts = json.loads(lines[0])
+    binds = json.loads(lines[1])
+    tmpfs = json.loads(lines[2])
+    mounts = [] if mounts is None else mounts
+    binds = [] if binds is None else binds
+    tmpfs = {} if tmpfs is None else tmpfs
     if (
         not isinstance(mounts, list)
         or not isinstance(binds, list)
         or any(not isinstance(mount, dict) for mount in mounts)
         or any(not isinstance(bind, str) for bind in binds)
+        or not isinstance(tmpfs, dict)
+        or tmpfs
+        or len(mounts) + len(binds) != 1
     ):
         raise ValueError("could not verify existing coder-db mount configuration")
     declarations = [
@@ -138,7 +159,9 @@ def check_database_volume(compose, baseline, db_id):
     if len(declarations) != 1:
         raise ValueError("cannot uniquely verify existing coder-db data mount")
     mount = declarations[0]
-    options = mount.get("VolumeOptions") or {}
+    options = mount.get("VolumeOptions")
+    if options is None:
+        options = {}
     if (
         mount.get("Type") != "volume"
         or mount.get("Source") != name
@@ -176,11 +199,6 @@ def check_database_pgdata(compose, baseline, db_id):
 
 
 def main():
-    source = VERSION.read_text(encoding="utf-8")
-    match = re.fullmatch(r"CADE_CODER_SUPPORTED_VERSION=(v\d+\.\d+\.\d+)\n?", source)
-    if not match:
-        raise ValueError("invalid coder/supported-version.env")
-    version = match.group(1)
     effective = config([])
     project = effective["name"]
     if not isinstance(project, str) or not project:
@@ -198,19 +216,21 @@ def main():
     baseline_raw = config(["-p", project, "-f", str(ROOT / "compose.yaml")], raw=True)[
         "services"
     ]["coder"]
-    if VERSION_KEY in raw.get("environment", {}) or raw.get(
-        "env_file"
-    ) != baseline_raw.get("env_file"):
-        raise ValueError("Coder supported version environment must not be overridden")
-    image = f"ghcr.io/coder/coder:{version}"
+    image = baseline.get("image")
+    match = re.fullmatch(r"ghcr\.io/coder/coder:(v\d+\.\d+\.\d+)", image or "")
+    if not match:
+        raise ValueError("invalid baseline Coder image")
+    version = match.group(1)
+    if raw.get("environment", {}).get(IMAGE_KEY) != baseline_raw.get(
+        "environment", {}
+    ).get(IMAGE_KEY) or raw.get("env_file") != baseline_raw.get("env_file"):
+        raise ValueError("Coder supported image environment must not be overridden")
     if coder.get("image") != image:
         raise ValueError(f"effective Coder image must be {image}")
     for service in (baseline, coder):
         settings = service.get("environment", {})
-        if settings.get(VERSION_KEY) != version:
-            raise ValueError(
-                "effective Coder supported version differs from the version source"
-            )
+        if settings.get(IMAGE_KEY) != image:
+            raise ValueError("effective Coder guard does not match the baseline image")
         if settings.get("CADE_CODER_VERSION") not in (None, "", version):
             raise ValueError("unsupported CODER_VERSION; see README upgrading Coder")
         if settings.get("CODER_OAUTH2_PROVIDER_ENABLE") != "true":

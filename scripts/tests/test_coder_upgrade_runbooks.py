@@ -25,7 +25,7 @@ class UpgradeRunbooksTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         for directory in ("coder", "bin"):
             (self.root / directory).mkdir()
-        for path in ("compose.yaml", "coder/supported-version.env"):
+        for path in ("compose.yaml",):
             shutil.copyfile(ROOT / path, self.root / path)
         (self.root / ".env").write_text("")
         self.trace = self.root / "trace"

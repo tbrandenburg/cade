@@ -21,7 +21,6 @@ class PreflightTest(unittest.TestCase):
         for path in (
             "compose.yaml",
             "Makefile",
-            "coder/supported-version.env",
             "scripts/coder-preflight.py",
             "scripts/wait-for-coder.sh",
         ):
@@ -57,6 +56,7 @@ if args and args[0] == 'inspect' and '.HostConfig.Mounts' in args[2]:
                 'VolumeOptions': {'Subpath': os.environ.get('HOST_SUBPATH', '')}}]
     print(os.environ.get('HOST_MOUNTS_JSON', json.dumps(default)))
     print(os.environ.get('HOST_BINDS_JSON', 'null'))
+    print(os.environ.get('HOST_TMPFS_JSON', 'null'))
     sys.exit(0)
 if args and args[0] == 'inspect' and '.Config.Env' in args[2]:
     if os.environ.get('PGDATA_FAILURE'):
@@ -71,7 +71,12 @@ if args and args[0] == 'inspect' and '.Mounts' in args[2]:
     if os.environ.get('MOUNT_FAILURE'):
         sys.exit(1)
     project = os.environ.get('PROJECT_coder-db', 'devenv-cloud')
-    print(os.environ.get('DB_MOUNT', 'volume:' + project + '_coder_db_data') + '\\n')
+    mount = os.environ.get('DB_MOUNT', 'volume:' + project + '_coder_db_data')
+    for line in mount.splitlines():
+        print('/var/lib/postgresql/data ' + line)
+    if os.environ.get('ACTUAL_EXTRA_MOUNT'):
+        print('/usr/local/bin/docker-entrypoint.sh bind:')
+    print()
     sys.exit(0)
 if args[:2] == ['image', 'inspect'] or args[:2] == ['buildx', 'build']:
     sys.exit(0)
@@ -79,6 +84,8 @@ if args and args[0] == 'run':
     print(json.dumps({'version': os.environ.get('BINARY_VERSION', 'v2.38.6+test')}))
     sys.exit(0)
 if args[:2] == ['compose', 'up']:
+    with open(os.environ['TRACE'], 'a') as trace:
+        trace.write('up COMPOSE_REMOVE_ORPHANS=' + os.environ.get('COMPOSE_REMOVE_ORPHANS', '<unset>') + '\\n')
     sys.exit(int(os.environ.get('UP_FAILURE', '0')))
 if args[:2] == ['compose', 'ps']:
     print('synthetic-id')
@@ -141,11 +148,11 @@ exit 0
     def test_effective_image_and_command_overrides_stop_before_up(self):
         for override in (
             "services:\n  coder:\n    image: ghcr.io/coder/coder:v2.36.4\n",
+            "services:\n  coder:\n    image: ghcr.io/coder/coder:v2.36.4\n    environment:\n      CADE_CODER_IMAGE: ghcr.io/coder/coder:v2.36.4\n",
             'services:\n  coder:\n    entrypoint: ["/opt/coder", "server"]\n',
             "services:\n  coder:\n    pull_policy: always\n",
             "services:\n  coder:\n    volumes:\n      - /tmp:/opt/coder:ro\n",
-            "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.36.4\n",
-            "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.38.6\n",
+            "services:\n  coder:\n    environment:\n      CADE_CODER_IMAGE: ghcr.io/coder/coder:v2.36.4\n",
             "services:\n  coder:\n    environment:\n      CODER_OAUTH2_PROVIDER_ENABLE: 'false'\n",
             "services:\n  coder:\n    container_name: alternate-coder\n",
             "services:\n  coder-db:\n    container_name: alternate-db\n",
@@ -251,6 +258,75 @@ exit 0
                 self.assertIn("exactly one named data volume", result.stderr)
                 self.assertNotIn("compose up", self.trace.read_text())
 
+    def test_extra_database_mounts_fail_before_parallel_builds(self):
+        for override in (
+            "services:\n  coder-db:\n    volumes:\n      - /tmp:/usr/local/bin/docker-entrypoint.sh:ro\n",
+            "services:\n  coder-db:\n    volumes:\n      - /tmp:/other:ro\n",
+            "services:\n  coder-db:\n    tmpfs:\n      - /usr/local/bin\n",
+            "services:\n  coder-db:\n    volumes:\n      - type: volume\n        source: coder_db_data\n        target: /var/lib/postgresql/data\n        read_only: true\n",
+            "services:\n  coder-db:\n    volumes:\n      - type: volume\n        source: coder_db_data\n        target: /var/lib/postgresql/data\n        volume:\n          nocopy: true\n",
+        ):
+            for existing in ({}, {"PROJECT_coder-db": "devenv-cloud"}):
+                with self.subTest(override=override, existing=existing):
+                    self.trace.write_text("")
+                    result = self.run_make(
+                        override=override, extra=existing, arguments=("-j3",)
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Coder preflight failed", result.stderr)
+                    self.assertNotIn("docker buildx build", self.trace.read_text())
+                    self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_existing_database_extra_mounts_are_rejected(self):
+        path = "/var/lib/postgresql/data"
+        root = {
+            "Type": "volume",
+            "Source": "devenv-cloud_coder_db_data",
+            "Target": path,
+        }
+        for settings in (
+            {
+                "HOST_MOUNTS_JSON": json.dumps(
+                    [
+                        root,
+                        {
+                            "Type": "bind",
+                            "Source": "/tmp",
+                            "Target": "/usr/local/bin/docker-entrypoint.sh",
+                        },
+                    ]
+                )
+            },
+            {
+                "HOST_BINDS_JSON": json.dumps(
+                    ["/tmp:/usr/local/bin/docker-entrypoint.sh:ro"]
+                )
+            },
+            {"HOST_TMPFS_JSON": json.dumps({"/usr/local/bin": "rw"})},
+        ):
+            with self.subTest(settings=settings):
+                self.trace.write_text("")
+                result = self.run_make(
+                    extra={"PROJECT_coder-db": "devenv-cloud", **settings},
+                    arguments=("-j3",),
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "could not verify existing coder-db mount configuration",
+                    result.stderr,
+                )
+                self.assertNotIn("docker buildx build", self.trace.read_text())
+                self.assertNotIn("compose up", self.trace.read_text())
+
+        self.trace.write_text("")
+        result = self.run_make(
+            extra={"PROJECT_coder-db": "devenv-cloud", "ACTUAL_EXTRA_MOUNT": "1"},
+            arguments=("-j3",),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("data mount does not match", result.stderr)
+        self.assertNotIn("docker buildx build", self.trace.read_text())
+
     def test_pgdata_and_volume_subpath_overrides_stop_parallel_up(self):
         for override in (
             "services:\n  coder-db:\n    environment:\n      PGDATA: /var/lib/postgresql/data/newcluster\n",
@@ -307,6 +383,11 @@ exit 0
             {"HOST_MOUNTS_JSON": json.dumps([entry, entry])},
             {"HOST_MOUNTS_JSON": "not-json"},
             {"HOST_MOUNTS_JSON": "[null]"},
+            {
+                "HOST_MOUNTS_JSON": "{}",
+                "HOST_BINDS_JSON": '["devenv-cloud_coder_db_data:/var/lib/postgresql/data:rw"]',
+            },
+            {"HOST_TMPFS_JSON": "[]"},
             {"HOST_MOUNTS_JSON": json.dumps([{**entry, "Source": "different"}])},
         ):
             with self.subTest(settings=settings):
@@ -439,6 +520,14 @@ exit 0
         self.assertEqual(trace.count("docker buildx build"), 2)
         self.assertLess(trace.index("docker run"), trace.index("docker buildx build"))
 
+    def test_up_disables_inherited_orphan_removal(self):
+        result = self.run_make(
+            extra={"COMPOSE_REMOVE_ORPHANS": "1"}, arguments=("-j3",)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("up COMPOSE_REMOVE_ORPHANS=0", self.trace.read_text())
+        self.assertNotIn("up COMPOSE_REMOVE_ORPHANS=1", self.trace.read_text())
+
     def test_standalone_build_targets_do_not_require_preflight(self):
         result = subprocess.run(
             ["make", "-j3", "temporal-worker-build", "lab-sim-build"],
@@ -462,43 +551,46 @@ exit 0
         self.assertNotIn("compose up", self.trace.read_text())
 
     def test_additional_service_env_file_is_rejected(self):
-        (self.root / "extra.env").write_text("CADE_CODER_SUPPORTED_VERSION=v2.38.6\n")
+        (self.root / "extra.env").write_text(
+            "CADE_CODER_IMAGE=ghcr.io/coder/coder:v2.38.6\n"
+        )
         result = self.run_make(
             override="services:\n  coder:\n    env_file: [extra.env]\n"
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "supported version environment must not be overridden", result.stderr
+            "supported image environment must not be overridden", result.stderr
         )
         self.assertNotIn("compose up", self.trace.read_text())
 
-    def test_pin_drift_stops_before_up(self):
-        (self.root / "coder/supported-version.env").write_text(
-            "CADE_CODER_SUPPORTED_VERSION=v2.39.0\n"
+    def test_single_anchor_updates_image_and_guard_together(self):
+        path = self.root / "compose.yaml"
+        source = path.read_text()
+        self.assertEqual(source.count("ghcr.io/coder/coder:v2.38.6"), 1)
+        path.write_text(
+            source.replace("ghcr.io/coder/coder:v2.38.6", "ghcr.io/coder/coder:v2.39.0")
+        )
+        result = self.run_make(extra={"BINARY_VERSION": "v2.39.0+test"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ghcr.io/coder/coder:v2.39.0 and binary verified", result.stdout)
+        self.assertIn("compose up -d", self.trace.read_text())
+
+    def test_invalid_baseline_image_stops_before_up(self):
+        path = self.root / "compose.yaml"
+        source = path.read_text()
+        self.assertEqual(source.count("ghcr.io/coder/coder:v2.38.6"), 1)
+        path.write_text(
+            source.replace("ghcr.io/coder/coder:v2.38.6", "ghcr.io/coder/coder:latest")
         )
         result = self.run_make()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("effective Coder image must be", result.stderr)
+        self.assertIn("invalid baseline Coder image", result.stderr)
         self.assertNotIn("compose up", self.trace.read_text())
-
-    def test_invalid_or_missing_version_source_stops_before_up(self):
-        path = self.root / "coder/supported-version.env"
-        for contents in ("", "CADE_CODER_SUPPORTED_VERSION=${SOME_VAR}\n", None):
-            with self.subTest(contents=contents):
-                self.trace.write_text("")
-                if contents is None:
-                    path.unlink()
-                else:
-                    path.write_text(contents)
-                result = self.run_make()
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("Coder preflight failed", result.stderr)
-                self.assertNotIn("compose up", self.trace.read_text())
 
     def test_project_and_shell_env_do_not_override_supported_version(self):
         result = self.run_make(
-            settings="CADE_CODER_SUPPORTED_VERSION=v2.36.4\n",
-            extra={"CADE_CODER_SUPPORTED_VERSION": "v9.0.0"},
+            settings="CADE_CODER_IMAGE=ghcr.io/coder/coder:v2.36.4\n",
+            extra={"CADE_CODER_IMAGE": "ghcr.io/coder/coder:v9.0.0"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Coder is healthy", result.stdout)

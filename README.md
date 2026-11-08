@@ -199,18 +199,16 @@ acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unva
 
 ### Upgrading Coder to 2.38
 
-The supported version is recorded in `coder/supported-version.env` and resolved
-into the container environment by Compose, not bind-mounted at runtime. The image
-is pinned in `compose.yaml`; use a matching Coder CLI. `make up` checks the
-effective Compose image, settings, actual image binary and Coder database volume
+The supported Coder image is pinned once in `compose.yaml` and reused as the
+runtime guard value without a host bind; use a matching Coder CLI. `make up`
+checks the effective Compose image, settings, actual image binary and database volume
 before recreating services, then waits for Coder health. If `coder-db` is absent,
 preflight refuses a database-volume override that differs from the selected
-project's baseline. The entrypoint also checks its own binary
-and refuses stale version or `oauth2` experiment settings.
-The operator must be able to read the nonsecret version file when creating or
-recreating Coder; a running container does not depend on that checkout file.
-Preflight rejects overrides of that service env-file or guard variable and
-requires the OAuth2 provider and `mcp-server-http` experiment to remain enabled.
+project's baseline. The entrypoint also checks its own binary and refuses stale
+version or `oauth2` experiment settings.
+Preflight rejects mismatched image or guard values and requires the OAuth2
+provider and `mcp-server-http` experiment to remain enabled. `make up` forces
+orphan removal off, even if `COMPOSE_REMOVE_ORPHANS` is set in the shell.
 Before starting the new revision, remove the old
 `CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
 `CODER_EXPERIMENTS=oauth2,mcp-server-http` with `mcp-server-http`. Preserve
@@ -322,7 +320,7 @@ the image tag. After the backup, pull and recreate only Coder:
   set -euo pipefail
   docker compose pull coder
   make coder-preflight
-  docker compose up -d --no-deps coder
+  COMPOSE_REMOVE_ORPHANS=0 docker compose up -d --no-deps coder
   bash scripts/wait-for-coder.sh
 )
 ```

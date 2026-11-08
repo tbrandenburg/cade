@@ -46,7 +46,7 @@ doctor:
 up: coder-preflight
 	@$(MAKE) --no-print-directory temporal-worker-build lab-sim-build
 	@bash scripts/openbao-gen-cert.sh
-	@$(COMPOSE) up -d
+	@COMPOSE_REMOVE_ORPHANS=0 $(COMPOSE) up -d
 	@bash scripts/wait-for-coder.sh
 	@bash scripts/print-urls.sh
 	@bash scripts/openbao-reunseal.sh || true

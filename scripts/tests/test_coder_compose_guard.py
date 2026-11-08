@@ -48,9 +48,7 @@ class CoderComposeGuardTest(unittest.TestCase):
             # `compose config` escapes literal dollars for Compose re-input;
             # the container receives single dollars instead.
             command = coder["command"][0].replace("$$", "$")
-            self.assertEqual(
-                coder["environment"]["CADE_CODER_SUPPORTED_VERSION"], "v2.38.6"
-            )
+            self.assertEqual(coder["environment"]["CADE_CODER_IMAGE"], coder["image"])
             self.assertNotIn(
                 "/etc/cade/coder-version", [v["target"] for v in coder["volumes"]]
             )
@@ -107,15 +105,15 @@ class CoderComposeGuardTest(unittest.TestCase):
         self.assertNotIn("started:", result.stdout)
 
     def test_missing_runtime_supported_version_fails_closed(self):
-        result = self.run_entrypoint("", runtime={"CADE_CODER_SUPPORTED_VERSION": ""})
+        result = self.run_entrypoint("", runtime={"CADE_CODER_IMAGE": ""})
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("missing supported Coder version", result.stderr)
+        self.assertIn("invalid supported Coder image", result.stderr)
         self.assertNotIn("started:", result.stdout)
 
     def test_project_and_shell_env_cannot_shadow_supported_version(self):
         result = self.run_entrypoint(
-            "CADE_CODER_SUPPORTED_VERSION=v2.36.4\n",
-            {"CADE_CODER_SUPPORTED_VERSION": "v9.0.0"},
+            "CADE_CODER_IMAGE=ghcr.io/coder/coder:v2.36.4\n",
+            {"CADE_CODER_IMAGE": "ghcr.io/coder/coder:v9.0.0"},
             stub_server=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
