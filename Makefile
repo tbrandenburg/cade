@@ -43,7 +43,8 @@ doctor:
 ## sealed (e.g. after a restart) using the key shares already recorded in
 ## governance/openbao/unseal/init.json — no credential rotation happens
 ## here; first-time bootstrap remains `make governance-bootstrap`.
-up: coder-preflight temporal-worker-build lab-sim-build
+up: coder-preflight
+	@$(MAKE) --no-print-directory temporal-worker-build lab-sim-build
 	@bash scripts/openbao-gen-cert.sh
 	@$(COMPOSE) up -d
 	@bash scripts/wait-for-coder.sh

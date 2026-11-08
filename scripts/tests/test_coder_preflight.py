@@ -1,5 +1,7 @@
 """Exercise make up and real Compose config with a synthetic Docker daemon."""
 
+import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
@@ -47,6 +49,12 @@ if args and args[0] == 'inspect' and 'Labels' in args[2]:
         sys.exit(1)
     name = args[-1].removeprefix('id-')
     print(os.environ['PROJECT_' + name] + ':' + os.environ.get('SERVICE_' + name, name))
+    sys.exit(0)
+if args and args[0] == 'inspect' and '.Mounts' in args[2]:
+    if os.environ.get('MOUNT_FAILURE'):
+        sys.exit(1)
+    project = os.environ.get('PROJECT_coder-db', 'devenv-cloud')
+    print(os.environ.get('DB_MOUNT', 'volume:' + project + '_coder_db_data') + '\\n')
     sys.exit(0)
 if args[:2] == ['image', 'inspect'] or args[:2] == ['buildx', 'build']:
     sys.exit(0)
@@ -170,6 +178,137 @@ exit 0
                 result = self.run_make(extra=values)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("compose up -d", self.trace.read_text())
+
+    def test_database_volume_overrides_rejected_with_existing_or_absent_db(self):
+        for override in (
+            "volumes:\n  coder_db_data:\n    name: different-volume\n",
+            "services:\n  coder-db:\n    volumes:\n      - other:/var/lib/postgresql/data\nvolumes:\n  other: {}\n",
+        ):
+            for existing in (
+                {},
+                {"PROJECT_coder-db": "devenv-cloud"},
+                {"COMPOSE_PROJECT_NAME": "chosen-project"},
+                {
+                    "COMPOSE_PROJECT_NAME": "chosen-project",
+                    "PROJECT_coder-db": "chosen-project",
+                },
+            ):
+                with self.subTest(override=override, existing=existing):
+                    self.trace.write_text("")
+                    result = self.run_make(override=override, extra=existing)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Coder preflight failed", result.stderr)
+                    self.assertNotIn("docker image inspect", self.trace.read_text())
+                    self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_existing_database_mount_must_match_exactly(self):
+        for mount in (
+            "volume:other-data",
+            "",
+            "bind:",
+            "volume:devenv-cloud_coder_db_data\nvolume:devenv-cloud_coder_db_data",
+        ):
+            with self.subTest(mount=mount):
+                self.trace.write_text("")
+                result = self.run_make(
+                    extra={"PROJECT_coder-db": "devenv-cloud", "DB_MOUNT": mount}
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("data mount does not match", result.stderr)
+                self.assertNotIn("compose up", self.trace.read_text())
+        result = self.run_make(
+            extra={"PROJECT_coder-db": "devenv-cloud", "MOUNT_FAILURE": "1"}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("data mount does not match", result.stderr)
+
+    def test_missing_or_nonvolume_effective_mount_is_rejected(self):
+        for override in (
+            "services:\n  coder-db:\n    volumes: !reset []\n",
+            "services:\n  coder-db:\n    volumes:\n      - /tmp:/var/lib/postgresql/data\n",
+        ):
+            with self.subTest(override=override):
+                self.trace.write_text("")
+                result = self.run_make(override=override)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("exactly one named data volume", result.stderr)
+                self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_resolver_rejects_ambiguous_effective_mounts(self):
+        result = subprocess.run(
+            [self.env["REAL_DOCKER"], "compose", "config", "--format", "json"],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=20,
+        )
+        compose = json.loads(result.stdout)
+        spec = importlib.util.spec_from_file_location(
+            "coder_preflight", ROOT / "scripts/coder-preflight.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.database_volume(compose), "devenv-cloud_coder_db_data")
+        compose["services"]["coder-db"]["volumes"].append(
+            {
+                "type": "volume",
+                "source": "coder_db_data",
+                "target": "/var/lib/postgresql/data/",
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "exactly one named data volume"):
+            module.database_volume(compose)
+
+    def test_existing_custom_database_volume_is_allowed_when_it_matches(self):
+        result = self.run_make(
+            override="volumes:\n  coder_db_data:\n    name: existing-custom-volume\n",
+            extra={
+                "PROJECT_coder-db": "devenv-cloud",
+                "DB_MOUNT": "volume:existing-custom-volume",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose up -d", self.trace.read_text())
+
+    def test_absent_database_baseline_uses_effective_compose_project(self):
+        for override, extra in (
+            ("name: chosen-project\n", {}),
+            ("", {"COMPOSE_PROJECT_NAME": "chosen-project"}),
+        ):
+            with self.subTest(override=override, extra=extra):
+                self.trace.write_text("")
+                self.env.pop("COMPOSE_FILE", None)
+                result = self.run_make(override=override, extra=extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("compose up -d", self.trace.read_text())
+
+    def test_parallel_up_waits_for_preflight_before_builds(self):
+        result = self.run_make(settings="CODER_VERSION=v2.36.4\n", arguments=("-j3",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported CODER_VERSION", result.stderr)
+        self.assertNotIn("docker buildx build", self.trace.read_text())
+        self.assertNotIn("compose up", self.trace.read_text())
+        self.trace.write_text("")
+        result = self.run_make(arguments=("-j3",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        trace = self.trace.read_text()
+        self.assertEqual(trace.count("docker buildx build"), 2)
+        self.assertLess(trace.index("docker run"), trace.index("docker buildx build"))
+
+    def test_standalone_build_targets_do_not_require_preflight(self):
+        result = subprocess.run(
+            ["make", "-j3", "temporal-worker-build", "lab-sim-build"],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.trace.read_text().count("docker buildx build"), 2)
+        self.assertNotIn("container ls", self.trace.read_text())
 
     def test_preflight_failure_does_not_print_environment_secrets(self):
         result = self.run_make(

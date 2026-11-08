@@ -28,6 +28,7 @@ def config(args, raw=False):
 
 
 def check_existing(project):
+    db_id = None
     for name in ("coder", "coder-db"):
         result = run(
             [
@@ -62,6 +63,47 @@ def check_existing(project):
                 f"existing {name} container does not belong to Compose project {project}; "
                 "select the correct COMPOSE_PROJECT_NAME before proceeding"
             )
+        if name == "coder-db":
+            db_id = ids[0]
+    return db_id
+
+
+def database_volume(compose):
+    mounts = [
+        mount
+        for mount in compose["services"]["coder-db"].get("volumes", [])
+        if posixpath.normpath(mount.get("target", "")) == "/var/lib/postgresql/data"
+    ]
+    if len(mounts) != 1 or mounts[0].get("type") != "volume":
+        raise ValueError("Coder database must have exactly one named data volume")
+    volume = compose.get("volumes", {}).get(mounts[0].get("source"), {})
+    name = volume.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("could not resolve the Coder database volume name")
+    return name
+
+
+def check_database_volume(compose, baseline, db_id):
+    name = database_volume(compose)
+    if db_id is None:
+        if name != database_volume(baseline):
+            raise ValueError(
+                "Coder database volume differs from baseline while coder-db is absent"
+            )
+        return
+    result = run(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}}:{{.Name}}{{println}}{{end}}{{end}}',
+            db_id,
+        ]
+    )
+    if result.returncode or result.stdout.strip().splitlines() != [f"volume:{name}"]:
+        raise ValueError(
+            "existing coder-db data mount does not match the effective named volume"
+        )
 
 
 def main():
@@ -77,13 +119,15 @@ def main():
     for name in ("coder", "coder-db"):
         if effective["services"][name].get("container_name") != name:
             raise ValueError(f"effective {name} container name must remain fixed")
-    check_existing(project)
+    db_id = check_existing(project)
+    baseline_config = config(["-p", project, "-f", str(ROOT / "compose.yaml")])
+    check_database_volume(effective, baseline_config, db_id)
     coder = effective["services"]["coder"]
-    baseline = config(["-f", str(ROOT / "compose.yaml")])["services"]["coder"]
+    baseline = baseline_config["services"]["coder"]
     raw = config([], raw=True)["services"]["coder"]
-    baseline_raw = config(["-f", str(ROOT / "compose.yaml")], raw=True)["services"][
-        "coder"
-    ]
+    baseline_raw = config(["-p", project, "-f", str(ROOT / "compose.yaml")], raw=True)[
+        "services"
+    ]["coder"]
     if VERSION_KEY in raw.get("environment", {}) or raw.get(
         "env_file"
     ) != baseline_raw.get("env_file"):
