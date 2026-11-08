@@ -29,7 +29,7 @@ services:
       start_period: 10s
 
   coder:
-    image: ghcr.io/coder/coder:${CODER_VERSION:-v2.36.3}
+    image: ghcr.io/coder/coder:${CODER_VERSION:-v2.38.6}
     container_name: coder
     restart: unless-stopped
     # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
@@ -82,7 +82,8 @@ services:
       GITHUB_OAUTH_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
-      CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
+      CODER_OAUTH2_PROVIDER_ENABLE: "true"
+      CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-mcp-server-http}"
       # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)
       # blocks the `coder_app.omnigent` dashboard tile's icon, which points
       # at the plain-http omnigent_public_url (this platform has no TLS

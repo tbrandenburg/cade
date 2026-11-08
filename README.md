@@ -195,6 +195,49 @@ SSH-forwarded authenticated AHP discovery after human AppArmor profile loading.
 The final corrected-launcher coordinator E2E repeat passed; HUMAN fresh-workspace
 acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unvalidated here.
 
+### Upgrading Coder to 2.38
+
+The supported image defaults to `v2.38.6` in `compose.yaml`; use a matching
+Coder CLI. Existing `.env` files can override the default: remove the old
+`CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
+`CODER_EXPERIMENTS=oauth2,mcp-server-http` with `mcp-server-http`. Preserve
+any other experiments you intentionally use. Compose now enables the OAuth2
+provider separately; the retired `oauth2` experiment no longer enables it.
+Check the effective image with `docker compose config --images` before starting.
+
+Before upgrading an existing deployment, record its workspace names and
+templates (`coder list`) and take a Coder database dump. This example creates
+a private directory and checks the archive's table of contents without
+stopping other services:
+
+```bash
+(
+  set -euo pipefail
+  umask 077
+  backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
+  docker exec coder-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
+  docker exec -i coder-db pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
+  printf 'Coder database archive verified: %s/coder.dump\n' "$backup_dir"
+)
+```
+
+Keep the archive safe; do not delete the database or workspace volumes. A
+schema migration may prevent an old server from starting against the upgraded
+database: a rollback requires restoring the pre-upgrade dump, not just changing
+the image tag. After the backup, pull and recreate only Coder with
+`docker compose pull coder` and `docker compose up -d --no-deps coder`. Check
+`docker inspect coder`, `coder version`, and Coder migration logs, then publish
+and verify templates and test workspace SSH and stop/start persistence. Test
+the configured AI/MCP client and Temporal Coder workflow; record missing
+credentials or unavailable clients as untested.
+
+For remote MCP clients, dynamic OAuth client registration is disabled by
+default in 2.38. Register an application explicitly or, if self-registration is
+needed and acceptable for the deployment, enable it as an owner with
+`coder oauth2-provider dcr enable` and disable it again after registration.
+Existing registered applications remain usable. See the
+[Coder OAuth2 provider documentation](https://coder.com/docs/admin/integrations/oauth2-provider/).
+
 ### Resetting a Coder user's password
 
 Coder's admin account has no seeded/default credentials — it's created
