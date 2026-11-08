@@ -145,6 +145,13 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Live-vs-synthetic verification
 
+- A native MCP can list tools locally while its outside relay is unreachable. Verify an actual call and policy failure behavior; bridge only context/policy operations, not outside-runner shell or dispatch capabilities.
+- Install locked local MCP dependencies in trusted startup before SRT launches. Test a genuinely cold native session; a warmed import or manual package sync is not startup acceptance evidence.
+- Restart Omnigent through Coder's environment, not a bare `docker exec`: agent-injected PATH/passthrough variables are absent there. Re-attest server and TUI namespaces after restarting.
+- Make a guarded generated-plugin correction idempotent for its exact corrected source; test repeated launch as well as unexpected-source rejection.
+- Derive required MCP presence from the generated config, not the returned catalog. Hash-check mounted-source regression inputs against the built launcher/relay before trusting image tests.
+- Distinguish a bounded CLI metadata probe from agent startup. A correct manual version under a longer budget does not prove the daemon's real readiness probe succeeds.
+
 - Never trust a direct-container/synthetic reproduction (`docker exec ... curl`, a bare `bwrap` smoke test, an isolated unit repro) as proof a fix works — always re-verify through the real caller (the actual dashboard proxy, the real CLI invocation, the real multi-hop flow) before closing an issue.
 - An "official upstream approach should just work" claim is a hypothesis, not evidence — verify against this specific deployment/version through the real proxy/API before trusting it.
 - A `200` response with an empty/wrong body is not success — always check response length/content, not just status code, especially through a real reverse proxy.
@@ -208,3 +215,5 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - When delegating any task that plausibly touches host-level state, state the safety boundary (no `sudo`, no `--privileged`, no touching running containers) explicitly in the subagent prompt up front, rather than discovering it via a rejected permission prompt.
 - A live E2E claim against a running Coder stack needs the `coder` CLI installed at a version matching the server (`coder version` mismatch breaks commands); install user-locally (`--prefix ~/.local`), never system-wide, without explicit permission.
 - Never rely on a single regex substitution to redact a secret from multi-line command/tool output — capture it into a variable first and reference only a redacted placeholder in anything printed.
+- Browser code tools may echo loaded script source. Never embed credentials in scripts; consume them privately at runtime, and revoke an exposed token immediately.
+- Before rotating a credential, save its replacement privately and inspect the endpoint's response contract; a successful password change may return 204 with no JSON body.

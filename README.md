@@ -705,6 +705,15 @@ full technical breakdown and reasoning.
 
 ## Known limitations
 
+- **Omnigent/OpenCode 2 modernization (#146) is not acceptance-ready.**
+  Matching Omnigent 0.21.0/OpenCode 2.0.32 pins and scoped SRT bridges are
+  implemented. The metadata-probe timeout is reproduced and corrected. An earlier
+  agent image passed native tools, relay-loss safety and Coder restart recovery;
+  the retained phased-readiness experiment has native failures in both templates.
+  Docker startup's inner cause remains unresolved. Requested host-registration
+  failures are exposed in Coder's startup status rather than suppressed.
+  See [the runtime evidence](/docs/milestone-reports/issue-45-bridge.md).
+
 - **`gh-aw`'s agentic CI-failure investigation cannot yet execute its
   reasoning step.** Its AWF sandbox requires a real Docker Unix socket,
   which is incompatible with this platform's socket-proxy-mediated

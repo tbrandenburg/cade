@@ -151,6 +151,10 @@ RUN python3 -m venv /opt/omnigent-venv \
 # the repo root, one level above this Dockerfile's own build context
 # (coder/).
 COPY --from=agent-host srt-settings.json /etc/cade/srt-settings.default.json
+COPY --chmod=644 omnigent/launch.py /opt/cade/omnigent-launch.py
+COPY --chmod=644 omnigent/relay.py /opt/cade/omnigent-relay.py
+COPY --chmod=644 omnigent/seed.py /opt/cade/omnigent-seed.py
+RUN chmod 755 /opt/cade
 
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
@@ -167,3 +171,4 @@ RUN if getent group ${USER_GID} > /dev/null; then \
 
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
+RUN test -r /opt/cade/omnigent-launch.py
