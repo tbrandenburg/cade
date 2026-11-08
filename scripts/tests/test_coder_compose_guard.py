@@ -12,7 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CoderComposeGuardTest(unittest.TestCase):
     def run_entrypoint(
-        self, settings, overrides=None, stub_server=False, version="v2.38.6"
+        self,
+        settings,
+        overrides=None,
+        stub_server=False,
+        version="v2.38.6",
+        runtime=None,
     ):
         with tempfile.TemporaryDirectory() as directory:
             env_file = Path(directory) / ".env"
@@ -43,13 +48,16 @@ class CoderComposeGuardTest(unittest.TestCase):
             # `compose config` escapes literal dollars for Compose re-input;
             # the container receives single dollars instead.
             command = coder["command"][0].replace("$$", "$")
-            # Run the same shell guard with a private version file and binary.
+            self.assertEqual(
+                coder["environment"]["CADE_CODER_SUPPORTED_VERSION"], "v2.38.6"
+            )
+            self.assertNotIn(
+                "/etc/cade/coder-version", [v["target"] for v in coder["volumes"]]
+            )
+            # Run the same shell guard with a private synthetic binary.
             binary = Path(directory) / "coder"
             binary.write_text(f"#!/bin/sh\nprintf 'Coder {version}+test build\\n'\n")
             binary.chmod(0o755)
-            command = command.replace(
-                "/etc/cade/coder-version", str(ROOT / "coder/supported-version")
-            )
             command = command.replace("/opt/coder version", f"{binary} version")
             # Replace only the final server launch on successful paths.
             stub = (
@@ -62,7 +70,7 @@ class CoderComposeGuardTest(unittest.TestCase):
                 command = command.replace("exec /opt/coder server", stub)
             return subprocess.run(
                 ["/bin/sh", "-c", command],
-                env={"PATH": os.defpath, **coder["environment"]},
+                env={"PATH": os.defpath, **coder["environment"], **(runtime or {})},
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -97,6 +105,21 @@ class CoderComposeGuardTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unsupported Coder binary", result.stderr)
         self.assertNotIn("started:", result.stdout)
+
+    def test_missing_runtime_supported_version_fails_closed(self):
+        result = self.run_entrypoint("", runtime={"CADE_CODER_SUPPORTED_VERSION": ""})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing supported Coder version", result.stderr)
+        self.assertNotIn("started:", result.stdout)
+
+    def test_project_and_shell_env_cannot_shadow_supported_version(self):
+        result = self.run_entrypoint(
+            "CADE_CODER_SUPPORTED_VERSION=v2.36.4\n",
+            {"CADE_CODER_SUPPORTED_VERSION": "v9.0.0"},
+            stub_server=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("started:/opt/coder:server:unset:unset", result.stdout)
 
     def test_default_and_supported_env_reach_server(self):
         for settings in (

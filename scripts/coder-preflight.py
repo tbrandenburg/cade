@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = ROOT / "coder/supported-version"
+VERSION = ROOT / "coder/supported-version.env"
+VERSION_KEY = "CADE_CODER_SUPPORTED_VERSION"
 
 
 def run(args, timeout=30):
@@ -18,31 +19,48 @@ def run(args, timeout=30):
     )
 
 
-def config(args):
-    result = run(["docker", "compose", *args, "config", "--format", "json"])
+def config(args, raw=False):
+    options = ["--no-env-resolution"] if raw else []
+    result = run(["docker", "compose", *args, "config", "--format", "json", *options])
     if result.returncode:
         raise ValueError("could not resolve Compose configuration")
     return json.loads(result.stdout)["services"]["coder"]
 
 
 def main():
-    version = VERSION.read_text(encoding="utf-8").strip()
-    if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
-        raise ValueError("invalid coder/supported-version")
+    source = VERSION.read_text(encoding="utf-8")
+    match = re.fullmatch(r"CADE_CODER_SUPPORTED_VERSION=(v\d+\.\d+\.\d+)\n?", source)
+    if not match:
+        raise ValueError("invalid coder/supported-version.env")
+    version = match.group(1)
     coder = config([])
     baseline = config(["-f", str(ROOT / "compose.yaml")])
+    raw = config([], raw=True)
+    baseline_raw = config(["-f", str(ROOT / "compose.yaml")], raw=True)
+    if VERSION_KEY in raw.get("environment", {}) or raw.get(
+        "env_file"
+    ) != baseline_raw.get("env_file"):
+        raise ValueError("Coder supported version environment must not be overridden")
     image = f"ghcr.io/coder/coder:{version}"
     if coder.get("image") != image:
         raise ValueError(f"effective Coder image must be {image}")
     for service in (baseline, coder):
         settings = service.get("environment", {})
+        if settings.get(VERSION_KEY) != version:
+            raise ValueError(
+                "effective Coder supported version differs from the version source"
+            )
         if settings.get("CADE_CODER_VERSION") not in (None, "", version):
             raise ValueError("unsupported CODER_VERSION; see README upgrading Coder")
+        if settings.get("CODER_OAUTH2_PROVIDER_ENABLE") != "true":
+            raise ValueError("Coder OAuth2 provider must be enabled")
         experiments = re.sub(r"\s", "", settings.get("CODER_EXPERIMENTS") or "")
         if "oauth2" in experiments.split(","):
             raise ValueError(
                 "remove the retired oauth2 experiment from CODER_EXPERIMENTS"
             )
+        if not {"mcp-server-http", "*"}.intersection(experiments.split(",")):
+            raise ValueError("CODER_EXPERIMENTS must enable mcp-server-http")
     for key in (
         "entrypoint",
         "command",
@@ -53,25 +71,10 @@ def main():
     ):
         if coder.get(key) != baseline.get(key):
             raise ValueError(f"Coder {key} override would bypass startup checks")
-    mounts = [
-        v
-        for v in coder.get("volumes", [])
-        if v.get("target") == "/etc/cade/coder-version"
-    ]
-    if (
-        len(mounts) != 1
-        or mounts[0].get("source") != str(VERSION)
-        or not mounts[0].get("read_only")
-    ):
-        raise ValueError(
-            "Coder supported-version mount must be read-only and unmodified"
-        )
     for mount in coder.get("volumes", []):
         target = posixpath.normpath(mount.get("target", ""))
-        if target in ("/", "/opt", "/opt/coder", "/etc", "/etc/cade"):
-            raise ValueError(
-                "Coder binary and version file cannot be shadowed by a mount"
-            )
+        if target in ("/", "/opt", "/opt/coder"):
+            raise ValueError("Coder binary cannot be shadowed by a mount")
 
     if run(["docker", "image", "inspect", image]).returncode:
         if run(["docker", "pull", image], timeout=600).returncode:

@@ -29,10 +29,13 @@ services:
       start_period: 10s
 
   coder:
-    # Keep this pin in sync with coder/supported-version; startup checks both.
+    # Keep this pin in sync with coder/supported-version.env; startup checks both.
     image: ghcr.io/coder/coder:v2.38.6
     container_name: coder
     restart: unless-stopped
+    # Compose resolves this into the container environment at creation time.
+    env_file:
+      - ./coder/supported-version.env
     # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
     # GITHUB_OAUTH_CLIENT_ID is non-empty, then exec the image's real
     # entrypoint/cmd (`/opt/coder server`, confirmed via `docker image
@@ -42,7 +45,11 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        supported=$$(cat /etc/cade/coder-version) || exit 1
+        supported=$$CADE_CODER_SUPPORTED_VERSION
+        if [ -z "$$supported" ]; then
+          echo "ERROR: missing supported Coder version; see README upgrading Coder." >&2
+          exit 1
+        fi
         if [ -n "$$CADE_CODER_VERSION" ] && [ "$$CADE_CODER_VERSION" != "$$supported" ]; then
           echo "ERROR: unsupported CODER_VERSION; see README upgrading Coder." >&2
           exit 1
@@ -129,7 +136,6 @@ services:
       # icon-source checklist, step 3).
       CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000} http://localhost:${TEMPORAL_UI_PORT:-8088} https://cdn.simpleicons.org"
     volumes:
-      - ./coder/supported-version:/etc/cade/coder-version:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder
     # Grant write access to the host's docker.sock. Set DOCKER_GID to the

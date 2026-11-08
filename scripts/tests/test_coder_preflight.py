@@ -19,7 +19,7 @@ class PreflightTest(unittest.TestCase):
         for path in (
             "compose.yaml",
             "Makefile",
-            "coder/supported-version",
+            "coder/supported-version.env",
             "scripts/coder-preflight.py",
             "scripts/wait-for-coder.sh",
         ):
@@ -91,6 +91,7 @@ exit 0
                 "unsupported CODER_VERSION",
             ),
             ("CODER_EXPERIMENTS=mcp-server-http,oauth2\n", "retired oauth2"),
+            ("CODER_EXPERIMENTS=other\n", "must enable mcp-server-http"),
         ):
             with self.subTest(settings=settings):
                 self.trace.write_text("")
@@ -105,6 +106,9 @@ exit 0
             'services:\n  coder:\n    entrypoint: ["/opt/coder", "server"]\n',
             "services:\n  coder:\n    pull_policy: always\n",
             "services:\n  coder:\n    volumes:\n      - /tmp:/opt/coder:ro\n",
+            "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.36.4\n",
+            "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.38.6\n",
+            "services:\n  coder:\n    environment:\n      CODER_OAUTH2_PROVIDER_ENABLE: 'false'\n",
         ):
             with self.subTest(override=override):
                 self.trace.write_text("")
@@ -119,12 +123,56 @@ exit 0
         self.assertIn("unsupported binary", result.stderr)
         self.assertNotIn("compose up", self.trace.read_text())
 
+    def test_preflight_failure_does_not_print_environment_secrets(self):
+        result = self.run_make(
+            settings="CODER_VERSION=v2.36.4\nCODER_PG_PASSWORD=synthetic-secret\n"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported CODER_VERSION", result.stderr)
+        self.assertNotIn("synthetic-secret", result.stdout + result.stderr)
+        self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_additional_service_env_file_is_rejected(self):
+        (self.root / "extra.env").write_text("CADE_CODER_SUPPORTED_VERSION=v2.38.6\n")
+        result = self.run_make(
+            override="services:\n  coder:\n    env_file: [extra.env]\n"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "supported version environment must not be overridden", result.stderr
+        )
+        self.assertNotIn("compose up", self.trace.read_text())
+
     def test_pin_drift_stops_before_up(self):
-        (self.root / "coder/supported-version").write_text("v2.39.0\n")
+        (self.root / "coder/supported-version.env").write_text(
+            "CADE_CODER_SUPPORTED_VERSION=v2.39.0\n"
+        )
         result = self.run_make()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("effective Coder image must be", result.stderr)
         self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_invalid_or_missing_version_source_stops_before_up(self):
+        path = self.root / "coder/supported-version.env"
+        for contents in ("", "CADE_CODER_SUPPORTED_VERSION=${SOME_VAR}\n", None):
+            with self.subTest(contents=contents):
+                self.trace.write_text("")
+                if contents is None:
+                    path.unlink()
+                else:
+                    path.write_text(contents)
+                result = self.run_make()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Coder preflight failed", result.stderr)
+                self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_project_and_shell_env_do_not_override_supported_version(self):
+        result = self.run_make(
+            settings="CADE_CODER_SUPPORTED_VERSION=v2.36.4\n",
+            extra={"CADE_CODER_SUPPORTED_VERSION": "v9.0.0"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Coder is healthy", result.stdout)
 
     def test_custom_make_compose_command_stops_before_up(self):
         result = self.run_make(arguments=("COMPOSE=docker compose -f override.yaml",))
