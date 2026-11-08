@@ -601,6 +601,20 @@ echo "CODER_SSL_CERT_DIR=/home/coder/.local-ca-certs" >> .env
 docker compose up -d coder   # recreate so the env var takes effect
 ```
 
+Re-run `scripts/coder-trust-ca.sh` after updating/recreating the Coder
+image. The copied public bundle lives on the persistent home volume and is
+not refreshed by an image pull; the script replaces it from the running
+container's current system bundle while preserving the supplied corporate
+CA as a separate PEM file. Canonical's [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1)
+sets Ubuntu 24.04's eMudhra fix threshold at `ca-certificates`
+`20260816ubuntu0.24.04.1`. A fresh build of the workspace image in this
+checkout installed `20260816ubuntu0.24.04.2`; its system trust paths do not
+contain `emSign ECC Root CA - G3`. Coder's Go/Terraform trust behavior is
+distinct and must not be inferred from the workspace OS package version.
+No corporate proxy is configured in this environment, so a live proxy
+handshake and end-to-end verification of the injected corporate CA were not
+performed; these remain environment-dependent checks.
+
 Retry workspace creation afterward. On unrestricted networks, leave
 `CODER_SSL_CERT_DIR` unset — `compose.yaml` then passes `SSL_CERT_DIR=""`,
 which Go treats identically to unset (falls back to its normal default

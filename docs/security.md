@@ -203,14 +203,30 @@ external credential), not something this step can create.
 
 ### OpenBao — secrets store
 
-- `compose.yaml`'s `openbao` service (`openbao/openbao:2.6.2`), config at
+- `compose.yaml`'s `openbao` service (`openbao/openbao:2.6.5`), config at
   `governance/openbao/config/openbao.hcl`, file storage backend (single
   node, no HA requirement for this local stack). Bound to
   `127.0.0.1:${OPENBAO_PORT:-8200}` only, same posture as `lab-sim`/`opa`.
+  v2.6.5 is the latest 2.6 patch on the upstream [releases page](https://github.com/openbao/openbao/releases)
+  checked for Issue #144 (2026-11-07). v2.7.2 contains additional security
+  fixes, but OpenBao 2.7 removed the configured `file` storage backend;
+  upstream's [migration guidance](https://openbao.org/docs/guides/migrations/k8s-pebbledb/)
+  moves it to PebbleDB or another supported backend. Keep this
+  backend on 2.6.5 in this bounded dependency refresh and schedule migration
+  separately before adopting 2.7.x. This is a compatibility deferral, not a
+  claim that 2.6.5 receives ongoing support. The configured v2.6.5 image
+  and file-backend listener were verified in the isolated Compose project;
+  its fresh data directory was bootstrapped and health returned healthy.
 - **TLS is mandatory on the listener** — `scripts/openbao-gen-cert.sh`
   generates a self-signed cert/key pair into `governance/openbao/certs/`
   (gitignored, regenerated per host, never committed) if one doesn't
   already exist. Plain HTTP is not offered.
+- `-tls-skip-verify` is limited to the OpenBao health check and local
+  bootstrap/backup/restore scripts because the listener uses that
+  host-generated self-signed certificate. It is not a public-endpoint
+  workaround; clients accessing any externally trusted endpoint must
+  validate its certificate normally. Do not reuse this pattern for Coder,
+  workspace HTTPS, or registry/Terraform traffic.
 - **Bootstrap procedure** (`scripts/openbao-init.sh`, idempotent):
   1. `bao operator init` (5 key shares, threshold 3) if not already
      initialized; unseal with 3 of the 5 shares.
@@ -741,5 +757,3 @@ while `srt` is active; this is a confirmed, version-verifiable upstream
 `sandbox-runtime` design decision, not an open investigation — do not
 re-derive this from scratch without first re-checking whether a newer
 `sandbox-runtime` release has added a narrower escape hatch.
-
-
