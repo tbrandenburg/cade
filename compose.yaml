@@ -29,7 +29,7 @@ services:
       start_period: 10s
 
   coder:
-    # One supported server version; the entrypoint rejects stale overrides.
+    # Keep this pin in sync with coder/supported-version; startup checks both.
     image: ghcr.io/coder/coder:v2.38.6
     container_name: coder
     restart: unless-stopped
@@ -42,8 +42,17 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        if [ "$$CADE_CODER_VERSION" != "v2.38.6" ]; then
-          echo "ERROR: unsupported CODER_VERSION; use v2.38.6. See README upgrading Coder." >&2
+        supported=$$(cat /etc/cade/coder-version) || exit 1
+        if [ -n "$$CADE_CODER_VERSION" ] && [ "$$CADE_CODER_VERSION" != "$$supported" ]; then
+          echo "ERROR: unsupported CODER_VERSION; see README upgrading Coder." >&2
+          exit 1
+        fi
+        version=$$(/opt/coder version) || exit 1
+        version=$${version#Coder }
+        version=$${version%%[[:space:]]*}
+        version=$${version%%+*}
+        if [ "$$version" != "$$supported" ]; then
+          echo "ERROR: unsupported Coder binary; see README upgrading Coder." >&2
           exit 1
         fi
         case ",$$(printf '%s' "$$CODER_EXPERIMENTS" | tr -d '[:space:]')," in
@@ -94,7 +103,7 @@ services:
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
       CODER_OAUTH2_PROVIDER_ENABLE: "true"
-      CADE_CODER_VERSION: "${CODER_VERSION:-v2.38.6}"
+      CADE_CODER_VERSION: "${CODER_VERSION:-}"
       CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-mcp-server-http}"
       # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)
       # blocks the `coder_app.omnigent` dashboard tile's icon, which points
@@ -120,6 +129,7 @@ services:
       # icon-source checklist, step 3).
       CODER_ADDITIONAL_CSP_POLICY: "img-src http://localhost:${OMNIGENT_PORT:-8000} http://localhost:${TEMPORAL_UI_PORT:-8088} https://cdn.simpleicons.org"
     volumes:
+      - ./coder/supported-version:/etc/cade/coder-version:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - coder_home:/home/coder
     # Grant write access to the host's docker.sock. Set DOCKER_GID to the

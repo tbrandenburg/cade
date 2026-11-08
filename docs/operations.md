@@ -104,8 +104,10 @@ no longer defines Promtail. The old service used the explicit container name
 )
 ```
 
-Then deploy this revision with `make up`. Compose does not remove orphaned
-services by default, so omitting the removal could leave both collectors
+Before using `make up` to deploy this revision, complete the mandatory
+[Coder upgrade and database backup procedure](/README.md#upgrading-coder-to-238)
+if upgrading an existing deployment. Then deploy with `make up`. Compose does
+not remove orphaned services by default, so omitting the removal could leave both collectors
 running. Alloy's `alloy_data` volume stores Docker read positions across
 restarts. Alloy does not import Promtail's Docker positions: its first start,
 or loss of that volume, can replay Docker-retained log history and duplicate

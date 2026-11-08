@@ -43,13 +43,22 @@ doctor:
 ## sealed (e.g. after a restart) using the key shares already recorded in
 ## governance/openbao/unseal/init.json — no credential rotation happens
 ## here; first-time bootstrap remains `make governance-bootstrap`.
-up: temporal-worker-build lab-sim-build
+up: coder-preflight temporal-worker-build lab-sim-build
 	@bash scripts/openbao-gen-cert.sh
 	@$(COMPOSE) up -d
+	@bash scripts/wait-for-coder.sh
 	@bash scripts/print-urls.sh
 	@bash scripts/openbao-reunseal.sh || true
 	@bash scripts/ai-bootstrap.sh --best-effort || true
 	@bash scripts/restart-disconnected-workspaces.sh --check || true
+
+.PHONY: coder-preflight
+coder-preflight:
+	@if [ "$(COMPOSE)" != "docker compose" ]; then \
+		echo "ERROR: use COMPOSE_FILE for Compose overrides; custom COMPOSE is not supported by coder-preflight" >&2; \
+		exit 1; \
+	fi
+	@python3 scripts/coder-preflight.py
 
 ## down: Stop and remove the platform stack's containers.
 down:

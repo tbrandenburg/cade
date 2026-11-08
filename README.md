@@ -199,18 +199,20 @@ acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unva
 
 ### Upgrading Coder to 2.38
 
-The supported image is pinned to `v2.38.6` in `compose.yaml`; use a matching
-Coder CLI. The container refuses to start if a nonempty `CODER_VERSION`
-override differs from that pin or if `CODER_EXPERIMENTS` contains `oauth2`.
+The supported version is recorded in `coder/supported-version` and the image
+is pinned in `compose.yaml`; use a matching Coder CLI. `make up` checks the
+effective Compose image, settings, and actual image binary before recreating
+services, then waits for Coder health. The entrypoint also checks its own binary
+and refuses stale version or `oauth2` experiment settings.
 Before starting the new revision, remove the old
 `CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
 `CODER_EXPERIMENTS=oauth2,mcp-server-http` with `mcp-server-http`. Preserve
 any other experiments you intentionally use. Compose now enables the OAuth2
 provider separately; the retired `oauth2` experiment no longer enables it.
 Check the effective image with `docker compose config --images` before starting.
-The guard runs inside the container, so it does not prevent Compose from
-stopping the old Coder container during recreation; follow the backup and
-quiescence procedure below before starting the new revision.
+Direct `docker compose up` bypasses the `make up` preflight and can stop the old
+container before its replacement rejects invalid settings. Neither check takes
+a backup; follow the quiescence procedure below before starting the new revision.
 
 Before upgrading an existing deployment, record its workspace names and
 templates (`coder list`). Schedule downtime, stop user and automation writes
@@ -238,8 +240,19 @@ made after the dump, including any writes allowed after the upgrade. Workspace
 home volumes are not covered by this dump. A
 schema migration may prevent an old server from starting against the upgraded
 database: a rollback requires restoring the pre-upgrade dump, not just changing
-the image tag. After the backup, pull and recreate only Coder with
-`docker compose pull coder` and `docker compose up -d --no-deps coder`. Check
+the image tag. After the backup, pull and recreate only Coder:
+
+```bash
+(
+  set -euo pipefail
+  docker compose pull coder
+  make coder-preflight
+  docker compose up -d --no-deps coder
+  bash scripts/wait-for-coder.sh
+)
+```
+
+Check
 `docker inspect coder`, `coder version`, and Coder migration logs, then publish
 and verify templates and test workspace SSH and stop/start persistence. Test
 the configured AI/MCP client and Temporal Coder workflow; record missing

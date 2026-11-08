@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CoderComposeGuardTest(unittest.TestCase):
-    def run_entrypoint(self, settings, overrides=None, stub_server=False):
+    def run_entrypoint(
+        self, settings, overrides=None, stub_server=False, version="v2.38.6"
+    ):
         with tempfile.TemporaryDirectory() as directory:
             env_file = Path(directory) / ".env"
             env_file.write_text(settings, encoding="utf-8")
@@ -41,8 +43,15 @@ class CoderComposeGuardTest(unittest.TestCase):
             # `compose config` escapes literal dollars for Compose re-input;
             # the container receives single dollars instead.
             command = coder["command"][0].replace("$$", "$")
-            # Rejection tests run the original command; success tests replace
-            # only the final exec because no real Coder server may be started.
+            # Run the same shell guard with a private version file and binary.
+            binary = Path(directory) / "coder"
+            binary.write_text(f"#!/bin/sh\nprintf 'Coder {version}+test build\\n'\n")
+            binary.chmod(0o755)
+            command = command.replace(
+                "/etc/cade/coder-version", str(ROOT / "coder/supported-version")
+            )
+            command = command.replace("/opt/coder version", f"{binary} version")
+            # Replace only the final server launch on successful paths.
             stub = (
                 'printf "started:%s:%s:%s:%s\\n" /opt/coder server '
                 '"${CODER_EXTERNAL_AUTH_0_ID-unset}" '
@@ -81,6 +90,12 @@ class CoderComposeGuardTest(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unsupported CODER_VERSION", result.stderr)
+        self.assertNotIn("started:", result.stdout)
+
+    def test_old_binary_rejected_even_with_supported_settings(self):
+        result = self.run_entrypoint("CODER_VERSION=v2.38.6\n", version="v2.36.4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported Coder binary", result.stderr)
         self.assertNotIn("started:", result.stdout)
 
     def test_default_and_supported_env_reach_server(self):
