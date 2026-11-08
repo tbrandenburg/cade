@@ -242,15 +242,18 @@ the stop; if either is already stopped, investigate rather than starting it just
 to satisfy the check. Immediately before migration, dump the Coder database;
 this creates a private directory and checks the archive's table of contents
 while the database stays running. The single fail-fast block pulls the image and
-runs preflight before attempting the stop; do not continue if it fails.
+runs preflight before attempting the stop, then verifies the backup before
+rechecking preflight and recreating Coder. Do not continue if it fails.
 
 If the stop or backup fails, no restart or recreation is attempted. Coder's state
 may still be changing: wait for any in-flight stop to finish, then re-check the
 original Coder and database container IDs, selected project and database volume,
 and the database migration schema before any manual restart. Investigate any
-change or uncertainty instead of restarting. A verified backup intentionally
-leaves Coder stopped for migration. Uncatchable signals or host failure can
-prevent the warning; check Coder's state before retrying.
+change or uncertainty instead of restarting. If preflight, recreation, or the
+health wait fails after backup verification, migration may have started: preserve
+the printed archive and check the schema and container/database identity before
+any recovery. Uncatchable signals or host failure can prevent the warning; check
+Coder's state before retrying.
 
 ```bash
 (
@@ -304,7 +307,12 @@ print(c["volumes"][mounts[0]["source"]]["name"])
     exit 1
   fi
   printf 'Original Coder ID: %s; database ID: %s; project: %s; database volume: %s\n' "$coder_id" "$db_id" "$project" "$volume"
-  trap 'printf "ERROR: Coder state may still be changing. Wait for any in-flight stop; re-check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before any manual restart. No restart or recreation was attempted.\n" "$coder_id" "$db_id" "$project" "$volume" >&2' EXIT
+  backup_verified=false
+  trap 'if [ "$backup_verified" = true ]; then
+    printf "ERROR: Upgrade failed after backup verification. Verified backup: %s/coder.dump. Coder state may still be changing; wait for any in-flight operation and check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before recovery. No automatic rollback or restart of old Coder was attempted.\n" "$backup_dir" "$coder_id" "$db_id" "$project" "$volume" >&2
+  else
+    printf "ERROR: Coder state may still be changing. Wait for any in-flight stop; re-check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before any manual restart. No restart or recreation was attempted.\n" "$coder_id" "$db_id" "$project" "$volume" >&2
+  fi' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
@@ -319,8 +327,12 @@ print(c["volumes"][mounts[0]["source"]]["name"])
   backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
   docker exec "$db_id" sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
   docker exec -i "$db_id" pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
-  trap - EXIT INT TERM HUP
+  backup_verified=true
   printf 'Coder database archive verified: %s/coder.dump\n' "$backup_dir"
+  make coder-preflight
+  COMPOSE_REMOVE_ORPHANS=0 docker compose up -d --no-deps coder
+  bash scripts/wait-for-coder.sh
+  trap - EXIT INT TERM HUP
 )
 ```
 
@@ -330,18 +342,7 @@ made after the dump, including any writes allowed after the upgrade. Workspace
 home volumes are not covered by this dump. A
 schema migration may prevent an old server from starting against the upgraded
 database: a rollback requires restoring the pre-upgrade dump, not just changing
-the image tag. After the backup, repeat preflight to catch configuration drift,
-then recreate only Coder. If this preflight fails, leave Coder stopped and
-investigate before proceeding with the upgrade:
-
-```bash
-(
-  set -euo pipefail
-  make coder-preflight
-  COMPOSE_REMOVE_ORPHANS=0 docker compose up -d --no-deps coder
-  bash scripts/wait-for-coder.sh
-)
-```
+the image tag.
 
 Check
 `docker inspect coder`, `coder version`, and Coder migration logs, then publish

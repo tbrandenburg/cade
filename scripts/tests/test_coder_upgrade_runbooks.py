@@ -23,7 +23,7 @@ class UpgradeRunbooksTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for directory in ("coder", "bin"):
+        for directory in ("coder", "bin", "scripts"):
             (self.root / directory).mkdir()
         for path in ("compose.yaml",):
             shutil.copyfile(ROOT / path, self.root / path)
@@ -43,6 +43,12 @@ if args and args[0] == 'compose' and 'config' in args:
     os.execv(os.environ['REAL_DOCKER'], [os.environ['REAL_DOCKER'], *args])
 if args[:3] == ['compose', 'pull', 'coder']:
     sys.exit(1 if os.environ.get('PULL_FAILURE') else 0)
+if args[:2] == ['compose', 'up']:
+    with open(os.environ['TRACE'], 'a') as trace:
+        trace.write('up orphan policy ' + os.environ.get('COMPOSE_REMOVE_ORPHANS', '') + '\\n')
+    if not pathlib.Path(os.environ['STOPPED'] + '-archive-verified').exists():
+        sys.exit(98)
+    sys.exit(1 if os.environ.get('UP_FAILURE') else 0)
 if args[:2] == ['compose', 'ps']:
     print('id-replacement' if stopped.exists() and (os.environ.get('REPLACE_CODER')
           or os.environ.get('REPLACE_SELECTION'))
@@ -89,6 +95,11 @@ if args and args[0] == 'exec':
         sys.exit(1)
     if args[1] == '-i' and os.environ.get('RESTORE_FAILURE'):
         sys.exit(1)
+    if args[1] == '-i':
+        if sys.stdin.read() != 'synthetic-dump\\n':
+            sys.exit(98)
+        pathlib.Path(os.environ['STOPPED'] + '-archive-verified').touch()
+        sys.exit(0)
     if args[1] != '-i' and os.environ.get('DUMP_FAILURE'):
         sys.exit(1)
     print('synthetic-dump')
@@ -102,15 +113,26 @@ sys.exit(99)
         make = self.root / "bin/make"
         make.write_text(
             """#!/usr/bin/python3
-import os, sys
+import os, pathlib, sys
 with open(os.environ['TRACE'], 'a') as trace:
     trace.write('make ' + ' '.join(sys.argv[1:]) + '\\n')
 if sys.argv[1:] != ['coder-preflight']:
     sys.exit(99)
+count = pathlib.Path(os.environ['TRACE']).read_text().count('make coder-preflight\\n')
+if count == 2:
+    if not pathlib.Path(os.environ['STOPPED'] + '-archive-verified').exists():
+        sys.exit(98)
+    sys.exit(1 if os.environ.get('SECOND_PREFLIGHT_FAILURE') else 0)
 sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
 """
         )
         make.chmod(0o755)
+        (self.root / "scripts/wait-for-coder.sh").write_text(
+            """#!/bin/bash
+printf 'wait-for-coder\\n' >>"$TRACE"
+if [ "${HEALTH_FAILURE:-}" = 1 ]; then exit 1; fi
+"""
+        )
         self.env = {
             "PATH": f"{self.root / 'bin'}:/usr/bin:/bin",
             "HOME": str(self.root),
@@ -121,6 +143,7 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
 
     def runbook(self, name, extra=None):
         if name == "backup":
+            (self.root / "stopped-archive-verified").unlink(missing_ok=True)
             code = command(
                 ROOT / "README.md", "### Upgrading Coder to 2.38", "backup_dir="
             )
@@ -140,7 +163,7 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         )
 
     def test_preparation_precedes_successful_backup(self):
-        result = self.runbook("backup")
+        result = self.runbook("backup", {"COMPOSE_REMOVE_ORPHANS": "1"})
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.trace.read_text()
         self.assertLess(
@@ -152,6 +175,17 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
             calls.index("docker compose stop coder"),
         )
         self.assertIn("Coder database archive verified", result.stdout)
+        self.assertEqual(calls.count("make coder-preflight"), 2)
+        self.assertLess(
+            calls.index("docker exec -i id-coder-db pg_restore --list"),
+            calls.rindex("make coder-preflight"),
+        )
+        self.assertLess(
+            calls.rindex("make coder-preflight"),
+            calls.index("docker compose up -d --no-deps coder"),
+        )
+        self.assertIn("up orphan policy 0", calls)
+        self.assertIn("wait-for-coder", calls)
         self.assertTrue((self.root / "stopped").exists())
 
     def test_preparation_failure_never_stops_coder(self):
@@ -180,6 +214,11 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         ):
             self.assertNotIn(operation, calls)
 
+    def assert_no_old_restart(self, calls):
+        self.assertNotIn("docker start ", calls)
+        self.assertNotIn("docker compose start ", calls)
+        self.assertNotIn("docker rm ", calls)
+
     def assert_recovery_warning(self, result):
         self.assertIn("Coder state may still be changing", result.stderr)
         self.assertIn("Wait for any in-flight stop", result.stderr)
@@ -189,6 +228,7 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         self.assertIn("migration schema before any manual restart", result.stderr)
         self.assertIn("No restart or recreation was attempted", result.stderr)
         self.assert_no_recovery(self.trace.read_text())
+        self.assertEqual(self.trace.read_text().count("make coder-preflight"), 1)
 
     def test_backup_uses_selected_custom_project_and_immutable_database_id(self):
         result = self.runbook("backup", {"COMPOSE_PROJECT_NAME": "chosen-project"})
@@ -198,8 +238,39 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
         self.assertIn("docker compose stop coder", calls)
         self.assertIn("docker exec id-coder-db sh -c", calls)
         self.assertIn("docker exec -i id-coder-db pg_restore --list", calls)
-        self.assert_no_recovery(calls)
+        self.assert_no_old_restart(calls)
+        self.assertIn("docker compose up -d --no-deps coder", calls)
         self.assertTrue((self.root / "stopped").exists())
+
+    def test_failure_after_verified_backup_warns_and_never_restarts_old_coder(self):
+        for values in (
+            {"SECOND_PREFLIGHT_FAILURE": "1"},
+            {"UP_FAILURE": "1"},
+            {"HEALTH_FAILURE": "1"},
+        ):
+            with self.subTest(values=values):
+                self.trace.write_text("")
+                (self.root / "stopped").unlink(missing_ok=True)
+                result = self.runbook("backup", values)
+                calls = self.trace.read_text()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls.count("make coder-preflight"), 2)
+                path = result.stdout.split("Coder database archive verified: ", 1)[
+                    1
+                ].splitlines()[0]
+                self.assertTrue(Path(path).is_file())
+                self.assertIn(f"Verified backup: {path}", result.stderr)
+                self.assertIn("migration schema before recovery", result.stderr)
+                self.assertIn("database ID id-coder-db", result.stderr)
+                self.assertIn(
+                    "No automatic rollback or restart of old Coder", result.stderr
+                )
+                self.assert_no_old_restart(calls)
+                self.assertEqual(
+                    "docker compose up -d --no-deps coder" in calls,
+                    "SECOND_PREFLIGHT_FAILURE" not in values,
+                )
+                self.assertEqual("wait-for-coder" in calls, "HEALTH_FAILURE" in values)
 
     def test_backup_refuses_wrong_project_volume_selection_or_absent_container(self):
         for values in (
@@ -216,6 +287,10 @@ sys.exit(1 if os.environ.get('PREFLIGHT_FAILURE') else 0)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("docker compose stop coder", self.trace.read_text())
                 self.assertNotIn("docker exec ", self.trace.read_text())
+                self.assert_no_recovery(self.trace.read_text())
+                self.assertEqual(
+                    self.trace.read_text().count("make coder-preflight"), 1
+                )
 
     def test_backup_does_not_dump_after_noop_stop_or_container_replacement(self):
         for values in ({"STOP_NOOP": "1"}, {"REPLACE_DB": "1"}):
