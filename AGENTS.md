@@ -196,6 +196,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 - 2026-11-08: Pitfall: Compose project overrides bypass a pinned `name:` and select different volumes. Prevention: compare running project labels and DB mounts with rendered configuration before upgrades or backups.
 - 2026-11-08: Pitfall: concurrent browser input actions can type into the wrong field. Prevention: serialize interactions sharing one page; parallelize only independent browser contexts.
+- 2026-11-08: Pitfall: PostgreSQL's socket-only initialization server can pass readiness before restarting. Prevention: probe the final TCP listener before restoring data into a fresh container.
 - 2026-10-15: Pitfall: readiness waited for a request-lazy backend before sending a request. Prevention: separate supervisor/listener readiness from authenticated protocol readiness; attest backend process binding after the first real request.
 - 2026-10-15: Pitfall: runc's procfs ENOENT concealed an unavailable AppArmor label. Prevention: correlate startup errors with kernel audit events and default/custom-label controls before attributing a failure to runtime upgrades or changing confinement.
 - 2026-10-15: Pitfall: an absent development service was treated as an external blocker. Prevention: verify safe scoped startup first; isolate historical volumes and credentials, and distinguish full-platform recommendations from local development prerequisites.
