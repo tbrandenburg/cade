@@ -231,6 +231,9 @@ docker compose config --format json | python3 -c 'import json,sys; print(json.lo
 If the verified existing project differs, explicitly select it in this shell,
 for example `export COMPOSE_PROJECT_NAME=your-existing-project`, then repeat
 the checks. Do not select or create a different database volume for the upgrade.
+Keep the reviewed deployment checkout available for subsequent lifecycle
+commands. Running an older Compose file against the same project can restore
+Promtail or remove the OAuth configuration even when its image tag is current.
 
 Before upgrading an existing deployment, record its workspace names and
 templates (`coder list`). Schedule downtime, stop user and automation writes
