@@ -35,6 +35,19 @@ with open(os.environ['TRACE'], 'a') as trace:
     trace.write('docker ' + ' '.join(args) + '\\n')
 if args and args[0] == 'compose' and 'config' in args:
     os.execv(os.environ['REAL_DOCKER'], [os.environ['REAL_DOCKER'], *args])
+if args[:2] == ['container', 'ls']:
+    if os.environ.get('LIST_FAILURE'):
+        sys.exit(1)
+    name = 'coder-db' if 'name=^/coder-db$' in args else 'coder'
+    if os.environ.get('PROJECT_' + name):
+        print('id-' + name)
+    sys.exit(0)
+if args and args[0] == 'inspect' and 'Labels' in args[2]:
+    if os.environ.get('LABEL_FAILURE'):
+        sys.exit(1)
+    name = args[-1].removeprefix('id-')
+    print(os.environ['PROJECT_' + name] + ':' + os.environ.get('SERVICE_' + name, name))
+    sys.exit(0)
 if args[:2] == ['image', 'inspect'] or args[:2] == ['buildx', 'build']:
     sys.exit(0)
 if args and args[0] == 'run':
@@ -109,6 +122,8 @@ exit 0
             "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.36.4\n",
             "services:\n  coder:\n    environment:\n      CADE_CODER_SUPPORTED_VERSION: v2.38.6\n",
             "services:\n  coder:\n    environment:\n      CODER_OAUTH2_PROVIDER_ENABLE: 'false'\n",
+            "services:\n  coder:\n    container_name: alternate-coder\n",
+            "services:\n  coder-db:\n    container_name: alternate-db\n",
         ):
             with self.subTest(override=override):
                 self.trace.write_text("")
@@ -122,6 +137,39 @@ exit 0
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unsupported binary", result.stderr)
         self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_existing_containers_must_match_effective_compose_project(self):
+        for values in (
+            {"PROJECT_coder": "another-project"},
+            {"PROJECT_coder-db": "another-project"},
+            {"PROJECT_coder": "devenv-cloud", "SERVICE_coder": "other"},
+            {"PROJECT_coder": "devenv-cloud", "LABEL_FAILURE": "1"},
+            {"LIST_FAILURE": "1"},
+        ):
+            with self.subTest(values=values):
+                self.trace.write_text("")
+                result = self.run_make(extra=values)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Coder preflight failed", result.stderr)
+                self.assertNotIn("compose up", self.trace.read_text())
+                self.assertNotIn("docker image inspect", self.trace.read_text())
+
+    def test_absent_or_matching_containers_allow_preflight(self):
+        for values in (
+            {},
+            {"PROJECT_coder": "devenv-cloud"},
+            {"PROJECT_coder-db": "devenv-cloud"},
+            {
+                "COMPOSE_PROJECT_NAME": "chosen-project",
+                "PROJECT_coder": "chosen-project",
+                "PROJECT_coder-db": "chosen-project",
+            },
+        ):
+            with self.subTest(values=values):
+                self.trace.write_text("")
+                result = self.run_make(extra=values)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("compose up -d", self.trace.read_text())
 
     def test_preflight_failure_does_not_print_environment_secrets(self):
         result = self.run_make(

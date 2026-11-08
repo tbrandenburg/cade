@@ -89,13 +89,17 @@ Before deploying Alloy on an existing installation, stop and remove the old
 collector. This also works after checking out this revision, whose Compose file
 no longer defines Promtail. The old service used the explicit container name
 `promtail`; verify its Compose labels before acting on its immutable ID:
+If the existing deployment uses a nondefault project, explicitly select it
+with `COMPOSE_PROJECT_NAME` as described in the
+[Coder upgrade procedure](/README.md#upgrading-coder-to-238) before continuing.
 
 ```bash
 (
   set -euo pipefail
+  project="$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
   id="$(docker inspect --format '{{.Id}}' promtail)"
   labels="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
-  if [ "$labels" != 'devenv-cloud:promtail' ]; then
+  if [ -z "$project" ] || [ "$labels" != "$project:promtail" ]; then
     printf 'Refusing to remove container with unexpected Compose labels: %s\n' "$labels" >&2
     exit 1
   fi

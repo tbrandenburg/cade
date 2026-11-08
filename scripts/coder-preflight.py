@@ -24,7 +24,44 @@ def config(args, raw=False):
     result = run(["docker", "compose", *args, "config", "--format", "json", *options])
     if result.returncode:
         raise ValueError("could not resolve Compose configuration")
-    return json.loads(result.stdout)["services"]["coder"]
+    return json.loads(result.stdout)
+
+
+def check_existing(project):
+    for name in ("coder", "coder-db"):
+        result = run(
+            [
+                "docker",
+                "container",
+                "ls",
+                "--all",
+                "--filter",
+                f"name=^/{name}$",
+                "--format",
+                "{{.ID}}",
+            ]
+        )
+        if result.returncode:
+            raise ValueError("could not inspect existing Coder containers")
+        ids = result.stdout.splitlines()
+        if not ids:
+            continue
+        if len(ids) != 1:
+            raise ValueError(f"cannot uniquely identify existing {name} container")
+        labels = run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}',
+                ids[0],
+            ]
+        )
+        if labels.returncode or labels.stdout.strip() != f"{project}:{name}":
+            raise ValueError(
+                f"existing {name} container does not belong to Compose project {project}; "
+                "select the correct COMPOSE_PROJECT_NAME before proceeding"
+            )
 
 
 def main():
@@ -33,10 +70,20 @@ def main():
     if not match:
         raise ValueError("invalid coder/supported-version.env")
     version = match.group(1)
-    coder = config([])
-    baseline = config(["-f", str(ROOT / "compose.yaml")])
-    raw = config([], raw=True)
-    baseline_raw = config(["-f", str(ROOT / "compose.yaml")], raw=True)
+    effective = config([])
+    project = effective["name"]
+    if not isinstance(project, str) or not project:
+        raise ValueError("effective Compose project name is missing")
+    for name in ("coder", "coder-db"):
+        if effective["services"][name].get("container_name") != name:
+            raise ValueError(f"effective {name} container name must remain fixed")
+    check_existing(project)
+    coder = effective["services"]["coder"]
+    baseline = config(["-f", str(ROOT / "compose.yaml")])["services"]["coder"]
+    raw = config([], raw=True)["services"]["coder"]
+    baseline_raw = config(["-f", str(ROOT / "compose.yaml")], raw=True)["services"][
+        "coder"
+    ]
     if VERSION_KEY in raw.get("environment", {}) or raw.get(
         "env_file"
     ) != baseline_raw.get("env_file"):

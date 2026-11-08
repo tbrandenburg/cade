@@ -219,22 +219,90 @@ Direct `docker compose up` bypasses the `make up` preflight and can stop the old
 container before its replacement rejects invalid settings. Neither check takes
 a backup; follow the quiescence procedure below before starting the new revision.
 
+An existing deployment may use a Compose project other than the repository's
+default. Before using `make up` or the backup procedure, compare the effective
+project with the running containers' labels:
+
+```bash
+docker inspect --format '{{.Name}} {{index .Config.Labels "com.docker.compose.project"}}' coder coder-db
+docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])'
+```
+
+If the verified existing project differs, explicitly select it in this shell,
+for example `export COMPOSE_PROJECT_NAME=your-existing-project`, then repeat
+the checks. Do not select or create a different database volume for the upgrade.
+
 Before upgrading an existing deployment, record its workspace names and
 templates (`coder list`). Schedule downtime, stop user and automation writes
 (including Temporal workspace operations and direct database writers), wait for
-in-flight operations to finish, and stop Coder. Keep those writers quiescent
-until the upgrade and verification are complete. Immediately before migration,
-dump the Coder database; this creates a private directory and checks the
-archive's table of contents while the database stays running:
+in-flight operations to finish, and use the checked procedure below to stop
+Coder. Keep those writers quiescent until the upgrade and verification are
+complete. This procedure requires Coder and its database to be running before
+the stop; if either is already stopped, investigate rather than starting it just
+to satisfy the check. Immediately before migration, dump the Coder database;
+this creates a private directory and checks the archive's table of contents
+while the database stays running:
 
 ```bash
 (
   set -euo pipefail
   umask 077
+  metadata="$(docker compose config --format json | python3 -c '
+import json, sys
+c = json.load(sys.stdin)
+services = c["services"]
+if any(services[n].get("container_name") != n for n in ("coder", "coder-db")):
+    sys.exit("Unexpected Coder container names")
+mounts = [m for m in services["coder-db"]["volumes"] if m["target"] == "/var/lib/postgresql/data"]
+if len(mounts) != 1 or mounts[0]["type"] != "volume":
+    sys.exit("Expected exactly one named Coder database volume")
+print(c["name"])
+print(c["volumes"][mounts[0]["source"]]["name"])
+')"
+  mapfile -t selected <<< "$metadata"
+  if [ "${#selected[@]}" -ne 2 ] || [ -z "${selected[0]}" ] || [ -z "${selected[1]}" ]; then
+    echo 'ERROR: could not resolve the Compose project and database volume' >&2
+    exit 1
+  fi
+  project="${selected[0]}"
+  volume="${selected[1]}"
+  coder_id="$(docker inspect --format '{{.Id}}' coder)"
+  db_id="$(docker inspect --format '{{.Id}}' coder-db)"
+  for item in "$coder_id:coder" "$db_id:coder-db"; do
+    id="${item%%:*}"
+    service="${item#*:}"
+    labels="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
+    if [ "$labels" != "$project:$service" ]; then
+      echo "ERROR: $service does not belong to selected project $project" >&2
+      exit 1
+    fi
+  done
+  mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}' "$db_id")"
+  if [ "$mount" != "volume:$volume" ]; then
+    echo 'ERROR: Coder database volume differs from the selected Compose configuration' >&2
+    exit 1
+  fi
+  compose_id="$(docker compose ps --all -q coder)"
+  if [ -z "$compose_id" ] || [ "$(docker inspect --format '{{.Id}}' "$compose_id")" != "$coder_id" ]; then
+    echo 'ERROR: Compose does not select the intended Coder container' >&2
+    exit 1
+  fi
+  if [ "$(docker inspect --format '{{.State.Running}}' "$coder_id")" != true ] ||
+     [ "$(docker inspect --format '{{.State.Running}}' "$db_id")" != true ]; then
+    echo 'ERROR: Coder and its database must be running before this procedure' >&2
+    exit 1
+  fi
   docker compose stop coder
+  if [ "$(docker inspect --format '{{.State.Running}}' "$coder_id")" != false ] ||
+     [ "$(docker inspect --format '{{.Id}}' coder)" != "$coder_id" ] ||
+     [ "$(docker inspect --format '{{.Id}}' coder-db)" != "$db_id" ] ||
+     [ "$(docker inspect --format '{{.State.Running}}' "$db_id")" != true ]; then
+    echo 'ERROR: Coder was not stopped or the selected containers changed' >&2
+    exit 1
+  fi
   backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
-  docker exec coder-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
-  docker exec -i coder-db pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
+  docker exec "$db_id" sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
+  docker exec -i "$db_id" pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
   printf 'Coder database archive verified: %s/coder.dump\n' "$backup_dir"
 )
 ```
