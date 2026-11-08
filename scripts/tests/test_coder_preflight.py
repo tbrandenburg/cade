@@ -50,6 +50,23 @@ if args and args[0] == 'inspect' and 'Labels' in args[2]:
     name = args[-1].removeprefix('id-')
     print(os.environ['PROJECT_' + name] + ':' + os.environ.get('SERVICE_' + name, name))
     sys.exit(0)
+if args and args[0] == 'inspect' and '.HostConfig.Mounts' in args[2]:
+    project = os.environ.get('PROJECT_coder-db', 'devenv-cloud')
+    source = os.environ.get('DB_MOUNT', 'volume:' + project + '_coder_db_data').removeprefix('volume:')
+    default = [{'Type': 'volume', 'Source': source, 'Target': '/var/lib/postgresql/data',
+                'VolumeOptions': {'Subpath': os.environ.get('HOST_SUBPATH', '')}}]
+    print(os.environ.get('HOST_MOUNTS_JSON', json.dumps(default)))
+    print(os.environ.get('HOST_BINDS_JSON', 'null'))
+    sys.exit(0)
+if args and args[0] == 'inspect' and '.Config.Env' in args[2]:
+    if os.environ.get('PGDATA_FAILURE'):
+        sys.exit(1)
+    if not os.environ.get('NO_PGDATA'):
+        print('PGDATA=' + os.environ.get('ACTUAL_PGDATA', '/var/lib/postgresql/data'))
+        if os.environ.get('DUP_PGDATA'):
+            print('PGDATA=/var/lib/postgresql/data')
+    print()
+    sys.exit(0)
 if args and args[0] == 'inspect' and '.Mounts' in args[2]:
     if os.environ.get('MOUNT_FAILURE'):
         sys.exit(1)
@@ -233,6 +250,131 @@ exit 0
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("exactly one named data volume", result.stderr)
                 self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_pgdata_and_volume_subpath_overrides_stop_parallel_up(self):
+        for override in (
+            "services:\n  coder-db:\n    environment:\n      PGDATA: /var/lib/postgresql/data/newcluster\n",
+            "services:\n  coder-db:\n    environment:\n      PGDATA: ''\n",
+            "services:\n  coder-db:\n    volumes:\n      - type: volume\n        source: coder_db_data\n        target: /var/lib/postgresql/data\n        volume:\n          subpath: newcluster\n",
+        ):
+            for existing in (
+                {},
+                {"PROJECT_coder-db": "devenv-cloud"},
+                {"COMPOSE_PROJECT_NAME": "chosen-project"},
+                {
+                    "COMPOSE_PROJECT_NAME": "chosen-project",
+                    "PROJECT_coder-db": "chosen-project",
+                },
+            ):
+                with self.subTest(override=override, existing=existing):
+                    self.trace.write_text("")
+                    result = self.run_make(
+                        override=override, extra=existing, arguments=("-j3",)
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Coder preflight failed", result.stderr)
+                    self.assertNotIn("docker buildx build", self.trace.read_text())
+                    self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_existing_database_pgdata_must_be_unambiguous_and_match(self):
+        for settings in (
+            {"ACTUAL_PGDATA": "/var/lib/postgresql/data/newcluster"},
+            {"NO_PGDATA": "1"},
+            {"DUP_PGDATA": "1"},
+            {"PGDATA_FAILURE": "1"},
+        ):
+            with self.subTest(settings=settings):
+                self.trace.write_text("")
+                result = self.run_make(
+                    extra={"PROJECT_coder-db": "devenv-cloud", **settings},
+                    arguments=("-j3",),
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("existing coder-db PGDATA", result.stderr)
+                self.assertNotIn("docker buildx build", self.trace.read_text())
+                self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_existing_database_mount_declarations_must_prove_volume_root(self):
+        path = "/var/lib/postgresql/data"
+        entry = {
+            "Type": "volume",
+            "Source": "devenv-cloud_coder_db_data",
+            "Target": path,
+        }
+        for settings in (
+            {"HOST_SUBPATH": "newcluster"},
+            {"HOST_MOUNTS_JSON": "null", "HOST_BINDS_JSON": "null"},
+            {"HOST_MOUNTS_JSON": json.dumps([entry, entry])},
+            {"HOST_MOUNTS_JSON": "not-json"},
+            {"HOST_MOUNTS_JSON": "[null]"},
+            {"HOST_MOUNTS_JSON": json.dumps([{**entry, "Source": "different"}])},
+        ):
+            with self.subTest(settings=settings):
+                self.trace.write_text("")
+                result = self.run_make(
+                    extra={"PROJECT_coder-db": "devenv-cloud", **settings},
+                    arguments=("-j3",),
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Coder preflight failed", result.stderr)
+                self.assertNotIn("docker buildx build", self.trace.read_text())
+                self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_database_default_and_legacy_root_mount_work_for_selected_project(self):
+        for project in ("devenv-cloud", "chosen-project"):
+            for binds in (
+                None,
+                json.dumps([f"{project}_coder_db_data:/var/lib/postgresql/data:rw"]),
+            ):
+                with self.subTest(project=project, binds=binds):
+                    self.trace.write_text("")
+                    extra = {
+                        "COMPOSE_PROJECT_NAME": project,
+                        "PROJECT_coder-db": project,
+                    }
+                    if binds is not None:
+                        extra.update(
+                            {"HOST_MOUNTS_JSON": "null", "HOST_BINDS_JSON": binds}
+                        )
+                    result = self.run_make(extra=extra, arguments=("-j3",))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("compose up -d", self.trace.read_text())
+
+    def test_database_image_override_is_rejected_before_parallel_builds(self):
+        result = self.run_make(
+            override="services:\n  coder-db:\n    image: postgres:18-alpine\n",
+            arguments=("-j3",),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("database image must match", result.stderr)
+        self.assertNotIn("docker buildx build", self.trace.read_text())
+        self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_database_launch_override_cannot_change_data_directory(self):
+        for override in (
+            'services:\n  coder-db:\n    command: ["postgres", "-D", "/var/lib/postgresql/data/newcluster"]\n',
+            'services:\n  coder-db:\n    entrypoint: ["/bin/sh", "-c", "exit 0"]\n',
+            "services:\n  coder-db:\n    build: .\n",
+        ):
+            with self.subTest(override=override):
+                self.trace.write_text("")
+                result = self.run_make(override=override, arguments=("-j3",))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("must match the baseline", result.stderr)
+                self.assertNotIn("docker buildx build", self.trace.read_text())
+                self.assertNotIn("compose up", self.trace.read_text())
+
+    def test_explicit_postgres_17_default_pgdata_is_allowed(self):
+        result = self.run_make(
+            override="services:\n  coder-db:\n    environment:\n      PGDATA: /var/lib/postgresql/data\n",
+            extra={
+                "COMPOSE_PROJECT_NAME": "chosen-project",
+                "PROJECT_coder-db": "chosen-project",
+            },
+            arguments=("-j3",),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose up -d", self.trace.read_text())
 
     def test_resolver_rejects_ambiguous_effective_mounts(self):
         result = subprocess.run(

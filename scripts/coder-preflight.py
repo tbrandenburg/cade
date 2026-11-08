@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = ROOT / "coder/supported-version.env"
 VERSION_KEY = "CADE_CODER_SUPPORTED_VERSION"
+DB_PATH = "/var/lib/postgresql/data"
 
 
 def run(args, timeout=30):
@@ -72,10 +73,13 @@ def database_volume(compose):
     mounts = [
         mount
         for mount in compose["services"]["coder-db"].get("volumes", [])
-        if posixpath.normpath(mount.get("target", "")) == "/var/lib/postgresql/data"
+        if posixpath.normpath(mount.get("target", "")) == DB_PATH
     ]
     if len(mounts) != 1 or mounts[0].get("type") != "volume":
         raise ValueError("Coder database must have exactly one named data volume")
+    options = mounts[0].get("volume") or {}
+    if not isinstance(options, dict) or options.get("subpath") not in (None, ""):
+        raise ValueError("Coder database volume subpath is not supported")
     volume = compose.get("volumes", {}).get(mounts[0].get("source"), {})
     name = volume.get("name")
     if not isinstance(name, str) or not name:
@@ -104,6 +108,71 @@ def check_database_volume(compose, baseline, db_id):
         raise ValueError(
             "existing coder-db data mount does not match the effective named volume"
         )
+    result = run(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            "{{json .HostConfig.Mounts}}\n{{json .HostConfig.Binds}}",
+            db_id,
+        ]
+    )
+    lines = result.stdout.strip().splitlines()
+    if result.returncode or len(lines) != 2:
+        raise ValueError("could not verify existing coder-db mount configuration")
+    mounts, binds = (json.loads(line) or [] for line in lines)
+    if (
+        not isinstance(mounts, list)
+        or not isinstance(binds, list)
+        or any(not isinstance(mount, dict) for mount in mounts)
+        or any(not isinstance(bind, str) for bind in binds)
+    ):
+        raise ValueError("could not verify existing coder-db mount configuration")
+    declarations = [
+        m for m in mounts if posixpath.normpath(m.get("Target", "")) == DB_PATH
+    ]
+    for bind in binds:
+        parts = bind.split(":")
+        if len(parts) >= 2 and posixpath.normpath(parts[1]) == DB_PATH:
+            declarations.append({"Type": "volume", "Source": parts[0]})
+    if len(declarations) != 1:
+        raise ValueError("cannot uniquely verify existing coder-db data mount")
+    mount = declarations[0]
+    options = mount.get("VolumeOptions") or {}
+    if (
+        mount.get("Type") != "volume"
+        or mount.get("Source") != name
+        or not isinstance(options, dict)
+        or options.get("Subpath") not in (None, "")
+    ):
+        raise ValueError("existing coder-db data mount is not the volume root")
+
+
+def check_database_pgdata(compose, baseline, db_id):
+    current = compose["services"]["coder-db"]
+    original = baseline["services"]["coder-db"]
+    for key in ("image", "entrypoint", "command", "build", "platform", "pull_policy"):
+        if current.get(key) != original.get(key):
+            raise ValueError(f"Coder database {key} must match the baseline")
+    expected = original.get("environment", {}).get("PGDATA", DB_PATH)
+    effective = current.get("environment", {}).get("PGDATA", DB_PATH)
+    if not isinstance(expected, str) or not expected or effective != expected:
+        raise ValueError("Coder database PGDATA must match the baseline")
+    if db_id is None:
+        return
+    result = run(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            '{{range .Config.Env}}{{if eq (index (split . "=") 0) "PGDATA"}}{{println .}}{{end}}{{end}}',
+            db_id,
+        ]
+    )
+    if result.returncode or result.stdout.strip().splitlines() != [
+        f"PGDATA={expected}"
+    ]:
+        raise ValueError("existing coder-db PGDATA is missing, ambiguous or mismatched")
 
 
 def main():
@@ -122,6 +191,7 @@ def main():
     db_id = check_existing(project)
     baseline_config = config(["-p", project, "-f", str(ROOT / "compose.yaml")])
     check_database_volume(effective, baseline_config, db_id)
+    check_database_pgdata(effective, baseline_config, db_id)
     coder = effective["services"]["coder"]
     baseline = baseline_config["services"]["coder"]
     raw = config([], raw=True)["services"]["coder"]
