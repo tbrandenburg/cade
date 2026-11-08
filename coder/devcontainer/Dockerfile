@@ -15,7 +15,7 @@ FROM ubuntu:24.04
 ARG USERNAME=coder
 ARG USER_UID=1000
 ARG USER_GID=1000
-ARG NODE_MAJOR=20
+ARG NODE_MAJOR=24
 
 # Optional corporate/TLS-intercepting-proxy CA bundle. Passed as a BuildKit
 # secret (never a build arg or COPY) so it never lands in an image layer:
