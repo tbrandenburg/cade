@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the workspace image with a restrictive source mode and check its defaults.
 # Run from the repository root: bash scripts/test-workspace-image-permissions.sh
+# Optionally set CACERT to a CA bundle for TLS-intercepting proxies.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -21,7 +22,11 @@ chmod 600 "$tmp/agent-host/srt-settings.json"
 test "$(stat -c '%a' "$tmp/agent-host/srt-settings.json")" = 600
 test -s "$tmp/agent-host/srt-settings.json"
 
-docker buildx build --load -t "$image" -f "$tmp/coder/Dockerfile" \
+secret=()
+if [[ -n ${CACERT:-} ]]; then
+  secret=(--secret "id=cacert,src=$CACERT")
+fi
+docker buildx build --load -t "$image" -f "$tmp/coder/Dockerfile" "${secret[@]}" \
   --build-context "agent-host=$tmp/agent-host" "$tmp/coder"
 
 docker run --rm -i --network none --entrypoint sh "$image" -c '
