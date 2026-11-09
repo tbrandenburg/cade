@@ -46,6 +46,7 @@ _(Concrete, binding rules discovered during implementation — not restated theo
 
 ### Development environment autonomy
 
+- **Coder deployment ownership** — agents are in the driver's seat for a usable development Coder deployment: start or provision it when absent; recover access or recreate inaccessible development resources when necessary, without waiting for user intervention.
 - **Development, not production** — CADE is still under development. Its Coder instances and workspaces are non-production resources; agents may stop, restart, remove, and recreate them without additional permission when needed to unblock development or validation.
 - **Act on prerequisites** — provision missing environments and recreate or rotate development secrets as needed; update their consumers and verify the result. Take the necessary scoped action instead of treating a missing service, expired token, or disposable environment as a reason to stop. Never expose secret values.
 - **Conserve host resources** — reuse one Coder instance and keep concurrent workspaces to the minimum needed. Prefer sequential validation; clean up idle, legacy, and test instances/workspaces and start them again when needed. Preserve unrelated work and keep destructive cleanup scoped to identified development resources.
