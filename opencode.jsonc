@@ -3,7 +3,7 @@
   "mcp": {
     "devenv-docs": {
       "type": "local",
-      "command": ["uv", "run", "--no-sync", "python", "-m", "docs_server.server"],
+      "command": ["uv", "run", "python", "-m", "docs_server.server"],
       "cwd": "mcp/docs-server",
       "enabled": true
     },
