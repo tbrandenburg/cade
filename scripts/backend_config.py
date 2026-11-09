@@ -70,7 +70,7 @@ def _validate(document: object, schema: dict) -> None:
 
 
 def validate_azure_config(config: ProviderConfig) -> None:
-    """Validate enabled Azure IDs and same-subscription/resource-group subnet ownership.
+    """Validate enabled Azure IDs and same-subscription subnet correspondence.
 
     Reusable by doctor/preflight. This checks syntax/correspondence, not Azure access.
     """
@@ -79,8 +79,6 @@ def validate_azure_config(config: ProviderConfig) -> None:
     segments = config["subnetId"].split("/")
     if segments[2].lower() != config["subscriptionId"].lower():
         raise ConfigError("subnetId must match subscriptionId")
-    if segments[4].lower() != config["resourceGroup"].lower():
-        raise ConfigError("subnetId must match resourceGroup")
 
 
 def validate_connection(document: object) -> Connection:
