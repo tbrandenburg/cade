@@ -9,6 +9,7 @@ on:
       - "coder/templates/agent-workspace/**"
       - "coder/agent-workspace/Dockerfile"
       - "agent-host/srt-settings.json"
+      - "scripts/test-workspace-image-permissions.sh"
       - "tests/coder-omnigent-*"
       - "opencode.jsonc"
       - "mcp/docs-server/**"
@@ -23,6 +24,7 @@ on:
       - "coder/templates/agent-workspace/**"
       - "coder/agent-workspace/Dockerfile"
       - "agent-host/srt-settings.json"
+      - "scripts/test-workspace-image-permissions.sh"
       - "tests/coder-omnigent-*"
       - "opencode.jsonc"
       - "mcp/docs-server/**"
@@ -52,7 +54,7 @@ jobs:
         timeout-minutes: 5
         run: python3 tests/docs-mcp-cold-start.py
       - name: Shell checks
-        run: shellcheck tests/coder-omnigent-*.sh
+        run: shellcheck tests/coder-omnigent-*.sh scripts/test-workspace-image-permissions.sh
       # Use the Engine's builder so the derived FROM resolves the local base.
       - name: Verify installed buildx
         run: docker buildx inspect default
@@ -67,6 +69,9 @@ jobs:
         env:
           WORKSPACE_IMAGE: cade/coder-workspace:latest
         run: bash tests/coder-omnigent-launch.sh
+      - name: Restrictive workspace image permissions regression
+        timeout-minutes: 35
+        run: bash scripts/test-workspace-image-permissions.sh
       - name: Build agent workspace image
         timeout-minutes: 10
         run: >-

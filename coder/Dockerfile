@@ -150,11 +150,12 @@ RUN python3 -m venv /opt/omnigent-venv \
 # coder-workspace-build target supplies this, since agent-host/ lives at
 # the repo root, one level above this Dockerfile's own build context
 # (coder/).
-COPY --from=agent-host srt-settings.json /etc/cade/srt-settings.default.json
+COPY --from=agent-host --chmod=644 srt-settings.json /etc/cade/srt-settings.default.json
 COPY --chmod=644 omnigent/launch.py /opt/cade/omnigent-launch.py
 COPY --chmod=644 omnigent/relay.py /opt/cade/omnigent-relay.py
 COPY --chmod=644 omnigent/seed.py /opt/cade/omnigent-seed.py
-RUN chmod 755 /opt/cade
+# COPY --chmod may create parent directories without the execute bit.
+RUN chmod 755 /opt/cade /etc/cade
 
 RUN if getent group ${USER_GID} > /dev/null; then \
       groupmod -n ${USERNAME} "$(getent group ${USER_GID} | cut -d: -f1)"; \
