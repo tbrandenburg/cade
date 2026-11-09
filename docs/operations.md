@@ -2,6 +2,71 @@
 
 Operational runbooks not covered by the `Makefile` help text.
 
+## Renewing the Temporal Coder token
+
+The `temporal-svc` token lasts seven days. Authenticate the Coder CLI as an
+owner, then run `make coder-svc-token`; it creates the service user if needed
+and prints a **private file path**, never the token. Set
+`CODER_WORKSPACE_REAP_ACTION=delete` when running the command only if the
+deployment uses delete rather than the default stop policy.
+
+Install the token during a quiet maintenance window and stop at the first
+error. Use the actual worker's
+Compose project and working directory, not another checkout's `.env`. The
+example below handles the usual single-`compose.yaml` deployment; if the
+worker uses overrides, use its original Compose files instead. Set `TOKEN_FILE`
+to the path printed by `make coder-svc-token` and do not print its contents.
+
+```bash
+DEPLOY=$(docker inspect temporal-worker --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}')
+PROJECT=$(docker inspect temporal-worker --format '{{index .Config.Labels "com.docker.compose.project"}}')
+FILES=$(docker inspect temporal-worker --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}')
+test "$FILES" = "$DEPLOY/compose.yaml" || { echo 'Use the original Compose overrides.' >&2; exit 1; }
+```
+
+Back up the environment privately and replace only the token. The backup is
+kept next to the token file for rollback; neither belongs in a build context.
+
+```bash
+python3 - "$DEPLOY/.env" "$TOKEN_FILE" <<'PY'
+import os, sys, tempfile
+from pathlib import Path
+
+env, token_file = map(Path, sys.argv[1:])
+original, token = env.read_bytes(), token_file.read_bytes().strip()
+if not token or b'\n' in token:
+    raise SystemExit('Invalid token file')
+lines = original.splitlines(keepends=True)
+indexes = [i for i, line in enumerate(lines) if line.startswith(b'CODER_WORKSPACE_API_TOKEN=')]
+if len(indexes) != 1:
+    raise SystemExit('Expected one CODER_WORKSPACE_API_TOKEN entry')
+backup = token_file.with_name('env.before')
+fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(original)
+lines[indexes[0]] = b'CODER_WORKSPACE_API_TOKEN=' + token + b'\n'
+with tempfile.TemporaryDirectory(prefix='.cade-token-', dir=env.parent) as directory:
+    staged = Path(directory) / '.env'
+    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(b''.join(lines))
+    os.replace(staged, env)
+PY
+```
+
+Recreate only the worker, then check its real Coder identity. Keep the prior
+token valid until this succeeds; on failure, restore `env.before` to the
+deployment `.env` and recreate the worker again.
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" docker compose -p "$PROJECT" --project-directory "$DEPLOY" \
+  -f "$DEPLOY/compose.yaml" up -d --no-deps --no-build --pull never --force-recreate temporal-worker
+docker exec temporal-worker python -c 'import json,os,urllib.request; r=urllib.request.Request(os.getenv("CODER_URL","http://coder:7080")+"/api/v2/users/me",headers={"Coder-Session-Token":os.environ["CODER_WORKSPACE_API_TOKEN"]}); x=urllib.request.urlopen(r,timeout=10); u=json.load(x); assert x.status==200 and u["username"]=="temporal-svc"; print("Temporal Coder authentication OK")'
+```
+
+OpenBao, if used as a separate record of this token, is not updated by this
+procedure; administrative recovery is tracked in [#170](https://github.com/tbrandenburg/cade/issues/170).
+
 ## Self-hosted runner image rebuild / patch cadence (Milestone M2)
 
 `runner/Dockerfile` is the highest-security-sensitivity image in the
