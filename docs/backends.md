@@ -204,6 +204,10 @@ manual verification rather than printing their contents. An explicit empty
 `variables.tf` denotes an implementation with no variables; a missing file is an
 error. The standalone verifier accepts `--expected-repo-url URL`; without it,
 `devcontainer.repo_url` is checked against its blank Terraform default.
+Configure `CODER_URL` to the direct API-serving Coder URL: authenticated HTTP
+redirects, including same-origin redirects, are rejected before forwarding the
+session header. A login/proxy redirect is a configuration error, not a reason to
+disable this protection.
 
 Publishing and verification retain the existing `.env` loading behavior for
 unset/empty environment values; the read-only configuration CLI reads its explicit

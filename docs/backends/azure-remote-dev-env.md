@@ -6,6 +6,18 @@ subscription can run this template. B1 [#141](https://github.com/tbrandenburg/ca
 B2 [#142](https://github.com/tbrandenburg/cade/issues/142), and B3
 [#143](https://github.com/tbrandenburg/cade/issues/143) own live acceptance.
 
+**Owner:** CADE deployment operator; escalate IAM/network approvals to the enterprise
+platform owner. **Offline procedure last verified:** 2026-11-09. Re-review after a
+schema/template change and before the B1 opt-in review.
+
+## Offline handoff completion
+
+- [ ] Record the existing RG/subnet, private Coder URL and approved provisioner identity.
+- [ ] Validate the separate deployment file with the offline doctor; require exit 0
+  and `Live Azure checks NOT TESTED`, not a cloud-readiness claim.
+- [ ] Give the platform owner the review/checklists below; keep the real connection
+  disabled until the documented live prerequisites are accepted.
+
 ## Owner handoff: minimum inputs and ownership
 
 Reuse an approved subscription, an **existing dedicated workspace resource group**,

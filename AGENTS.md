@@ -142,6 +142,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Evidence & "done" claims
 
+- 2026-11-09: Pitfall: an expanded catalog broke fixtures with missing unselected paths and duplicate appended rows. Prevention: materialize every catalog-declared template in fixture repositories; replace named mappings rather than blindly appending them.
 - Never trust a subagent's "complete"/"passing" report — check `git log --oneline -3 <branch>` (not just `git status`) to confirm it actually committed.
 - Treat any change to `compose.yaml`/a template/a config file as inert until the consuming container is verified recreated (`docker inspect ... Config.Env`) — a committed diff and a live effect are different claims.
 - Never trust a `200`/"Succeeded" status string alone — cross-check the real resource (`docker inspect`, `docker exec ... cat log`, a live API round trip) before declaring a step done.
@@ -192,6 +193,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Sandbox / security
 
+- 2026-11-09: Pitfall: urllib forwarded a custom authentication header across an API redirect. Prevention: reject redirects before sending a credentialed follow-up request; test with separate loopback origins and assert the destination receives no request.
 - Docker layers multiple independent confinement mechanisms (seccomp, AppArmor, capabilities, `systempaths`) — when a sandboxing fix "should" work but doesn't, toggle each layer to its most permissive setting individually to isolate which one is still blocking, rather than assuming the last-touched layer is at fault.
 - Disabling one confinement mechanism is only safe if another mechanism already independently enforces the same boundary — verify this explicitly, never assume any `unconfined`-named flag is inherently safe.
 - A stale, already-pushed template silently embeds old security-profile *content* — always re-push and recreate the workspace before re-testing a profile change, or a fixed bug can look unfixed.

@@ -52,7 +52,7 @@ C4Container
 
         Container(coder, "Coder Community", "Terraform + Docker", "L4 Execution Plane control. Provisions/destroys Docker workspaces from templates; separates ephemeral container from persistent home volume.")
 
-        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session. Three Coder templates: `docker-workspace`/`embedded-linux` (fixed pre-built image) and the additive `devcontainer` template (Issue #6), which instead builds/runs the workspace from the cloned repo's own `.devcontainer/devcontainer.json` via `@devcontainers/cli` at start time.")
+        Container(workspace, "Docker Workspace(s)", "Dev Container", "L4 Execution Plane. repo + toolchain + opencode/pi (sandboxed via srt + VS Code agent sandbox) + git worktrees per parallel session. Four Docker implementations: `docker-workspace`, `embedded-linux`, `agent-workspace` (pre-built images), and `devcontainer` (Issue #6), which builds/runs from the repo's `.devcontainer/devcontainer.json` via `@devcontainers/cli`. The additive Azure implementation is offline preparation, not a deployed container in this diagram.")
 
         Container(runner, "Self-Hosted GitHub Runner", "Docker, JIT/ephemeral", "L5 Coordination. Outbound-only poller; executes deterministic Actions jobs and gh-aw's reasoning step.")
 
@@ -243,4 +243,3 @@ and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
 **Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`). A `tw-`-prefixed workspace's own dashboard also gained a "Temporal Workflows" tile (§10 follow-up, verified live 2026-08-31) linking back to Temporal UI — purely a UI convenience, not a new C4 relationship.
 
 **Issue #54 (Phase 3 follow-up):** the deferred formal C4 `Rel` arrow above (`Rel(temporal, coder, ...)`) is now drawn in the Container diagram, and the create/start/stop/delete calls it represents are gated by a new `workspace.authz` OPA policy (`governance/opa/policy/workspace_authz.rego`) — see `docs/security.md`'s "Issue #54" section for the full rule set.
-

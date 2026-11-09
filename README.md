@@ -115,7 +115,7 @@ cade/
 ├── coder/                         # workspace container images + Terraform templates
 │   ├── Dockerfile
 │   ├── devcontainer/                # devcontainer template's bootstrap image (Issue #6)
-│   └── templates/                  # docker-workspace, embedded-linux, devcontainer workspace templates
+│   └── templates/                  # four Docker implementations + offline generic-linux-azure
 ├── workspace/                     # backend schema, examples and supported implementation catalog
 ├── agent-host/                    # VS Code Agent Host / sandbox security baseline
 ├── runner/                         # self-hosted GitHub Actions runner (JIT, ephemeral)
