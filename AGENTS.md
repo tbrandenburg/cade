@@ -29,6 +29,12 @@ truth) and the internal, plan-driven build-process state used by
 `scripts/factory.sh`. Keep factory state under `docs/plan/`; do not create a
 separate `doc/` tree.
 
+## Product boundaries
+
+- **Solo sandbox, not an enterprise platform** — CADE is an early-stage, single-user project whose purpose is to provide its owner a working Coder sandbox. Accept documented limitations rather than building for hypothetical tenants or production scale.
+- **Glue only** — Prefer configuring and connecting the existing off-the-shelf components. Add only the small amount of project code needed to make them work; avoid bespoke frameworks, controllers, and unnecessary growth.
+- **Pragmatic acceptance** — Verify the main user-facing behavior with a real smoke test and add focused tests where they prevent meaningful regressions. Do not pursue exhaustive testing or perfect coverage when a practical manual check already demonstrates the behavior; report remaining gaps honestly and keep secrets and sandbox boundaries protected.
+
 ## Guidelines
 
 _(Concrete, binding rules discovered during implementation — not restated theory from `docs/INITIAL.md`. Keep each bullet to 2-3 lines; put narrative justification in a milestone report, not here.)_
@@ -176,6 +182,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Coder / Terraform / Docker
 
+- 2026-11-09: Pitfall: a scoped Coder token returned 404 for its own identity despite working workspace calls. Prevention: verify self-only identity access, non-self denial, and the actual workspace operation independently.
 - 2026-11-09: Pitfall: unlicensed Coder accepted a template deprecation CLI edit without enforcing retirement. Prevention: inspect persisted fields and entitlements, then test member creation; never treat a successful CLI edit as access revocation.
 - 2026-11-08: Pitfall: Coder can return a deleted user by ID with status `active`. Prevention: verify deletion through the username lookup, `users.deleted`, and rejected authentication.
 - A `server create-admin-user`-bootstrapped admin can never delete or suspend itself via `coder users delete/suspend` — mint throwaway test admins sparingly and clean them up from a *different* already-authenticated session, or accept they accumulate.
@@ -203,6 +210,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Sandbox / security
 
+- 2026-11-09: Pitfall: a development credential was placed inside an image build context. Prevention: store secrets outside build contexts, verify exclusion, and rotate if exposure is uncertain.
 - 2026-11-09: Pitfall: urllib forwarded a custom authentication header across an API redirect. Prevention: reject redirects before sending a credentialed follow-up request; test with separate loopback origins and assert the destination receives no request.
 - Docker layers multiple independent confinement mechanisms (seccomp, AppArmor, capabilities, `systempaths`) — when a sandboxing fix "should" work but doesn't, toggle each layer to its most permissive setting individually to isolate which one is still blocking, rather than assuming the last-touched layer is at fault.
 - Disabling one confinement mechanism is only safe if another mechanism already independently enforces the same boundary — verify this explicitly, never assume any `unconfined`-named flag is inherently safe.
@@ -216,6 +224,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-11-09: Pitfall: a timed-out account creation completed server-side. Prevention: inspect the actual resource before retrying a timed-out mutation.
 - 2026-11-09: Pitfall: leader exit left descendants alive. Prevention: keep owned group leaders unreaped until descendant cleanup finishes; establish ownership at spawn rather than guessing a later PGID.
 - 2026-11-09: Pitfall: shared CMake caches retain container-specific source paths, and host generators may be absent. Prevention: check generator availability and validate in a fresh out-of-tree directory without replacing existing build artifacts.
 - 2026-11-08: Pitfall: Compose project overrides bypass a pinned `name:` and select different volumes. Prevention: compare running project labels and DB mounts with rendered configuration before upgrades or backups.
