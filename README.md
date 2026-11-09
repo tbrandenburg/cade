@@ -75,6 +75,9 @@ breakdown (Context → Container → Component) and
 [`docs/INITIAL.md`](docs/INITIAL.md) for the authoritative, detailed
 implementation plan this repository executes.
 
+The Temporal workspace token expires after seven days; see
+[operations](/docs/operations.md#renewing-the-temporal-coder-token) to renew it.
+
 ## Optional workspace backends
 
 An **environment** describes what the developer gets, a **BackendConnection**

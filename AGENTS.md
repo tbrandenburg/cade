@@ -82,7 +82,7 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make backup` / `make restore-test` | M14 | Creates a timestamped backup set under `backup/artifacts/<timestamp>/` (git bundle, Coder DB, Temporal DB, OpenBao snapshot + unseal keys, workspace home volumes); `restore-test` destroys and restores them (`scripts/restore-test.sh`, `docs/disaster-recovery.md`). |
 | `make ai-bootstrap` / `make ai-token` / `make verify-ai` | Issue #13 | Reconciles `coder/ai/{providers,models}.yaml` into the running Coder deployment; mints an admin token first (`scripts/ai-token.sh`); `verify-ai` proves the integration end to end. |
 | `make omnigent-bootstrap` | Issue #43 | Creates the first `omnigent-server` admin account. |
-| `make coder-svc-token` | Issue #50 | Mints a narrowly-scoped Coder API token for the dedicated `temporal-svc` user — used for Temporal-owned persistent workspace lifecycle (create/operate, not admin). |
+| `make coder-svc-token` | Issue #50 | Creates a scoped `temporal-svc` token in a private file; see `docs/operations.md` for installing and renewing it. |
 | `make temporal-workspace-demo-start` | Issue #50 | Starts one execution of `PersistentWorkspaceBuildWorkflow` against a demo `tw-demo` workspace, resolved-or-created entirely through the Coder API. |
 | `make temporal-reaper-schedule` | Issue #50 | Creates/updates the 15-minute Temporal Schedule that runs `WorkspaceReaperWorkflow` (idempotent — safe to re-run from `make up`). |
 

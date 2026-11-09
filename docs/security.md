@@ -533,7 +533,7 @@ is the more-privileged, host-side admin token `make ai-bootstrap` uses
 for a completely unrelated purpose; reusing the name would risk either
 var accidentally inheriting the other's value/privilege).
 
-**Exact scopes minted** (verified live against Coder v2.36.3, using the
+**Exact scopes minted** (verified live against Coder v2.38.6, using the
 current `scopes: [...]` array field — never the deprecated all-or-nothing
 singular `scope: "all"`):
 
@@ -542,17 +542,17 @@ coder:workspaces.create
 coder:workspaces.operate
 organization:read
 template:read
+user:read
 ```
 
 (`coder:workspaces.delete` is added only if
 `CODER_WORKSPACE_REAP_ACTION=delete`; default is `stop`.)
 
-This set is composite-first (the two `coder:workspaces.*` scopes cover
-create/start/stop for workspaces this user owns) plus two narrow,
-read-only, low-level scopes. **This token cannot read other users, list
-or modify templates (`template:read` is read-only), read audit logs, or
-act on any workspace it does not itself own** — verified live via 404/403
-responses for out-of-scope calls during implementation.
+The allowlist restricts user reads to `temporal-svc`; organization, template,
+and workspace entries use wildcards so new workspaces can be created. Coder
+also applies the member's permissions. A live check verified that another user
+and another owner's workspace actions are denied. Keep `temporal-svc` a
+regular member; the workspace wildcard is not an ownership restriction by itself.
 
 **Correction vs. this issue's own comment 2** (found only by live
 testing against the real server, not documented anywhere beforehand):
