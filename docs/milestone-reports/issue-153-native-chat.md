@@ -15,7 +15,7 @@ An instrumented Docker run showed the precompiled docs process receiving about
 2.39 seconds of CPU over 30.33 seconds while CPU and I/O pressure were high.
 That observation does not establish the cause of every timeout. The detailed
 investigation remains in the issue work branch; [#153](https://github.com/tbrandenburg/cade/issues/153)
-remains open for reliability work.
+was closed with this known limitation accepted.
 
 The source-matched image launcher suites passed 15/15 checks for each workspace
 image, and the trusted-startup regression passed with the pinned uv version.
