@@ -82,9 +82,9 @@ subscription/subnet/managed-identity IDs may be committed after customer review.
 Disabled Azure can contain placeholders or omit its infrastructure fields. When
 enabled, it requires UUID subscription ID, region name, resource group, full
 existing subnet resource ID, and `identity.method: managedIdentity`. The subnet's
-subscription and resource group must match the declared values (case insensitive).
-If the approved subnet lives in another resource group, change this contract
-explicitly rather than silently accepting it. `clientId`, when supplied, must be
+subscription must match the declared subscription ID (case insensitive). An
+externally owned subnet may live in a different network resource group from the
+workspace `resourceGroup`. `clientId`, when supplied, must be
 a UUID; omit it for system-assigned Managed Identity. A later doctor's `--profile
 Small` is an operational flag, **not** a connection field. No cloud API verifies
 these references in this validator.

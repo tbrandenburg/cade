@@ -161,16 +161,25 @@ class BackendConfigTest(unittest.TestCase):
                 with self.assertRaises(backend.ConfigError) as caught:
                     backend.validate_connection(invalid)
                 self.assertIn("schema", str(caught.exception))
-        for key, value in (
-            ("subscriptionId", "99999999-2222-3333-4444-555555555555"),
-            ("resourceGroup", "other-group"),
-        ):
-            with self.subTest(mismatch=key):
-                invalid = copy.deepcopy(declaration)
-                invalid["spec"]["config"][key] = value
-                with self.assertRaises(backend.ConfigError) as caught:
-                    backend.validate_azure_config(invalid["spec"]["config"])
-                self.assertIn(f"must match {key}", str(caught.exception))
+        invalid = copy.deepcopy(declaration)
+        invalid["spec"]["config"]["subscriptionId"] = (
+            "99999999-2222-3333-4444-555555555555"
+        )
+        with self.assertRaises(backend.ConfigError) as caught:
+            backend.validate_azure_config(invalid["spec"]["config"])
+        self.assertIn("must match subscriptionId", str(caught.exception))
+
+    def test_externally_owned_subnet_in_different_resource_group(self) -> None:
+        declaration = self.fixture("azure-enabled-external-subnet.yaml")
+        config = declaration["spec"]["config"]
+        self.assertEqual(config["resourceGroup"], "rg-cade-workspaces")
+        self.assertIn("/resourceGroups/rg-shared-network/", config["subnetId"])
+        self.assertIsNone(backend.validate_azure_config(config))
+        self.assertEqual(backend.validate_connection(declaration), declaration)
+        self.write(declaration)
+        result = self.cli("validate")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "Valid BackendConnections: 1")
 
     def test_user_assigned_identity_and_case_insensitive_ids(self) -> None:
         declaration = self.fixture()
