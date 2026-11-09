@@ -1,0 +1,10 @@
+apiVersion: cade.dev/v1alpha1
+kind: BackendConnection
+metadata:
+  name: docker-local
+spec:
+  provider: docker
+  enabled: false
+  enabled: true
+  config:
+    endpoint: local

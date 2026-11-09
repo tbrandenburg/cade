@@ -1,0 +1,16 @@
+apiVersion: cade.dev/v1alpha1
+kind: BackendConnection
+metadata:
+  name: azure-remote-dev-env
+spec:
+  provider: azure
+  enabled: false
+  config:
+    subscriptionId: "<subscription-id>"
+    region: swedencentral
+    resourceGroup: rg-cade-workspaces
+    subnetId: "<existing-subnet-resource-id>"
+    identity:
+      method: managedIdentity
+      # Omit clientId for system-assigned Managed Identity.
+      # clientId: "<user-assigned-identity-client-id>"

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CADE BackendConnection v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "cade.dev/v1alpha1"},
+    "kind": {"const": "BackendConnection"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"enum": ["docker-local", "azure-remote-dev-env"]}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "enabled", "config"],
+      "properties": {
+        "provider": {"enum": ["docker", "azure"]},
+        "enabled": {"type": "boolean"},
+        "config": {"type": "object"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"spec": {"properties": {"provider": {"const": "docker"}}}}},
+      "then": {
+        "properties": {
+          "metadata": {"properties": {"name": {"const": "docker-local"}}},
+          "spec": {"properties": {"config": {"$ref": "#/$defs/dockerConfig"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"spec": {"properties": {"provider": {"const": "azure"}}}}},
+      "then": {
+        "properties": {
+          "metadata": {"properties": {"name": {"const": "azure-remote-dev-env"}}},
+          "spec": {
+            "properties": {"config": {"$ref": "#/$defs/azureConfig"}},
+            "if": {"properties": {"enabled": {"const": true}}},
+            "then": {"properties": {"config": {"$ref": "#/$defs/azureEnabled"}}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "maxLength": 36,
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "dockerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint"],
+      "properties": {"endpoint": {"const": "local"}}
+    },
+    "azureConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subscriptionId": {"type": "string"},
+        "region": {"type": "string"},
+        "resourceGroup": {"type": "string"},
+        "subnetId": {"type": "string"},
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method"],
+          "properties": {
+            "method": {"const": "managedIdentity"},
+            "clientId": {"type": "string"}
+          }
+        }
+      }
+    },
+    "azureEnabled": {
+      "allOf": [{"$ref": "#/$defs/azureConfig"}],
+      "required": ["subscriptionId", "region", "resourceGroup", "subnetId", "identity"],
+      "properties": {
+        "subscriptionId": {"$ref": "#/$defs/uuid"},
+        "region": {"type": "string", "pattern": "^[a-z][a-z0-9]{1,63}$", "not": {"pattern": "\\s"}},
+        "resourceGroup": {"type": "string", "pattern": "^[a-zA-Z0-9_().-]{1,89}[a-zA-Z0-9_()-]$|^[a-zA-Z0-9_()-]$", "not": {"pattern": "\\s"}},
+        "subnetId": {
+          "type": "string",
+          "not": {"pattern": "\\s"},
+          "pattern": "^/[sS][uU][bB][sS][cC][rR][iI][pP][tT][iI][oO][nN][sS]/[0-9a-fA-F-]{36}/[rR][eE][sS][oO][uU][rR][cC][eE][gG][rR][oO][uU][pP][sS]/[a-zA-Z0-9_().-]+/[pP][rR][oO][vV][iI][dD][eE][rR][sS]/[mM][iI][cC][rR][oO][sS][oO][fF][tT]\\.[nN][eE][tT][wW][oO][rR][kK]/[vV][iI][rR][tT][uU][aA][lL][nN][eE][tT][wW][oO][rR][kK][sS]/[a-zA-Z0-9_.-]+/[sS][uU][bB][nN][eE][tT][sS]/[a-zA-Z0-9_.-]+$"
+        },
+        "identity": {"properties": {"clientId": {"$ref": "#/$defs/uuid"}}}
+      }
+    }
+  }
+}
