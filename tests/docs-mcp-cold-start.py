@@ -2,6 +2,7 @@
 
 Requires uv and cached packages or package-index access; not backend test discovery.
 Runs the repository command without a preexisting environment or manual sync.
+Checks offline reuse and dependency drift without changing the committed lock.
 """
 
 import asyncio
@@ -9,6 +10,7 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -104,7 +106,8 @@ def main() -> None:
     uv = shutil.which("uv")
     assert uv, "uv must be installed"
     with tempfile.TemporaryDirectory(
-        prefix="docs-mcp-cold-", dir="/tmp/opencode"
+        prefix="docs-mcp-cold-",
+        dir="/tmp/opencode" if Path("/tmp/opencode").is_dir() else None,
     ) as temporary:
         root = Path(temporary)
         directory = root / config["cwd"]
@@ -146,10 +149,45 @@ def main() -> None:
         assert (directory / "uv.lock").read_bytes() == lock, (
             "warm run changed the lockfile"
         )
+        python = directory / ".venv/bin/python"
+        inventory = [
+            str(python),
+            "-c",
+            "import importlib.metadata, json; "
+            "print(json.dumps(sorted((d.metadata['Name'], d.version) "
+            "for d in importlib.metadata.distributions())))",
+        ]
+        packages = subprocess.check_output(inventory, env=environment, timeout=10)
+        metadata = directory / "pyproject.toml"
+        metadata.write_text(
+            metadata.read_text().replace(
+                "dependencies = [",
+                'dependencies = ["cade-docs-cold-start-nonexistent-dependency==0.0.0", ',
+                1,
+            )
+        )
+        assert "cade-docs-cold-start-nonexistent-dependency" in metadata.read_text()
+        asyncio.run(
+            asyncio.wait_for(
+                exchange(
+                    directory, config["command"], {**environment, "UV_OFFLINE": "1"}
+                ),
+                120,
+            )
+        )
+        assert (directory / "uv.lock").read_bytes() == lock, (
+            "drift changed the lockfile"
+        )
+        assert (
+            subprocess.check_output(inventory, env=environment, timeout=10) == packages
+        )
     print(
         "PASS: cold config command provisioned .venv; initialize, tools/list, search, empty query; lock unchanged"
     )
     print("PASS: warm config command works offline with the provisioned environment")
+    print(
+        "PASS: offline pyproject drift uses locked environment; lock and package inventory unchanged"
+    )
 
 
 if __name__ == "__main__":
