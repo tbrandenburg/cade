@@ -1,0 +1,61 @@
+#cloud-config
+users:
+  - default
+  - name: coder
+    uid: 1001
+    lock_passwd: true
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+ssh_pwauth: false
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - build-essential
+  - cmake
+  - ninja-build
+write_files:
+  - path: /opt/cade/mount-home
+    permissions: "0700"
+    encoding: b64
+    content: ${mount_home}
+  - path: /opt/cade/agent-init
+    owner: root:coder
+    permissions: "0750"
+    encoding: b64
+    content: ${init_script}
+    defer: true
+  - path: /etc/systemd/system/cade-home.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Validate and mount CADE persistent home
+      Before=coder-agent.service
+      [Service]
+      Type=oneshot
+      ExecStart=/opt/cade/mount-home
+      RemainAfterExit=yes
+      TimeoutStartSec=1800
+  - path: /etc/systemd/system/coder-agent.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Coder Agent
+      Requires=cade-home.service
+      After=cade-home.service network-online.target
+      Wants=network-online.target
+      ConditionPathIsMountPoint=/home/coder
+      [Service]
+      User=coder
+      WorkingDirectory=/home/coder
+      Environment=CODER_AGENT_AUTH=azure-instance-identity
+      ExecStart=/opt/cade/agent-init
+      Restart=on-failure
+      RestartSec=10
+      StandardOutput=null
+      StandardError=null
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, coder-agent.service]

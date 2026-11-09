@@ -16,3 +16,7 @@ implementations:
     backend: docker-local
     template: agent-workspace
     path: coder/templates/agent-workspace
+  - environment: generic-linux
+    backend: azure-remote-dev-env
+    template: generic-linux-azure
+    path: coder/templates/generic-linux-azure
