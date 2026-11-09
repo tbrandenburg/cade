@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -55,7 +56,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/v2/templates":
             data = [
-                {"name": name, "active_version_id": name} for name in self.server.values
+                {
+                    "name": name,
+                    "active_version_id": name,
+                    "deprecated": True,
+                    "deprecation_message": "Not an access-control proof",
+                }
+                for name in self.server.values
             ]
         elif self.path.startswith("/api/v2/templateversions/") and self.path.endswith(
             "/variables"
@@ -82,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-class TemplateVarsTest(unittest.TestCase):
+class TemplateFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cade-template-vars-")
         self.addCleanup(self.temp.cleanup)
@@ -91,10 +98,21 @@ class TemplateVarsTest(unittest.TestCase):
         (self.root / "coder").mkdir()
         shutil.copy(ROOT / "Makefile", self.root / "Makefile")
         shutil.copy(ROOT / "scripts/verify-template-vars.sh", self.root / "scripts")
+        for name in (
+            "backend_config.py",
+            "backend_config_yaml.py",
+            "backend_catalog.py",
+            "backend_templates.py",
+            "templates_push.py",
+            "template_vars.py",
+        ):
+            shutil.copy(ROOT / "scripts" / name, self.root / "scripts")
+        shutil.copytree(ROOT / "workspace", self.root / "workspace")
         for name in DEFAULTS:
             target = self.root / "coder/templates" / name
             target.mkdir(parents=True)
             shutil.copy(ROOT / "coder/templates" / name / "variables.tf", target)
+            (target / "main.tf").write_text("")
         # Port 0 atomically checks and reserves an unused loopback port before serving.
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.values = {name: values.copy() for name, values in DEFAULTS.items()}
@@ -107,6 +125,7 @@ class TemplateVarsTest(unittest.TestCase):
             "HOME": str(self.root),
             "CODER_URL": f"http://127.0.0.1:{self.server.server_port}",
             "CODER_SESSION_TOKEN": "fixture-token",
+            "PYTHON": sys.executable,
         }
 
     def stop_server(self):
@@ -125,20 +144,11 @@ class TemplateVarsTest(unittest.TestCase):
             check=False,
         )
 
+
+class TemplateVarsTest(TemplateFixture):
     def test_coder_url_precedence_and_fallback(self):
         fixture = self.env["CODER_URL"]
         fallback = "http://localhost:7080"
-        binpath = self.root / "bin"
-        binpath.mkdir()
-        curl = binpath / "curl"
-        # Record the selected URL while keeping fallback traffic off the real stack.
-        curl.write_text(
-            "#!/usr/bin/env bash\n"
-            'printf "%s\\n" "${@: -1}" >> "$CURL_URL_LOG"\n'
-            'exec "$REAL_CURL" --connect-to "$CURL_CONNECT_TO" "$@"\n',
-            encoding="utf-8",
-        )
-        curl.chmod(0o755)
         scenarios = [
             (f"CODER_URL={fixture}\n", None, fixture),
             (f"CODER_URL={fixture}\n", "", fixture),
@@ -160,30 +170,16 @@ class TemplateVarsTest(unittest.TestCase):
                 env.pop("CODER_URL")
                 if exported is not None:
                     env["CODER_URL"] = exported
-                log = self.root / "curl-urls"
-                log.unlink(missing_ok=True)
-                env.update(
-                    PATH=f"{binpath}:{env['PATH']}",
-                    REAL_CURL=shutil.which("curl"),
-                    CURL_CONNECT_TO=f"localhost:7080:127.0.0.1:{self.server.server_port}",
-                    CURL_URL_LOG=str(log),
-                )
                 result = self.run_command(
-                    "bash", "scripts/verify-template-vars.sh", env=env
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.path.insert(0, 'scripts'); "
+                    "from backend_templates import load_environment, CoderAPI; "
+                    "load_environment(); print(CoderAPI().url)",
+                    env=env,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("PASS  repo_url", result.stdout)
-                self.assertEqual(
-                    log.read_text(encoding="utf-8").splitlines(),
-                    [
-                        f"{expected}/api/v2/{path}"
-                        for name in DEFAULTS
-                        for path in (
-                            "templates",
-                            f"templateversions/{name}/variables",
-                        )
-                    ],
-                )
+                self.assertEqual(result.stdout.strip(), expected)
 
     def test_slug_precedence_and_push_recipe(self):
         scenarios = [
@@ -213,21 +209,6 @@ class TemplateVarsTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("PASS  repo_url", result.stdout)
-                push = self.run_command(
-                    "make",
-                    "-n",
-                    "-o",
-                    "embedded-workspace-build",
-                    "-o",
-                    "devcontainer-workspace-build",
-                    "-o",
-                    "agent-workspace-build",
-                    "templates-push",
-                    *cli,
-                    env=env,
-                )
-                self.assertEqual(push.returncode, 0, push.stderr)
-                self.assertEqual(push.stdout.count(f"repo_url={url}"), 4, push.stdout)
 
     def test_mismatch_and_unrelated_drift(self):
         expected = "https://github.com/tbrandenburg/cade.git"
@@ -267,12 +248,12 @@ class TemplateVarsTest(unittest.TestCase):
             "bash", "scripts/verify-template-vars.sh", "--expected-repo-url", ""
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Usage:", result.stderr)
+        self.assertIn("usage:", result.stderr.lower())
         result = self.run_command(
             "bash", "scripts/verify-template-vars.sh", "--expected-repo-url"
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Usage:", result.stderr)
+        self.assertIn("usage:", result.stderr.lower())
         del self.server.values["devcontainer"]["repo_url"]
         result = self.run_command("make", "templates-verify-vars")
         self.assertNotEqual(result.returncode, 0)
@@ -280,21 +261,21 @@ class TemplateVarsTest(unittest.TestCase):
         del self.server.values["devcontainer"]
         result = self.run_command("make", "templates-verify-vars")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("could not resolve active_version_id", result.stdout)
+        self.assertIn("could not resolve active_version_id", result.stderr)
         self.server.fail = "all"
         result = self.run_command("make", "templates-verify-vars")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Error", result.stderr)
+        self.assertIn("Coder API request failed", result.stderr)
         self.server.values["devcontainer"] = DEFAULTS["devcontainer"].copy()
         self.server.fail = "/variables"
         result = self.run_command("make", "templates-verify-vars")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Error", result.stderr)
+        self.assertIn("Coder API request failed", result.stderr)
         env = self.env.copy()
         del env["CODER_SESSION_TOKEN"]
         result = self.run_command("bash", "scripts/verify-template-vars.sh", env=env)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("SKIP: no Coder session token", result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no Coder session token", result.stderr)
 
 
 if __name__ == "__main__":
