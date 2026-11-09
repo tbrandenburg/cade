@@ -39,6 +39,8 @@ _(Concrete, binding rules discovered during implementation — not restated theo
 - **Durability Test 3 is per-workspace-type** — proving it on one Coder template does not prove it on another; each declares its own `docker_volume.home_volume`. Verify the specific template a release claims to support.
 - **Workspace-app tiers** (`coder/templates/docker-workspace/main.tf`) — a new dashboard app follows one of three tiers: (1) core/always-on, no parameter; (2) optional creation-time `coder_parameter`; (3) optional post-instantiation via `scripts/set-workspace-parameter.sh`. Pick deliberately; see `.agents/skills/coder-app-tile/SKILL.md` for the Terraform shape.
 - **Internal vs. external components** — a component is only forced internal by a real technical wall (namespace isolation, per-workspace volume dependency) or Terraform's `agent_id` binding; shared, multi-tenant services (Temporal, omnigent-server) stay external by design. A registered `coder_app` tile existing is not evidence it works — only a live pass through the real dashboard proxy counts, never `terraform validate` alone.
+- **Backend selection** — `CADE_BACKENDS_DIR` selects external connection declarations; `workspace/catalog.yaml` alone owns environment/backend/template mappings. Missing directory means legacy Docker; an existing empty directory selects nothing. Backend disable never controls Compose, revokes Coder access, or deletes data.
+- **Azure status** — `generic-linux-azure` is offline preparation, NOT LIVE TESTED until #141–#143. Keep shared RG/network/identity externally owned, credentials out of YAML, and provisioner authentication separate from workspace parameters; use the offline doctor before opt-in.
 
 ## Agent Instructions
 
@@ -63,7 +65,7 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make coder-workspace-build` | M3 | Builds and tags the `cade/coder-workspace:latest` image that Coder workspaces run (`docker-workspace` template). **Refuses to run if `examples/`, `coder/`, or `Makefile` have uncommitted changes** (the Terraform template clones the *remote* repo) — commit and push first. Pass `CACERT=/path/to/ca-bundle.pem` behind a TLS-intercepting proxy. |
 | `make embedded-workspace-build` | M6 | Same dirty-tree refusal rule, but builds `cade/embedded-linux-workspace:latest` (cmake/ninja/gcc-aarch64-cross/qemu-user) for the `embedded-linux` template. |
 | `make agent-workspace-build` | Issue #13 | Depends on `coder-workspace-build` (inherits its dirty-tree refusal guard); builds `cade/agent-workspace:latest` (adds the OSS `boundary` network-isolation CLI) for the `agent-workspace` template, used for long-running Coder Agents sessions. |
-| `make templates-push` | — | Pushes `docker-workspace`, `embedded-linux`, `devcontainer`, and `agent-workspace` templates to the running Coder server in one shot. Depends on all four `*-workspace-build` targets and inherits their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session, and Coder already up/healthy. |
+| `make templates-push` / `make backend-templates-push BACKEND=...` | #138 | Publishes selected catalog implementations; legacy mode selects four Docker templates with unchanged build prerequisites/dirty-tree guard. Install `scripts/requirements-template-publishing.txt` and activate its venv or set `PYTHON`. Requires authenticated healthy Coder; unselected published templates block rollout. |
 | `make runner-build` / `make runner-run` | M2 | Builds the self-hosted GitHub Actions runner image; prefer `bash scripts/runner-jit-start.sh` directly for a real JIT (one-job-then-destroy) registration. |
 | `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. |
 | `make lab-sim-build` | M11 | Builds `cade/lab-sim:latest` (no Terraform template, so no dirty-tree check). |
@@ -140,6 +142,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Evidence & "done" claims
 
+- 2026-11-09: Pitfall: an expanded catalog broke fixtures with missing unselected paths and duplicate appended rows. Prevention: materialize every catalog-declared template in fixture repositories; replace named mappings rather than blindly appending them.
 - Never trust a subagent's "complete"/"passing" report — check `git log --oneline -3 <branch>` (not just `git status`) to confirm it actually committed.
 - Treat any change to `compose.yaml`/a template/a config file as inert until the consuming container is verified recreated (`docker inspect ... Config.Env`) — a committed diff and a live effect are different claims.
 - Never trust a `200`/"Succeeded" status string alone — cross-check the real resource (`docker inspect`, `docker exec ... cat log`, a live API round trip) before declaring a step done.
@@ -163,6 +166,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Coder / Terraform / Docker
 
+- 2026-11-09: Pitfall: unlicensed Coder accepted a template deprecation CLI edit without enforcing retirement. Prevention: inspect persisted fields and entitlements, then test member creation; never treat a successful CLI edit as access revocation.
 - 2026-11-08: Pitfall: Coder can return a deleted user by ID with status `active`. Prevention: verify deletion through the username lookup, `users.deleted`, and rejected authentication.
 - A `server create-admin-user`-bootstrapped admin can never delete or suspend itself via `coder users delete/suspend` — mint throwaway test admins sparingly and clean them up from a *different* already-authenticated session, or accept they accumulate.
 - `coder templates push` never resets an already-pushed variable to its `.tf` default — only an explicit `--variable` overrides the live value; re-run a drift-check script after any `.tf` default change.
@@ -189,6 +193,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Sandbox / security
 
+- 2026-11-09: Pitfall: urllib forwarded a custom authentication header across an API redirect. Prevention: reject redirects before sending a credentialed follow-up request; test with separate loopback origins and assert the destination receives no request.
 - Docker layers multiple independent confinement mechanisms (seccomp, AppArmor, capabilities, `systempaths`) — when a sandboxing fix "should" work but doesn't, toggle each layer to its most permissive setting individually to isolate which one is still blocking, rather than assuming the last-touched layer is at fault.
 - Disabling one confinement mechanism is only safe if another mechanism already independently enforces the same boundary — verify this explicitly, never assume any `unconfined`-named flag is inherently safe.
 - A stale, already-pushed template silently embeds old security-profile *content* — always re-push and recreate the workspace before re-testing a profile change, or a fixed bug can look unfixed.

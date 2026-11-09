@@ -4,6 +4,33 @@ Actual security posture as implemented, per milestone. Keep in sync with
 `docs/ARCHITECTURE.md` and the risk-acceptance requirements in
 `docs/plan/plan.md`.
 
+## Optional backend configuration and Azure preparation
+
+`BackendConnection` files are reviewed, nonsecret declarations in an external
+deployment repository. They may reference subscription/subnet IDs and Managed
+Identity client IDs, but must not contain passwords, tokens, private keys or
+client secrets. The strict offline validator rejects unknown fields; neither it
+nor the Azure offline doctor authenticates to Azure or reads enterprise Terraform
+state. Syntactically valid IDs are not evidence of access or resource existence.
+
+Backend disable/omission only changes publication selection. It does **not**
+revoke Coder template access, stop workspaces, or destroy disks. Before considering
+a backend retired, inspect the real server state and verify rejected creation as
+an ordinary member. Coder CLI flag availability or a successful metadata response
+does not prove a licensed restriction took effect. Preserve existing workspace
+data and follow the explicit retirement guidance in [backends](/docs/backends.md).
+
+The additive `generic-linux-azure` implementation is **NOT LIVE TESTED**. It must
+not own enterprise resource groups, networks, subnets, network security groups,
+routes, DNS or public IPs. Its identity belongs to the actual Coder provisioner
+environment, not user-editable workspace parameters. Host Managed Identity alone
+does not establish access from the containerized provisioner. The initial Small
+profile is the only approved choice; Medium/Large remain gated pending live quota,
+SKU and cost approval. Workspace home-disk retention, deletion, bootstrap token
+handling and Azure state access require review before live use. See the
+[owner handoff](/docs/backends/azure-remote-dev-env.md); runtime acceptance remains
+in issues #141–#143, outside this offline preparation.
+
 ## M2 — Self-Hosted GitHub Runner
 
 ### Repository visibility — OPEN RISK, NOT YET RESOLVED

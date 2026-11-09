@@ -7,6 +7,8 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
+.venv-backends/
+!coder/templates/generic-linux-azure/.terraform.lock.hcl
 .playwright-mcp/
 examples/embedded-sim/build/
 examples/embedded-sim/build-target/

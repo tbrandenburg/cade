@@ -1,0 +1,22 @@
+version: 1
+implementations:
+  - environment: generic-linux
+    backend: docker-local
+    template: docker-workspace
+    path: coder/templates/docker-workspace
+  - environment: embedded-linux
+    backend: docker-local
+    template: embedded-linux
+    path: coder/templates/embedded-linux
+  - environment: devcontainer
+    backend: docker-local
+    template: devcontainer
+    path: coder/templates/devcontainer
+  - environment: ai-agent
+    backend: docker-local
+    template: agent-workspace
+    path: coder/templates/agent-workspace
+  - environment: generic-linux
+    backend: azure-remote-dev-env
+    template: generic-linux-azure
+    path: coder/templates/generic-linux-azure
