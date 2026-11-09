@@ -137,6 +137,30 @@ This is the single most important cross-cutting property of the architecture (`d
 | Workspace durability | Workspace container restart | Coder's persistent home volume (M3/M6, re-verified with a byte-exact marker file at M16) — a *template* property, not automatic |
 | Process durability | Worker crash mid-execution | Temporal's Event History in Postgres (M8) |
 
+## Optional workspace backends
+
+Workspace configuration separates three concepts: an **environment** (what the
+developer gets), a **BackendConnection** (where it runs), and a **Coder template
+implementation** (how it is provisioned). The CADE-owned
+[`workspace/catalog.yaml`](/workspace/catalog.yaml) maps supported pairs only;
+customer connection declarations live in a separate deployment repository selected
+by `CADE_BACKENDS_DIR`. They contain infrastructure references, not template paths,
+credentials, or enterprise Terraform state.
+
+Without a configuration directory, the four existing Docker templates remain
+selected. Backend selection affects template publication, never the Docker
+Compose control plane. Disabling or omitting a connection is not workspace
+deletion or Coder access revocation; published templates require explicit operator
+retirement. Coder/Terraform remains the lifecycle engine, with no new controller.
+
+`generic-linux / azure-remote-dev-env / generic-linux-azure` is the first additive
+Azure pairing. It references an existing workspace RG and subnet, manages only
+workspace VM/NIC/disks, and has no public IP. Its Terraform validation and
+onboarding doctor are offline preparation: **Azure runtime is NOT LIVE TESTED**
+until issues #141–#143 establish identity, networking, quota, cost approval, and
+workspace lifecycle behavior. See [backend configuration](/docs/backends.md) and
+the [Azure owner handoff](/docs/backends/azure-remote-dev-env.md).
+
 ---
 
 ## Maintenance note
@@ -219,5 +243,4 @@ and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
 **Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`). A `tw-`-prefixed workspace's own dashboard also gained a "Temporal Workflows" tile (§10 follow-up, verified live 2026-08-31) linking back to Temporal UI — purely a UI convenience, not a new C4 relationship.
 
 **Issue #54 (Phase 3 follow-up):** the deferred formal C4 `Rel` arrow above (`Rel(temporal, coder, ...)`) is now drawn in the Container diagram, and the create/start/stop/delete calls it represents are gated by a new `workspace.authz` OPA policy (`governance/opa/policy/workspace_authz.rego`) — see `docs/security.md`'s "Issue #54" section for the full rule set.
-
 

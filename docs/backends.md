@@ -15,13 +15,13 @@ Docker Compose hosting Coder/Postgres/Temporal is the **control-plane deployment
 Docker running workspaces is a **workspace backend**. Disabling workspace Docker
 must not stop Compose or alter its networks, volumes or security controls.
 
-| Environment | Connection | Existing / planned implementation |
+| Environment | Connection | Implementation |
 | --- | --- | --- |
 | `generic-linux` | `docker-local` | `docker-workspace` |
 | `embedded-linux` | `docker-local` | `embedded-linux` |
 | `devcontainer` | `docker-local` | `devcontainer` |
 | `ai-agent` | `docker-local` | `agent-workspace` |
-| `generic-linux` | `azure-remote-dev-env` | `generic-linux-azure` (planned, not cataloged yet) |
+| `generic-linux` | `azure-remote-dev-env` | `generic-linux-azure` (offline preparation; NOT LIVE TESTED) |
 
 ## External deployment declarations
 
@@ -85,7 +85,7 @@ existing subnet resource ID, and `identity.method: managedIdentity`. The subnet'
 subscription must match the declared subscription ID (case insensitive). An
 externally owned subnet may live in a different network resource group from the
 workspace `resourceGroup`. `clientId`, when supplied, must be
-a UUID; omit it for system-assigned Managed Identity. A later doctor's `--profile
+a UUID; omit it for system-assigned Managed Identity. The offline doctor's `--profile
 Small` is an operational flag, **not** a connection field. No cloud API verifies
 these references in this validator.
 
@@ -104,11 +104,12 @@ Omitting/disabling a connection never deletes workspaces or data. Operators must
 inventory existing workspaces, explicitly restrict creation/use of the previously
 published template through Coder's supported controls, communicate retirement and
 arrange backup/migration before any separately approved cleanup. Configuration
-selection does not automatically implement those access restrictions (A3 adds
-operator visibility/restriction); do not infer enforcement from the flag.
+selection does not automatically implement those access restrictions; do not
+infer enforcement from the flag. Publishing surfaces the persisted-template risk
+instead of performing destructive or presumed access-control changes.
 
 Shared resource groups, subnets and identities are externally owned. Individual
-workspace VMs/NICs/disks may later be backend-managed by Coder/Terraform; declaring
+workspace VMs/NICs/disks are implementation-managed by Coder/Terraform; declaring
 a reference does not transfer ownership or authorize deletion of shared resources.
 
 ## Compatibility catalog shape
@@ -120,13 +121,15 @@ Paths are existing repository-contained Coder template directories. Environment 
 backend pairs and published template names must be unique. Connection provider
 and name are validated independently of which implementations currently exist.
 
-The catalog contains exactly the four Docker rows in the matrix above, in that
-order; no Azure implementation is implied by a valid Azure declaration. Names,
-images, workspace/container/home-volume names and security controls are unchanged.
-Existing `make up` and `make templates-push` remain independent of this read-only
-resolver until the publishing integration (A3). Current `templates-push` explicitly
-builds the generic/embedded/devcontainer/agent images and publishes the four named
-templates; the embedded and agent images depend on the generic image build.
+The catalog contains four Docker rows, in the order shown above, followed by one
+Azure row. Default resolution still selects exactly four Docker implementations;
+Azure requires an explicit enabled connection. Existing Docker names, images,
+workspace/container/home-volume names and security controls are unchanged.
+`make up` remains independent of the resolver. `make templates-push` consumes the
+selected catalog, building only the selected templates' Docker prerequisites;
+embedded and agent images depend on the generic image build. Azure-only publishing
+does not build a Docker image. Before this change, the Makefile explicitly built
+and published four hardcoded Docker templates; Compose startup is unchanged.
 
 ```bash
 python3 scripts/backends-config.py resolve --dir ../cade-deployment/backends
@@ -161,15 +164,79 @@ path and `import backend_config`. Dependencies are the same as the CLI.
 
 `Connection`, `ProviderConfig`, and `Implementation` are TypedDicts. `root` does
 not replace the product schema/examples or alter environment-directory precedence.
-Planned Azure publishing translates `subscriptionId` → `subscription_id`, `region`
+Azure publishing translates `subscriptionId` → `subscription_id`, `region`
 → `location`, `resourceGroup` → `resource_group_name`, `subnetId` → `subnet_id`, and
-optional `identity.clientId` → `managed_identity_client_id`; absent client ID must
-stay omitted. This validator does not invoke that publishing behavior.
+optional `identity.clientId` → `managed_identity_client_id`; absent client ID uses
+the implementation's empty/system-assigned default. This read-only validator
+does not invoke that publishing behavior.
+
+## Publishing and variable verification
+
+Publishing/verification additionally needs the pinned HCL parser. Install the
+publishing requirements (which include the backend requirements), then activate
+the venv or set Make's `PYTHON` explicitly:
+
+```bash
+(
+  set -euo pipefail
+  .venv-backends/bin/python -m pip install -r scripts/requirements-template-publishing.txt
+  export CADE_BACKENDS_DIR=/path/to/cade-deployment/backends
+  make templates-push PYTHON="$PWD/.venv-backends/bin/python"
+  make backend-templates-push BACKEND=docker-local PYTHON="$PWD/.venv-backends/bin/python"
+  make templates-verify-vars PYTHON="$PWD/.venv-backends/bin/python"
+)
+```
+
+The legacy target publishes the selected catalog in source order. The targeted
+target requires a known, enabled connection. Docker image builds use the existing
+Make targets and dirty-tree refusal; commit the relevant files before building.
+Only Azure's five nonsecret connection variables are sent for Azure. Docker keeps
+the existing `repo_url` override behavior. Neither operation creates Azure VMs
+locally; **publishing an enabled Azure template can still run provider/data-source
+operations in Coder**, so do not publish Azure until B1 prerequisites are accepted.
+Use the stubbed dispatcher tests for offline Azure publication acceptance.
+
+Both commands inspect authenticated Coder template state first. Missing/expired
+authentication, an unavailable API, missing expected templates/variables, unknown
+implementations, or drift fail with nonzero status. The verifier parses HCL
+defaults and checks known publishing overrides; sensitive variables require secure
+manual verification rather than printing their contents. An explicit empty
+`variables.tf` denotes an implementation with no variables; a missing file is an
+error. The standalone verifier accepts `--expected-repo-url URL`; without it,
+`devcontainer.repo_url` is checked against its blank Terraform default.
+
+Publishing and verification retain the existing `.env` loading behavior for
+unset/empty environment values; the read-only configuration CLI reads its explicit
+`--dir`/exported `CADE_BACKENDS_DIR`, not `.env`. Keep deployment selection exported
+when comparing their results. No declaration directory still means legacy Docker.
+
+### Retirement block
+
+If an omitted/disabled backend has a catalog template visible in the server's
+published-template list, **RETIREMENT BLOCK** stops publication/verification before
+builds or pushes. This is intentionally conservative: it does not infer a creation
+restriction from deprecated metadata, template visibility, or unverified ACLs.
+Targeted publishing does not bypass this check. Keep a Docker connection explicitly
+enabled if its published templates should remain usable alongside targeted Azure.
+
+On unlicensed Coder 2.38.6, a live probe found that a successful `templates edit
+--deprecated` left persisted `deprecated:false` and ordinary-member creation
+returned 201. `template_rbac` was not entitled; ACL access returned 403. Therefore
+do not prescribe deprecation/private CLI flags as guaranteed OSS retirement.
+Inventory users/workspaces and escalate to the platform owner. Establish a tested
+creation-denial control on the actual deployment, plan migration/backups and
+operator-led retirement without deleting live workspaces. This tooling does not
+automatically clear the conservative block after a manual ACL edit; do not claim
+it has verified those permissions. An operator must resolve the publication/config
+mismatch deliberately, or keep the connection selected while access is managed
+separately. No automatic template/workspace/disk deletion occurs.
 
 ## Offline validation
 
 ```bash
 python3 -m unittest discover -s tests -p test_backends_config.py
+python3 -m unittest discover -s tests -p test_templates_push.py
+python3 -m unittest discover -s tests -p test_template_vars.py
 ```
 
 For acceptance, validate copies in an external temporary deployment directory.

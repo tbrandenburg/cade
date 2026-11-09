@@ -20,6 +20,12 @@ backend = importlib.import_module("backend_config")
 
 FIXTURES = ROOT / "tests/fixtures/backends"
 EXAMPLES = ROOT / "workspace/examples"
+AZURE = {
+    "environment": "generic-linux",
+    "backend": "azure-remote-dev-env",
+    "template": "generic-linux-azure",
+    "path": "coder/templates/generic-linux-azure",
+}
 
 
 class BackendConfigTest(unittest.TestCase):
@@ -275,7 +281,7 @@ class BackendConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("BackendConnections: 0", result.stdout)
 
-    def test_exact_four_catalog_mappings_and_legacy_explicit_resolution(self) -> None:
+    def test_catalog_and_four_legacy_docker_mappings(self) -> None:
         expected = [
             ("generic-linux", "docker-workspace"),
             ("embedded-linux", "embedded-linux"),
@@ -283,21 +289,24 @@ class BackendConfigTest(unittest.TestCase):
             ("ai-agent", "agent-workspace"),
         ]
         catalog = backend.load_catalog()
+        self.assertEqual(len(catalog), 5)
+        self.assertEqual(catalog[-1], AZURE)
+        docker = catalog[:4]
         self.assertEqual(
-            [(entry["environment"], entry["template"]) for entry in catalog], expected
+            [(entry["environment"], entry["template"]) for entry in docker], expected
         )
-        self.assertEqual([entry["backend"] for entry in catalog], ["docker-local"] * 4)
+        self.assertEqual([entry["backend"] for entry in docker], ["docker-local"] * 4)
         self.assertEqual(
-            [entry["path"] for entry in catalog],
+            [entry["path"] for entry in docker],
             ["coder/templates/" + name for _, name in expected],
         )
         missing = self.directory / "absent"
-        self.assertEqual(backend.resolve(missing), catalog)
+        self.assertEqual(backend.resolve(missing), docker)
         self.write(self.docker())
-        self.assertEqual(backend.resolve(self.directory), catalog)
+        self.assertEqual(backend.resolve(self.directory), docker)
         result = self.cli("resolve", "--format", "json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), catalog)
+        self.assertEqual(json.loads(result.stdout), docker)
 
     def test_disabled_omitted_empty_and_azure_only_selection(self) -> None:
         self.assertEqual(backend.resolve(self.directory), [])
@@ -313,7 +322,7 @@ class BackendConfigTest(unittest.TestCase):
         (self.directory / "azure-remote-dev-env.yaml").unlink()
         result = self.cli("resolve", "--format", "json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [])
+        self.assertEqual(json.loads(result.stdout), [AZURE])
 
     def test_cli_backend_filter_and_value_free_unknown_filter(self) -> None:
         self.write(self.docker())

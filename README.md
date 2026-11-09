@@ -17,6 +17,7 @@ delivery status.
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
   - [Resetting a Coder user's password](#resetting-a-coder-users-password)
+- [Optional workspace backends](#optional-workspace-backends)
 - [User journeys](#user-journeys)
 - [Makefile targets](#makefile-targets)
 - [Troubleshooting](#troubleshooting)
@@ -74,6 +75,26 @@ breakdown (Context → Container → Component) and
 [`docs/INITIAL.md`](docs/INITIAL.md) for the authoritative, detailed
 implementation plan this repository executes.
 
+## Optional workspace backends
+
+An **environment** describes what the developer gets, a **BackendConnection**
+describes where it runs, and a **Coder template implementation** describes how it
+is provisioned. The product owns [`workspace/catalog.yaml`](/workspace/catalog.yaml);
+an external CADE deployment repository owns the connection YAML files selected
+by `CADE_BACKENDS_DIR`. No configuration directory means the existing four Docker
+implementations, with unchanged template names and persistent volumes.
+
+Backend selection affects workspace template publishing, not `make up` or the
+Docker Compose control plane. Disabling or omitting a connection neither revokes
+published-template access nor deletes workspaces/data. See
+[configuration and retirement](/docs/backends.md) before changing selection.
+
+The additive `generic-linux-azure` template pairs `generic-linux` with
+`azure-remote-dev-env`, referencing an existing RG and subnet. It is **offline
+preparation, NOT LIVE TESTED**; live identity/networking/lifecycle and cost approval
+remain in #141–#143. Start with the
+[Azure owner handoff and offline doctor](/docs/backends/azure-remote-dev-env.md).
+
 ## Why it exists
 
 Most "cloud dev environment" products require a SaaS account, a paid
@@ -95,6 +116,7 @@ cade/
 │   ├── Dockerfile
 │   ├── devcontainer/                # devcontainer template's bootstrap image (Issue #6)
 │   └── templates/                  # docker-workspace, embedded-linux, devcontainer workspace templates
+├── workspace/                     # backend schema, examples and supported implementation catalog
 ├── agent-host/                    # VS Code Agent Host / sandbox security baseline
 ├── runner/                         # self-hosted GitHub Actions runner (JIT, ephemeral)
 ├── temporal/                       # Temporal worker image + demo durable workflow
@@ -169,6 +191,9 @@ make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
 # 9. Push the Terraform template(s) and create a workspace
+python3 -m venv .venv-backends
+.venv-backends/bin/python -m pip install -r scripts/requirements-template-publishing.txt
+source .venv-backends/bin/activate
 make templates-push                 # pushes the workspace templates
 make templates-verify-vars          # checks published values for drift
 # (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
@@ -180,8 +205,8 @@ coder create <owner>/<name> --template docker-workspace --yes \
 `repo_url=https://github.com/<REPO_SLUG>.git`; `make templates-verify-vars`
 expects that exact URL and checks other template variables against their
 Terraform defaults. `REPO_SLUG` comes from the environment, `.env`, or the
-Make command line. Without a Coder session token the verifier reports `SKIP`
-and exits successfully, so check its output. The standalone
+Make command line. Missing or expired Coder authentication is an error, not a
+successful skip. The standalone
 `scripts/verify-template-vars.sh` instead checks the blank Terraform default.
 The verifier uses a non-empty exported `CODER_URL` first, then `.env`'s
 `CODER_URL`, falling back to `http://localhost:7080` if neither provides a
@@ -701,7 +726,9 @@ full "fix it and open a PR" loop — that end-to-end path is not yet proven.
 | `make coder-workspace-build`        | M3        | Build the `docker-workspace` workspace image. Refuses to run with uncommitted changes under `examples/`, `coder/`, or `Makefile`. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                            |
 | `make embedded-workspace-build`     | M6        | Build the `embedded-linux` cross-compilation workspace image (cmake/ninja/gcc-aarch64/qemu-user). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                            |
 | `make devcontainer-workspace-build` | Issue #6  | Build the `devcontainer` template's thin bootstrap image (`cade/devcontainer-bootstrap:latest`) — Docker CLI, Node.js, `@devcontainers/cli` only; the actual toolchain comes from the target repo's own `.devcontainer/devcontainer.json`, built at workspace-start time. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                    |
-| `make templates-push`               | —         | Push every Coder workspace template (`docker-workspace`, `embedded-linux`, `devcontainer`) to the running Coder server in one shot. Depends on all three `*-workspace-build` targets, so it also (re)builds `cade/coder-workspace`, `cade/embedded-linux-workspace`, and `cade/devcontainer-bootstrap` first (cache-hit, near-instant unless code changed), inheriting their dirty-tree refusal check. Requires the `coder` CLI on `PATH`, an authenticated session (`coder login`), and the Coder server already up/healthy. |
+| `make templates-push` | — | Publish catalog-selected implementations. With no config directory: the original four Docker templates and image build prerequisites, including dirty-tree refusal. Requires publishing Python dependencies, matching `coder` CLI, authentication and healthy Coder. Disabled-but-published catalog templates block rollout; see [retirement](/docs/backends.md#publishing-and-variable-verification). |
+| `make backend-templates-push BACKEND=docker-local` | #138 | Publish one enabled connection using the same catalog and safeguards. Azure-only selection never builds Docker images; Azure runtime remains unverified. Use `PYTHON=/path/to/venv/bin/python` or activate the venv. |
+| `make templates-verify-vars` | #138 | Verify selected templates against HCL defaults and publish-time overrides; fail on missing templates/variables, drift, authentication errors or retirement risk. |
 | `make runner-build`                 | M2        | Build the self-hosted GitHub Actions runner image (pinned digest + checksum-verified runner binary). Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                         |
 | `make runner-run`                   | M2        | Start one JIT (just-in-time), ephemeral runner container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `make temporal-worker-build`        | M8        | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -878,6 +905,8 @@ full technical breakdown and reasoning.
 | [`docs/ai-coder.md`](docs/ai-coder.md)                   | Coder AI integration: entitlement matrix, repeatability model, MCP/CI automation (Issue #13)               |
 | [`docs/disaster-recovery.md`](docs/disaster-recovery.md) | Backup/restore runbook                                                                                     |
 | [Headless Agent Host](/docs/headless-agent-host.md)      | Private bootstrap/manual start, verified local/SSH discovery, controls and pending human acceptance (#132) |
+| [Workspace backends](/docs/backends.md) | External connection contract, supported catalog, publishing and non-destructive retirement |
+| [Azure owner handoff](/docs/backends/azure-remote-dev-env.md) | Existing-infrastructure onboarding and offline doctor; Azure runtime unverified |
 | [`docs/phases/`](docs/phases/README.md)                  | `INITIAL.md` split into 5 phases + milestones                                                              |
 | [`docs/milestone-reports/`](docs/milestone-reports/)     | Evidence report per completed milestone                                                                    |
 | [`docs/plan/demo/`](docs/plan/demo/)                     | Live, per-phase handover reports with fresh re-verification evidence                                       |
@@ -886,6 +915,9 @@ full technical breakdown and reasoning.
 
 ## Known limitations
 
+- **Azure is NOT LIVE TESTED.** The Azure template and doctor provide offline
+  preparation only. A passing schema/Terraform validation does not establish
+  provisioner identity, connectivity, quota, cost approval or disk durability.
 - **`gh-aw`'s agentic CI-failure investigation cannot yet execute its
   reasoning step.** Its AWF sandbox requires a real Docker Unix socket,
   which is incompatible with this platform's socket-proxy-mediated
