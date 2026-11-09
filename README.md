@@ -183,6 +183,9 @@ Terraform defaults. `REPO_SLUG` comes from the environment, `.env`, or the
 Make command line. Without a Coder session token the verifier reports `SKIP`
 and exits successfully, so check its output. The standalone
 `scripts/verify-template-vars.sh` instead checks the blank Terraform default.
+The verifier uses a non-empty exported `CODER_URL` first, then `.env`'s
+`CODER_URL`, falling back to `http://localhost:7080` if neither provides a
+non-empty value.
 To switch an existing devcontainer
 template back to blank workspaces, explicitly publish it with
 `coder templates push devcontainer -d coder/templates/devcontainer --yes --variable 'repo_url='`;

@@ -33,7 +33,6 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CODER_URL="${CODER_URL:-http://localhost:7080}"
 
 # Load .env from repo root if present, without overwriting already-exported
 # variables (matches scripts/ai-bootstrap.sh's convention).
@@ -48,6 +47,8 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
     fi
   done < "${REPO_ROOT}/.env"
 fi
+
+CODER_URL="${CODER_URL:-http://localhost:7080}"
 
 TOKEN="${CODER_SESSION_TOKEN:-}"
 if [[ -z "${TOKEN}" && -f "${HOME}/.config/coderv2/session" ]]; then
