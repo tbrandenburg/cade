@@ -347,59 +347,8 @@ if [ "$OMNIGENT_SANDBOX_MODE" = "plain" ]; then
   exec /usr/local/bin/opencode "$@"
 fi
 
-# Issue #45 (Direction 4): srt's `bwrap --unshare-net` puts a sandboxed
-# `opencode serve` in a private network namespace, so its loopback port is
-# unreachable from the unsandboxed omnigent runner polling
-# http://127.0.0.1:<port> from outside the sandbox -- reproduced live in
-# Issue #45's own investigation. Verified live fix (Issue #45, "Direction 4"
-# comment): a Unix socket created inside the sandbox is still a filesystem
-# object under the shared /tmp bind-mount, so it (unlike TCP) IS reachable
-# from outside -- bridge the sandboxed TCP port to a Unix socket in here,
-# and bridge that same Unix socket back to the identical TCP port from
-# OUTSIDE the sandbox via the bridge-watchdog started in startup_script
-# below. Only applies to a `serve --port <N>` invocation (omnigent's
-# opencode-native harness's long-lived orchestration server) -- every other
-# invocation (interactive attach, etc.) is unaffected.
-is_serve=""
-port=""
-prev=""
-for arg in "$@"; do
-  if [ "$arg" = "serve" ]; then
-    is_serve=1
-  fi
-  case "$prev" in
-  --port)
-    port="$arg"
-    ;;
-  esac
-  case "$arg" in
-  --port=*)
-    port="$${arg#--port=}"
-    ;;
-  esac
-  prev="$arg"
-done
-
-if [ -n "$is_serve" ] && [ -n "$port" ]; then
-  # Stale-socket removal happens OUTSIDE srt, in this plain shell, before
-  # srt ever starts -- /tmp is a shared bind-mount (see Issue #45 evidence
-  # point 1), so this is safe/effective here, and a leftover socket file
-  # from a prior session would otherwise make socat's UNIX-LISTEN below
-  # fail with "Address already in use" inside the sandbox.
-  rm -f "/tmp/opencode-bridge-$port.sock"
-  # `srt -c "..."` runs the whole quoted string as ONE shell command inside
-  # the sandbox, so both the bridge listener and the real server must be
-  # started here, backgrounding the former and `exec`ing the latter so the
-  # server (not the shell) becomes srt's actual foreground/PID-1-under-srt
-  # process. `$*` (not "$@") is intentional here: it re-joins the shim's
-  # own original arguments into the single string `srt -c` expects -- same
-  # trade-off already accepted by the shim's own comments elsewhere in this
-  # file (no embedded spaces expected in omnigent's own `serve --hostname
-  # 127.0.0.1 --port <N>` invocation).
-  exec srt -c "socat UNIX-LISTEN:/tmp/opencode-bridge-$port.sock,fork,reuseaddr TCP:127.0.0.1:$port & exec /usr/local/bin/opencode $*"
-fi
-
-exec srt /usr/local/bin/opencode -- "$@"
+# Native server, TUI and tool/policy relay cross SRT via scoped Unix sockets.
+exec /usr/bin/python3 /opt/cade/omnigent-launch.py "$@"
 OMNIGENT_OPENCODE_SHIM
     chmod +x ~/.omnigent-bin/opencode
     if ! grep -q '.omnigent-bin' ~/.bashrc 2>/dev/null; then
@@ -509,6 +458,14 @@ BRIDGE_WATCHDOG
       echo $! >/tmp/omnigent-bridge-watchdog.pid
     fi
 
+    # Provision the locked docs MCP outside SRT, before launching any agent.
+    # Agent turns must not download packages or widen the egress policy.
+    docs_mcp='{}'
+    if [ -d "${local.workspace_dir}/mcp/docs-server" ]; then
+      uv sync --frozen --directory "${local.workspace_dir}/mcp/docs-server"
+      docs_mcp='{"devenv-docs":{"type":"local","command":["/home/coder/project/mcp/docs-server/.venv/bin/python","-m","docs_server.server"],"cwd":"/home/coder/project/mcp/docs-server","enabled":true}}'
+    fi
+
     # Issue #43 Step 5 (corrected): authenticate against omnigent-server's
     # "accounts" auth mode by replicating the real CLI's own
     # `_accounts_login()` code path exactly (verified live against the
@@ -522,8 +479,8 @@ BRIDGE_WATCHDOG
     # non-expired entry first — simpler, and one extra login call per
     # workspace start is cheap; skipping it opportunistically is a
     # possible future optimization, not required for correctness.
-    if [ -n "$${OMNIGENT_ADMIN_PASSWORD}" ] && command -v /opt/omnigent-venv/bin/python3 >/dev/null 2>&1; then
-      /opt/omnigent-venv/bin/python3 <<'OMNIGENT_LOGIN_PY' || true
+    if [ -n "$${OMNIGENT_ADMIN_PASSWORD}" ]; then
+      /opt/omnigent-venv/bin/python3 <<'OMNIGENT_LOGIN_PY'
 import os
 import time
 
@@ -585,83 +542,13 @@ host:
 OMNIGENT_HOST_IDENTITY
        fi
 
-       # Issue #82: work around Omnigent's opencode-native readiness check
-       # (omnigent/onboarding/opencode_auth.py) reporting a false-positive
-       # "needs-auth" badge. That check only recognizes a stored auth.json
-       # provider entry or a provider env var as "configured" — it has no
-       # concept of OpenCode's free, credential-less default "Zen" model
-       # (opencode/big-pickle). Three unsafe variants were tried and
-       # rejected before landing on this one (see docs/ai-coder.md's
-       # Omnigent section for the full live evidence):
-       #   1. A dummy OPENAI_API_KEY/auth.json entry with NO model pin
-       #      silently redirects OpenCode's own default-model selection
-       #      away from big-pickle to whatever provider now looks
-       #      "configured" (reproduced: `build · gpt-5.3-chat-latest` ->
-       #      `Incorrect API key provided`), breaking this repo's own
-       #      documented Journey 1 default-model behavior.
-       #   2. A dummy OPENAI_API_KEY env var (even with the model pin)
-       #      never reaches the readiness check at all in this
-       #      configuration: our templates always invoke
-       #      `omnigent host "$OMNIGENT_SERVER_URL" --background
-       #      --non-interactive` (remote-daemon mode), and omnigent's own
-       #      `omnigent/cli.py::_build_host_daemon_env()` deliberately
-       #      excludes provider secrets (OPENAI_API_KEY/ANTHROPIC_API_KEY/
-       #      etc.) from the daemon's environment in remote mode (only
-       #      LOCAL mode, server_url unset, forwards them) — by design, so
-       #      a shared remote server doesn't inherit the workspace owner's
-       #      provider secrets. Confirmed live via
-       #      /proc/<daemon-pid>/environ showing the var simply absent.
-       #   3. Routing around (2) via a different env-var channel is not
-       #      viable either — the daemon-spawn allowlist is intentional
-       #      upstream security design, not a bug, and must not be
-       #      defeated.
-       # What DOES work, verified live end-to-end (opencode run still uses
-       # big-pickle; Omnigent's /v1/hosts reports opencode-native: true):
-       #   a. Pin the default model explicitly in
-       #      ~/.config/opencode/opencode.jsonc — this overrides
-       #      OpenCode's own credential-presence-based default-model
-       #      selection regardless of what other (dummy) credentials
-       #      exist, so big-pickle stays active no matter what.
-       #   b. Write a dummy provider entry directly to the FILE
-       #      ~/.local/share/opencode/auth.json (never an env var) —
-       #      omnigent's `_stored_providers()` re-reads this file fresh
-       #      from disk on every readiness check, entirely independent of
-       #      the daemon's own filtered/stale environment; this is the
-       #      only channel that actually reaches the check in
-       #      remote-daemon mode.
-       # Both writes are purely cosmetic (satisfy the badge only) and
-       # MUST NEVER be treated as configuring a real OpenCode provider —
-       # a user who wants a real, working provider should use
-       # `omnigent setup`/`opencode auth login` normally. Both are
-       # idempotent and non-destructive: the model pin is only written if
-       # the config file doesn't already exist (never clobber a
-       # user-customized config, matching this template's existing
-       # copy-once guard pattern for srt-settings.json), and the dummy
-       # auth.json entry is only written if auth.json doesn't already
-       # exist or has zero real entries (never overwrite a genuine
-       # `opencode auth login` credential).
-       mkdir -p ~/.config/opencode
-       if [ ! -f ~/.config/opencode/opencode.jsonc ]; then
-         cat > ~/.config/opencode/opencode.jsonc <<'OMNIGENT_OPENCODE_MODEL_PIN'
-{
-  "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/big-pickle"
-}
-OMNIGENT_OPENCODE_MODEL_PIN
-       fi
-
-       mkdir -p ~/.local/share/opencode
-       omnigent_auth_json=~/.local/share/opencode/auth.json
-       if [ ! -s "$omnigent_auth_json" ] || [ "$(cat "$omnigent_auth_json")" = "{}" ]; then
-         cat > "$omnigent_auth_json" <<'OMNIGENT_DUMMY_AUTH'
-{"openai": {"type": "api", "key": "sk-dummy-placeholder"}}
-OMNIGENT_DUMMY_AUTH
-       fi
+       # Upgrade only the unchanged CADE model seed; customized config stays intact.
+       /usr/bin/python3 /opt/cade/omnigent-seed.py "$docs_mcp"
 
        # `--background` spawns the daemon detached and returns immediately
        # (reusing a healthy daemon if already up), so no trailing shell `&`
        # is needed here.
-       omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1 || true
+       omnigent host "$${OMNIGENT_SERVER_URL}" --background --non-interactive >/tmp/omnigent-host.log 2>&1
      fi
    EOT
 
@@ -689,7 +576,8 @@ OMNIGENT_DUMMY_AUTH
     # is exactly the Stage A verification checkpoint. OMNIGENT_RUNNER_ENV_PASSTHROUGH
     # is omnigent's own documented mechanism for this (a comma-separated list
     # of extra var names to forward) and IS itself allowlisted.
-    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE"
+    # Preserve the SRT wrapper path through Omnigent's host and runner env filters.
+    OMNIGENT_RUNNER_ENV_PASSTHROUGH = "OMNIGENT_SANDBOX_MODE,PATH"
     # Coder Agents runs the AI loop in the control plane; this workspace
     # intentionally never receives an LLM provider API key.
   }
