@@ -125,6 +125,66 @@ class TemplateVarsTest(unittest.TestCase):
             check=False,
         )
 
+    def test_coder_url_precedence_and_fallback(self):
+        fixture = self.env["CODER_URL"]
+        fallback = "http://localhost:7080"
+        binpath = self.root / "bin"
+        binpath.mkdir()
+        curl = binpath / "curl"
+        # Record the selected URL while keeping fallback traffic off the real stack.
+        curl.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf "%s\\n" "${@: -1}" >> "$CURL_URL_LOG"\n'
+            'exec "$REAL_CURL" --connect-to "$CURL_CONNECT_TO" "$@"\n',
+            encoding="utf-8",
+        )
+        curl.chmod(0o755)
+        scenarios = [
+            (f"CODER_URL={fixture}\n", None, fixture),
+            (f"CODER_URL={fixture}\n", "", fixture),
+            ("CODER_URL=http://unused.invalid\n", fixture, fixture),
+            ("CODER_URL=\n", None, fallback),
+            ("CODER_URL=\n", "", fallback),
+            ("# No URL setting\n", None, fallback),
+            (None, None, fallback),
+            (None, "", fallback),
+        ]
+        for contents, exported, expected in scenarios:
+            with self.subTest(file=contents, environment=exported):
+                envfile = self.root / ".env"
+                if contents is None:
+                    envfile.unlink(missing_ok=True)
+                else:
+                    envfile.write_text(contents, encoding="utf-8")
+                env = self.env.copy()
+                env.pop("CODER_URL")
+                if exported is not None:
+                    env["CODER_URL"] = exported
+                log = self.root / "curl-urls"
+                log.unlink(missing_ok=True)
+                env.update(
+                    PATH=f"{binpath}:{env['PATH']}",
+                    REAL_CURL=shutil.which("curl"),
+                    CURL_CONNECT_TO=f"localhost:7080:127.0.0.1:{self.server.server_port}",
+                    CURL_URL_LOG=str(log),
+                )
+                result = self.run_command(
+                    "bash", "scripts/verify-template-vars.sh", env=env
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("PASS  repo_url", result.stdout)
+                self.assertEqual(
+                    log.read_text(encoding="utf-8").splitlines(),
+                    [
+                        f"{expected}/api/v2/{path}"
+                        for name in DEFAULTS
+                        for path in (
+                            "templates",
+                            f"templateversions/{name}/variables",
+                        )
+                    ],
+                )
+
     def test_slug_precedence_and_push_recipe(self):
         scenarios = [
             (None, None, None, "tbrandenburg/cade"),
