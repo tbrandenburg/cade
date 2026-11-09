@@ -310,3 +310,113 @@ the sidecar restores it locally instead. **No DNS/wildcard hostname setup
 of any kind is required** — `CODER_WILDCARD_ACCESS_URL` and its
 auto-derivation machinery have been removed entirely (no template in this
 repo uses `subdomain = true` anymore).
+
+## OpenBao operator lifecycle
+
+OpenBao 2.6.5 uses verified TLS, one local `cade-operator` userpass login,
+and the existing KV v2 mount at `secret/`. Requirements: Python 3, Docker,
+the running OpenBao container, and its mounted CA certificate. Bootstrap no
+longer changes data-directory ownership or bypasses certificate verification.
+Run the normal certificate/startup prerequisites before bootstrap.
+
+```bash
+# First bootstrap: hidden password prompt (16-72 UTF-8 bytes).
+# Save the password in your password manager, separate from unseal shares.
+make governance-bootstrap
+
+# Automation: password-manager output over stdin, never a password argument.
+# Replace password-manager-command with your own private retrieval command.
+password-manager-command | bash scripts/openbao-init.sh --password-file -
+
+# Or use an owner-only password file outside the repository/build contexts:
+bash scripts/openbao-init.sh --password-file /private/operator-password
+
+# Ordinary run: unseal only; does not need the operator password or valid root.
+bash scripts/openbao-init.sh
+
+# Explicit rotation: authenticates a fresh operator session; missing/wrong
+# credentials return nonzero, even when the saved root token was revoked.
+bash scripts/openbao-init.sh --force-rotate --password-file /private/operator-password
+```
+
+`FORCE_ROTATE=1` is the environment equivalent of `--force-rotate`.
+Rotation creates fresh `coder-db`, `temporal-db`, and `lab-sim` records and
+copies the optional Coder/Omnigent credentials from exported environment or
+`.env`. It updates **stored records only**, not live consumers. Privately
+reconcile consumers with stored versions before restarting affected services.
+On a partial write failure, inspect versions before retrying; rotation is
+not a multi-record transaction. Do not run blanket rotation to change just
+one live service credential.
+
+The operator policy grants **only read/create/update** on
+`secret/data/devenv-cloud/*`; it cannot delete/list secrets, manage auth,
+create tokens, or generate root. `devenv-cloud-read` stays read-only.
+Sessions are five-minute non-renewable **batch** tokens, without `default`
+policy, used in memory without the CLI login cache. They expire rather than
+being individually revoked. The helper validates the login's policy and TTL
+before use; no token, password, or share is supplied in process arguments.
+Do not enable Python tracing/debuggers or shell tracing around secret input.
+
+For a single record, put its desired JSON fields in an owner-only file
+outside the repo, then use the same transport without printing values:
+
+```bash
+python3 - <<'PY'
+import getpass, json, sys
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from openbao_client import login, private_read
+operator = login(getpass.getpass("OpenBao operator password: "))
+payload = json.loads(private_read(Path("/private/desired-fields.json")))
+path = "secret/data/devenv-cloud/example"
+operator.write(path, {"data": payload})
+if operator.read(path)["data"]["data"] != payload:
+    raise SystemExit("Stored record verification failed")
+print("Stored record verified; values withheld")
+PY
+```
+
+If provisioning/login fails during bootstrap, root is not deliberately
+revoked. Preserve the private init file and password, fix permissions/TLS
+or unlock the user with the still-valid administrator, then explicitly run:
+
+```bash
+bash scripts/openbao-init.sh --resume-bootstrap --password-file /private/operator-password
+```
+
+Resume provisions/verifies the operator, rotates stored records, and revokes
+the saved bootstrap root. A plain re-unseal never implicitly resumes or
+rotates. Keep `init.json` mode 600 (older checkouts may need `chmod 600`).
+Bootstrap output needs an owned parent directory without group/world write
+permission; a private owned subdirectory under shared `/tmp` is supported.
+Initialization retains its exclusive file descriptor through the server call
+and share write, rather than reopening the path.
+Restore matching shares to a private file when needed; `BAO_INIT_FILE`
+selects it. `BAO_CONTAINER` selects the exact container, `BAO_ADDR` must be
+HTTPS, and `BAO_CACERT` selects the certificate path **inside that container**
+(defaults: `openbao`, `https://127.0.0.1:8200`, `/openbao/certs/openbao.crt`).
+The in-container CLI starts with a clean environment: inherited Agent addresses,
+TLS bypass/server-name overrides, proxies, redirects, and token helpers/caches
+cannot override these settings. Redirect following and CLI retries are disabled;
+authentication uses only the explicit stdin token, never a cached login.
+`BAO_ENV_FILE` optionally selects an alternative `.env` source; disposable
+tests use it to avoid reading the deployment's credentials.
+
+### Add the operator to an existing instance with a valid administrator
+
+Export that administrator's token privately into an owner-only file outside
+the repository. This mode does not require the old initial root and does
+not rotate stored credentials or revoke the caller's administrator token:
+
+```bash
+bash scripts/openbao-init.sh --provision-operator \
+  --admin-token-file /private/existing-admin-token \
+  --password-file /private/operator-password
+```
+
+It intentionally creates/updates only the fixed `cade-operator` account and
+the two scoped policies, preserving other userpass accounts. It refuses to
+replace incompatible existing mounts. Revoke a temporary administrator via
+`auth/token/revoke-self` using the private transport after verifying login.
+For **no valid administrator**, use the isolated copied-storage recovery
+procedure in [disaster recovery](/docs/disaster-recovery.md#openbao-locked-out-administration-recovery).
