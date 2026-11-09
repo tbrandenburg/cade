@@ -71,9 +71,17 @@ class TemplatesPushTest(TemplateFixture):
         (directory / "azure.yaml").write_text(yaml.safe_dump(azure_doc))
         self.env["CADE_BACKENDS_DIR"] = str(directory)
 
-    def azure_catalog(self):
+    def azure_catalog(self, supported=True):
         catalog = self.root / "workspace/catalog.yaml"
         document = yaml.safe_load(catalog.read_text())
+        document["implementations"] = [
+            entry
+            for entry in document["implementations"]
+            if entry["backend"] != "azure-remote-dev-env"
+        ]
+        if not supported:
+            catalog.write_text(yaml.safe_dump(document, sort_keys=False))
+            return
         document["implementations"].append(
             {
                 "environment": "generic-linux",
@@ -84,7 +92,7 @@ class TemplatesPushTest(TemplateFixture):
         )
         catalog.write_text(yaml.safe_dump(document, sort_keys=False))
         path = self.root / "coder/templates/generic-linux-azure"
-        path.mkdir()
+        path.mkdir(exist_ok=True)
         (path / "main.tf").write_text("")
         (path / "variables.tf").write_text(
             "\n".join(f'variable "{key}" {{ type = string }}' for key in AZURE)
@@ -269,6 +277,7 @@ class TemplatesPushTest(TemplateFixture):
                 self.assertLessEqual(len(self.calls("coder")), 2)
 
     def test_disabled_and_unsupported_target(self):
+        self.azure_catalog(supported=False)
         self.connections(docker=False, azure=False)
         result = self.run_command(
             "make", "backend-templates-push", "BACKEND=docker-local"

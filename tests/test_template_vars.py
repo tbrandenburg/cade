@@ -12,6 +12,8 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS = {
@@ -108,11 +110,14 @@ class TemplateFixture(unittest.TestCase):
         ):
             shutil.copy(ROOT / "scripts" / name, self.root / "scripts")
         shutil.copytree(ROOT / "workspace", self.root / "workspace")
-        for name in DEFAULTS:
-            target = self.root / "coder/templates" / name
+        catalog = yaml.safe_load((self.root / "workspace/catalog.yaml").read_text())
+        for entry in catalog["implementations"]:
+            target = self.root / entry["path"]
             target.mkdir(parents=True)
-            shutil.copy(ROOT / "coder/templates" / name / "variables.tf", target)
-            (target / "main.tf").write_text("")
+            for name in ("main.tf", "variables.tf"):
+                source = ROOT / entry["path"] / name
+                if source.is_file():
+                    shutil.copy(source, target)
         # Port 0 atomically checks and reserves an unused loopback port before serving.
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.values = {name: values.copy() for name, values in DEFAULTS.items()}
