@@ -1,0 +1,71 @@
+name: omnigent-check
+
+on:
+  pull_request:
+    paths:
+      - "coder/Dockerfile"
+      - "coder/omnigent/**"
+      - "coder/templates/docker-workspace/**"
+      - "coder/templates/agent-workspace/**"
+      - "coder/agent-workspace/Dockerfile"
+      - "agent-host/srt-settings.json"
+      - "tests/coder-omnigent-*"
+      - ".github/workflows/omnigent-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "coder/Dockerfile"
+      - "coder/omnigent/**"
+      - "coder/templates/docker-workspace/**"
+      - "coder/templates/agent-workspace/**"
+      - "coder/agent-workspace/Dockerfile"
+      - "agent-host/srt-settings.json"
+      - "tests/coder-omnigent-*"
+      - ".github/workflows/omnigent-check.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  image-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Install lint dependencies
+        run: python -m pip install ruff==0.14.6
+      - name: Omnigent Python lint and format
+        run: |
+          ruff check coder/omnigent tests/coder-omnigent-*.py
+          ruff format --check coder/omnigent tests/coder-omnigent-*.py
+      - name: Shell checks
+        run: shellcheck tests/coder-omnigent-*.sh
+      # Use the Engine's builder so the derived FROM resolves the local base.
+      - name: Verify installed buildx
+        run: docker buildx inspect default
+      - name: Build base workspace image
+        timeout-minutes: 35
+        run: >-
+          docker buildx build --builder default
+          -f coder/Dockerfile --build-context agent-host=agent-host
+          -t cade/coder-workspace:latest --load coder
+      - name: Base workspace Omnigent regression
+        timeout-minutes: 5
+        env:
+          WORKSPACE_IMAGE: cade/coder-workspace:latest
+        run: bash tests/coder-omnigent-launch.sh
+      - name: Build agent workspace image
+        timeout-minutes: 10
+        run: >-
+          docker buildx build --builder default
+          -f coder/agent-workspace/Dockerfile
+          -t cade/agent-workspace:latest --load coder/agent-workspace
+      - name: Agent workspace Omnigent regression
+        timeout-minutes: 5
+        env:
+          WORKSPACE_IMAGE: cade/agent-workspace:latest
+        run: bash tests/coder-omnigent-launch.sh
