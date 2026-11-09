@@ -2,9 +2,11 @@
 
 import json
 import os
+from email.message import Message
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+from typing import BinaryIO
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from backend_config import ConfigError, Connection, Implementation
 from backend_config import load_catalog, load_connections
@@ -89,6 +91,20 @@ def publish_variables(
     return values
 
 
+class RejectRedirects(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: BinaryIO,
+        code: int,
+        msg: str,
+        headers: Message,
+        newurl: str,
+    ) -> None:
+        # Reject before urllib can copy authentication headers to another request.
+        raise HTTPError(req.full_url, code, "redirects disabled", headers, fp)
+
+
 class CoderAPI:
     def __init__(self) -> None:
         self.url = os.environ.get("CODER_URL") or "http://localhost:7080"
@@ -107,7 +123,7 @@ class CoderAPI:
             headers={"Coder-Session-Token": self.token},
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with build_opener(RejectRedirects()).open(request, timeout=15) as response:
                 data = json.load(response)
         except (URLError, ValueError, TimeoutError, OSError) as error:
             raise ConfigError(
