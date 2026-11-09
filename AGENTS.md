@@ -142,7 +142,8 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Evidence & "done" claims
 
-- Verify PR state and merge ancestry directly before repeating issue narratives; a claim that work merged is not evidence that the target branch contains it.
+- 2026-11-09: Pitfall: issue narratives misreported a merge. Prevention: verify PR state and merge ancestry directly before claiming the target branch contains the work.
+- 2026-11-09: Pitfall: scoped Ruff defaults missed CI's complexity gate. Prevention: run the exact CI lint command after adding tests, not only a narrower local check.
 - 2026-11-09: Pitfall: an expanded catalog broke fixtures with missing unselected paths and duplicate appended rows. Prevention: materialize every catalog-declared template in fixture repositories; replace named mappings rather than blindly appending them.
 - Never trust a subagent's "complete"/"passing" report — check `git log --oneline -3 <branch>` (not just `git status`) to confirm it actually committed.
 - Treat any change to `compose.yaml`/a template/a config file as inert until the consuming container is verified recreated (`docker inspect ... Config.Env`) — a committed diff and a live effect are different claims.
@@ -214,7 +215,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
-- 2026-11-09: Keep owned process-group leaders unreaped until descendant cleanup finishes; leader exit is not group exit. Establish ownership at spawn, not by guessing a later PGID.
+- 2026-11-09: Pitfall: leader exit left descendants alive. Prevention: keep owned group leaders unreaped until descendant cleanup finishes; establish ownership at spawn rather than guessing a later PGID.
 - 2026-11-09: Pitfall: shared CMake caches retain container-specific source paths, and host generators may be absent. Prevention: check generator availability and validate in a fresh out-of-tree directory without replacing existing build artifacts.
 - 2026-11-08: Pitfall: Compose project overrides bypass a pinned `name:` and select different volumes. Prevention: compare running project labels and DB mounts with rendered configuration before upgrades or backups.
 - 2026-11-08: Pitfall: concurrent browser input actions can type into the wrong field. Prevention: serialize interactions sharing one page; parallelize only independent browser contexts.

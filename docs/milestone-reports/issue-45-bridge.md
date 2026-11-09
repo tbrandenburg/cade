@@ -812,3 +812,105 @@ docker run --rm --network none "${mounts[@]}" \
 Ruff 0.14.6 `check` and `format --check` over the changed launcher/test and
 `git diff --check` also pass. This does not resolve or supersede the incomplete
 cold-native-chat, approval/restart or deployment acceptance evidence above.
+
+## PR #152 reconciliation with current main
+
+The reconciliation starts from main `589bf82` and retains PR head `3c08480`
+as the second parent of merge `1ea27d7`. GitHub reported #152 open and unmerged,
+contrary to the issue narrative; ancestry checks confirmed the missing integration.
+Only README and architecture had textual conflicts. Their resolutions retain
+main's lines in order, and the five overlapping paths were reviewed semantically.
+The 55 main-only changed paths remain byte-identical to main. Parsed Compose
+differs only in the intended Omnigent server image pin: the Coder 2.38.6 guards,
+Alloy configuration, networks and volumes are retained.
+
+Three independent adversarial reviews covered preservation, policy/process safety,
+and CI integration. The ASK and process-group findings above were fixed and
+approved in a focused re-review. The cleanup regression initially exceeded main's
+C901 limit by one branch; extracting fixture cleanup preserved its behavioral
+assertions and passed the exact existing CI command without suppression.
+
+The added `omnigent-check` workflow builds source-matching base and agent images,
+runs the hash-checking harness in each, and checks production-source lint/format.
+It does not replace the backend workflow or claim native-chat acceptance.
+
+Coordinator built-image checks used dedicated tags, never overwriting the shared
+workspace `:latest` tags or recreating a running service:
+
+```bash
+docker buildx build -f coder/Dockerfile --build-context agent-host=agent-host \
+  -t cade/reconcile-152-workspace:validation --load coder
+WORKSPACE_IMAGE=cade/reconcile-152-workspace:validation bash tests/coder-omnigent-launch.sh
+docker buildx build --builder default -f coder/agent-workspace/Dockerfile \
+  --build-context cade/coder-workspace:latest=docker-image://cade/reconcile-152-workspace:validation \
+  -t cade/reconcile-152-agent:validation --load coder/agent-workspace
+WORKSPACE_IMAGE=cade/reconcile-152-agent:validation bash tests/coder-omnigent-launch.sh
+```
+
+Both image harnesses passed **15 tests**. Image IDs:
+
+- Base: `58e98009d6ee5ea38d0cda406e01591973075749e8532afdf2dae7099e3d04f1`.
+- Agent: `61d0f125a62b7dcc57a702ac05418c37b09b53b1c5b200bc9c366c5c08da1618`.
+
+Non-root smoke checks returned `coder`, OpenCode `2.0.32`, Omnigent `0.21.0`,
+Node `24.22.2` and Boundary `v0.10.0` in the relevant images. Terraform 1.14.5
+initialized and validated both modified Docker templates in a disposable copy;
+no provider state or generated lock file was written to the checkout. Port
+listeners were checked before testing, and no existing process was stopped.
+
+These are packaging and real-process/plugin regression checks, not a fresh
+Coder dashboard/native inference run. #153 remains outstanding; #162 and #164
+are not resolved by this reconciliation. No OpenAI credential was needed or used.
+
+The preservation review also reproduced a separate ordinary-checkout regression:
+the repository command used `--no-sync`, but trusted provisioning was conditional
+on Omnigent being enabled. A clean docs source copy exited with
+`ModuleNotFoundError: No module named 'docs_server'`. The repository command now
+uses `uv run --frozen`, provisioning from the committed lockfile without implicit
+re-resolution. OpenCode 2.0.32's repository config overrides the global seed;
+the effective command is therefore frozen-lock uv, not the seed's interpreter.
+Frozen execution may still synchronize/repair the environment. Native launches
+depend on trusted provisioning and unchanged SRT egress denial, not a claim that
+uv can never attempt installation.
+
+Coordinator verification at **2026-11-09T09:45:41+01:00**:
+
+```text
+python -m unittest discover -s tests -v
+  Ran 59 tests in 73.897s; OK
+python3 -m unittest discover -s scripts/tests -v
+  Ran 59 tests in 180.449s; OK
+uv run --project temporal --frozen pytest temporal/tests -q
+  15 passed in 2.12s
+python3 tests/docs-mcp-cold-start.py  # uv 0.9.5
+  PASS: cold config command provisioned .venv; initialize, tools/list, search, empty query; lock unchanged
+  PASS: warm config command works offline with the provisioned environment
+  PASS: offline pyproject drift uses locked environment; lock and package inventory unchanged
+```
+
+The exact backend CI Ruff gate (including C901), production-source lint/format,
+ShellCheck, actionlint, Terraform format and whitespace checks passed. The new
+workflow explicitly invokes the cold-start test with pinned uv 0.9.5 and triggers
+on root configuration and docs-project inputs. A private, isolated OpenCode
+2.0.32 command-selection probe independently connected the real docs MCP offline
+after metadata drift, confirmed selection of the root frozen command and an
+unchanged lockfile; it used no LLM, provider credential or existing service.
+The preservation reviewer repeated cold/warm/drift and native precedence checks,
+approved the functional correction, and verified test process/directory cleanup.
+Its remaining documentation finding was corrected in `docs/ai-coder.md`.
+
+### Warning-only quality-drift check
+
+For the imported launcher slice, gate maturity scores (0–10) are runtime **2**,
+test size/ratio **2**, source size **2**, complexity **0**, branch coverage **0**,
+mutation testing **0**: average **1.0/10**. These score automated gates, not
+functional correctness. Measured sizes are 358/118/29 source lines and 672/85 test
+lines; the main test/source ratio is below 2:1, but the test exceeds 500 lines.
+The launcher retains its inherited complexity warnings; no threshold was relaxed.
+
+Possible follow-up, not part of this reconciliation: cheap warning-only runtime,
+size and complexity annotations in PR CI (roughly one hour); branch-coverage
+baseline/ratchet in PR CI (one to two hours); scheduled mutation checks (several
+hours). Start with warnings rather than retroactively blocking inherited code.
+The focused regressions exercise real generated JavaScript and forked processes;
+passing them does not establish coverage or mutation scores.

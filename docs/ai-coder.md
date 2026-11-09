@@ -297,12 +297,17 @@ Do not create fake credentials or overwrite a user's existing credentials.
 The default model remains `opencode/big-pickle`; provider secrets are not
 forwarded around Omnigent's remote-daemon environment filter.
 
-When the checkout contains `mcp/docs-server`, workspace startup runs
-`uv sync --frozen` **outside SRT** before starting the host. Repository MCP
-launches use `uv run --no-sync`; the first-boot global seed uses the provisioned
-Python executable directly. A broken docs project stops startup rather than
-starting an agent that downloads dependencies inside its sandbox. Blank
-checkouts omit the docs seed. Fresh homes and the unchanged CADE model-only
+When Omnigent is enabled and the checkout contains `mcp/docs-server`, workspace
+startup runs `uv sync --frozen` **outside SRT** before starting the host; a
+provisioning failure stops startup. The first-boot global seed uses that Python
+executable directly, but this repository's MCP entry takes precedence and uses
+`uv run --frozen`. This also provisions fresh ordinary checkouts from the committed
+lockfile without an Omnigent-specific startup step. `--frozen` prevents implicit
+lockfile re-resolution, not environment synchronization or downloads. Native
+launches rely on the trusted, provisioned environment; unchanged SRT policy still
+denies unexpected egress. The provisioned command was verified offline, including
+dependency-metadata drift; this is not a guarantee that repair is never attempted.
+Blank checkouts omit the docs seed. Fresh homes and the unchanged CADE model-only
 global seed receive the docs entry. Customized JSON/JSONC and credentials stay
 untouched. For a customized global config, manually merge this entry into
 `mcp.servers` (preserve your other settings):
