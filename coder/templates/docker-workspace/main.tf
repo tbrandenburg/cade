@@ -404,7 +404,8 @@ BRIDGE_WATCHDOG
       # Agent turns must not download packages or widen the egress policy.
       docs_mcp='{}'
       if [ -d "${local.workspace_dir}/mcp/docs-server" ]; then
-        uv sync --frozen --directory "${local.workspace_dir}/mcp/docs-server"
+        # Compile imports before the sandboxed MCP startup budget begins.
+        uv sync --frozen --compile-bytecode --directory "${local.workspace_dir}/mcp/docs-server"
         docs_mcp='{"devenv-docs":{"type":"local","command":["/home/coder/project/mcp/docs-server/.venv/bin/python","-m","docs_server.server"],"cwd":"/home/coder/project/mcp/docs-server","enabled":true}}'
       fi
 

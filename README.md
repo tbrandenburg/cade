@@ -922,16 +922,12 @@ full technical breakdown and reasoning.
   preparation only. A passing schema/Terraform validation does not establish
   provisioner identity, connectivity, quota, cost approval or disk durability.
 
-- **Omnigent/OpenCode 2 modernization (#146) is not acceptance-ready.**
-  Matching Omnigent 0.21.0/OpenCode 2.0.32 pins and scoped SRT bridges are
-  implemented. The metadata-probe timeout is reproduced and corrected. Historical
-  agent-image native tools, relay-loss safety and Coder restart evidence does not
-  establish acceptance of the current source. The final cold repeat failed on
-  both templates: Docker reached model usage limits before native tool evidence;
-  agent-workspace hit a docs-MCP startup timeout. Diagnosis and cold native-chat
-  acceptance remain outstanding in [#153](https://github.com/tbrandenburg/cade/issues/153).
-  Requested host-registration failures are exposed in Coder's startup status.
-  See [the runtime evidence](/docs/milestone-reports/issue-45-bridge.md).
+- **Omnigent native chat can need a retry under load.** Both workspace types
+  have demonstrated native docs calls and sandbox safety checks, but first
+  startup or the first turn after a restart can still time out. Dependencies
+  are precompiled during trusted workspace startup to reduce import work; this
+  does not guarantee a first-attempt success. The remaining reliability issue
+  is tracked in [#153](https://github.com/tbrandenburg/cade/issues/153).
 
 - **`gh-aw`'s agentic CI-failure investigation cannot yet execute its
   reasoning step.** Its AWF sandbox requires a real Docker Unix socket,
