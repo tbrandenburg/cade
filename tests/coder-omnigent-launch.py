@@ -1,5 +1,7 @@
 """Run in the pinned workspace image; use real native plugin source and HTTP."""
 
+import ctypes
+import hashlib
 import http.client
 import importlib.util
 import json
@@ -155,6 +157,12 @@ console.log(JSON.stringify({blocked, output:result.result.content}));
         denied = json.loads(self.plugin_call().stdout)
         self.assertTrue(denied["blocked"])
         self.assertIn("withheld", denied["output"])
+        self.assertIn("test denial", denied["output"])
+        Endpoint.verdict = {"result": "POLICY_ACTION_ASK", "reason": "needs approval"}
+        unresolved = json.loads(self.plugin_call().stdout)
+        self.assertTrue(unresolved["blocked"])
+        self.assertIn("withheld", unresolved["output"])
+        self.assertNotIn("disposable output", unresolved["output"])
         Endpoint.status = 503
         unavailable = json.loads(self.plugin_call().stdout)
         self.assertTrue(unavailable["blocked"])
@@ -170,7 +178,66 @@ console.log(JSON.stringify({blocked, output:result.result.content}));
         disconnected = json.loads(self.plugin_call().stdout)
         self.assertTrue(disconnected["blocked"])
         self.assertIn("withheld", disconnected["output"])
-        self.assertEqual(Endpoint.count, 8)
+        self.assertEqual(Endpoint.count, 10)
+
+    def test_previous_policy_correction_upgrades_idempotently(self) -> None:
+        write_opencode_policy_plugin(self.root)
+        plugin = self.root / "omnigent-policy/server.js"
+        # Reconstruct the exact deployed correction, not the current implementation.
+        previous = (
+            plugin.read_text()
+            .replace(
+                '{ result: "ALLOW" }',
+                '{ result: "POLICY_ACTION_DENY", reason: "policy relay unavailable" }',
+            )
+            .replace(
+                "// Unwired (no server/session) or any transport failure allows: fail open.",
+                "// CADE: missing configuration or a failed policy transport denies.",
+            )
+            .replace(
+                'body && typeof body === "object"',
+                'body && ["POLICY_ACTION_ALLOW", "POLICY_ACTION_DENY", "POLICY_ACTION_ASK"].includes(body.result)',
+            )
+        )
+        evaluate = previous[
+            previous.index("async function evaluate(") : previous.index(
+                "function resultText("
+            )
+        ]
+        self.assertEqual(
+            hashlib.sha256(evaluate.encode()).hexdigest(),
+            "4432ea74ceb9b6c0ba1f1e108ca2b3361b894e1be86b78af0335b55e404609ba",
+        )
+        plugin.write_text(previous)
+        launch.fail_closed()
+        corrected = plugin.read_text()
+        self.assertNotEqual(corrected, previous)
+        launch.fail_closed()
+        self.assertEqual(plugin.read_text(), corrected)
+        changed = corrected.replace(
+            'reason: "policy relay unavailable"', 'reason: "changed"', 1
+        )
+        plugin.write_text(changed)
+        with self.assertRaisesRegex(RuntimeError, "refusing unsafe launch"):
+            launch.fail_closed()
+        self.assertEqual(plugin.read_text(), changed)
+        plugin.write_text(corrected)
+        (self.root / "tool_relay.json").write_text(
+            json.dumps(
+                {
+                    "url": f"http://127.0.0.1:{self.server.server_port}",
+                    "token": "synthetic",
+                }
+            )
+        )
+        Endpoint.verdict = {"result": "POLICY_ACTION_ASK"}
+        unresolved = json.loads(self.plugin_call().stdout)
+        self.assertTrue(unresolved["blocked"])
+        self.assertIn("withheld", unresolved["output"])
+        Endpoint.verdict = {"result": "POLICY_ACTION_ALLOW"}
+        allowed = json.loads(self.plugin_call().stdout)
+        self.assertFalse(allowed["blocked"])
+        self.assertEqual(allowed["output"], "disposable output")
 
     def test_unsafe_launch_rejected(self) -> None:
         os.environ.pop("CADE_OMNIGENT_PARENT_NETNS", None)
@@ -350,6 +417,104 @@ console.log(JSON.stringify({blocked, output:result.result.content}));
         finally:
             launch.stop(failed)
         self.assertNotEqual(failed.returncode, 0)
+
+    def test_group_cleanup_ownership_and_exited_leaders(self) -> None:
+        # Adopt orphan descendants so this real-process regression reaps its children.
+        libc = ctypes.CDLL(None, use_errno=True)
+        previous = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(previous), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        try:
+            for owned, exited, stubborn in (
+                (True, False, False),
+                (True, True, False),
+                (True, False, True),
+                (False, False, False),
+            ):
+                with self.subTest(owned=owned, leader_exited=exited, stubborn=stubborn):
+                    child = None
+                    reaped = False
+                    marker = self.root / f"child-{owned}-{exited}-{stubborn}"
+                    command = [
+                        "python3",
+                        "-c",
+                        "import os,signal,time\n"
+                        "from pathlib import Path\n"
+                        f"if {stubborn!r}: signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                        "child=os.fork()\n"
+                        "if child == 0:\n"
+                        f" signal.signal(signal.SIGTERM,signal.SIG_IGN if {owned!r} else signal.SIG_DFL)\n"
+                        f" marker=Path({str(marker)!r})\n"
+                        " marker.with_suffix('.ready').write_text(str(os.getpid()))\n"
+                        " marker.with_suffix('.ready').rename(marker)\n"
+                        " while True: time.sleep(1)\n"
+                        f"if {exited!r}: raise SystemExit(0)\n"
+                        "while True: time.sleep(1)\n",
+                    ]
+                    process = (
+                        launch.OwnedProcess(command)
+                        if owned
+                        else subprocess.Popen(command, start_new_session=True)
+                    )
+                    try:
+                        deadline = time.monotonic() + 5
+                        while not marker.exists() and time.monotonic() < deadline:
+                            time.sleep(0.01)
+                        self.assertTrue(marker.exists())
+                        child = int(marker.read_text())
+                        self.assertEqual(os.getpgid(child), process.pid)
+                        if exited:
+                            while (
+                                process.poll() is None and time.monotonic() < deadline
+                            ):
+                                time.sleep(0.01)
+                            self.assertEqual(process.poll(), 0)
+                            self.assertEqual(launch.supervise(process, []), 0)
+                            # The leader has not been reaped or made reusable.
+                            self.assertIsNone(process.returncode)
+                        started = time.monotonic()
+                        launch.stop(process)
+                        self.assertLess(time.monotonic() - started, 6)
+                        self.assertIsNotNone(process.returncode)
+                        self.assertEqual(
+                            process.returncode,
+                            0
+                            if exited
+                            else -signal.SIGKILL
+                            if stubborn
+                            else -signal.SIGTERM,
+                        )
+                        if not owned:
+                            os.kill(child, 0)
+                            self.assertNotEqual(
+                                Path(f"/proc/{child}/stat").read_text().split()[2], "Z"
+                            )
+                            continue
+                        deadline = time.monotonic() + 2
+                        status = (0, 0)
+                        while status[0] == 0 and time.monotonic() < deadline:
+                            status = os.waitpid(child, os.WNOHANG)
+                            time.sleep(0.01)
+                        reaped = status[0] == child
+                        self.assertEqual(status[0], child)
+                        self.assertTrue(os.WIFSIGNALED(status[1]))
+                        self.assertEqual(os.WTERMSIG(status[1]), signal.SIGKILL)
+                        # A repeated stop must not signal a reused ID.
+                        launch.stop(process)
+                    finally:
+                        # Independent cleanup must work even when stop() is the failure.
+                        if process.returncode is None:
+                            process.kill()
+                        process.wait(timeout=5)
+                        if marker.exists() and child is None:
+                            child = int(marker.read_text())
+                        if child is not None and not reaped:
+                            status = os.waitpid(child, os.WNOHANG)
+                            if status[0] == 0:
+                                os.kill(child, signal.SIGKILL)
+                                os.waitpid(child, 0)
+        finally:
+            self.assertEqual(libc.prctl(36, previous.value, 0, 0, 0), 0)
 
     def test_relay_death_terminates_owning_launch(self) -> None:
         driver = self.root / "driver.py"

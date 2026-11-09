@@ -760,3 +760,55 @@ Sanitized retained artifacts under `/tmp/opencode/`:
 `issue-146-review-{accepted-base-build,accepted-agent-build,agent-stop,agent-start}.log`
 command records. Coordinator adversarial re-review is still required; this is
 **not** authorization to close #146 or open a PR.
+
+## PR #152 focused adversarial corrections
+
+Scoped regression verification on 2026-11-09: **15 tests passed, 0 failed**
+(`Ran 15 tests in 19.941s`, `OK`). This is **mounted-source** evidence against
+the installed Omnigent **0.21.0** package in the existing
+`cade/reconcile-152-workspace:validation` image, not a rebuilt-image consistency
+gate or native E2E acceptance. No shared image tag, running service, credential,
+deployment or confinement configuration was changed. #153, #162 and #164 remain
+outside these corrections.
+
+- The earlier fail-closed correction accepted `POLICY_ACTION_ASK`, but the pinned
+  generated prompt/output hooks enforce only DENY. Actual generated-plugin/Node
+  execution reproduced an unblocked prompt and unchanged protected output.
+  The correction now permits only explicit ALLOW, preserves explicit DENY and
+  its reason, and converts unresolved ASK or an invalid response to DENY.
+  Real HTTP/plugin tests verify prompt blocking and output withholding for ASK,
+  DENY, malformed replies, HTTP 503 and disconnected transport; ALLOW preserves
+  the output. The original source SHA-256 guard remains unchanged. The exact
+  prior correction digest is migrated to the new guarded correction; repeated
+  correction is byte-idempotent, and unknown original/corrected inputs reject.
+- Cleanup previously returned when its leader exited, or waited only for the
+  leader after TERM; a descendant ignoring TERM therefore survived. Launcher
+  spawn sites now explicitly own new sessions. Non-reaping `waitid(WNOWAIT)`
+  polling keeps the leader PID reserved until group TERM/KILL completes, avoiding
+  a reused-PGID guess. Group escalation occurs after leader exit or a bounded
+  five-second grace, then the leader is reaped. Ordinary `Popen` arguments receive
+  PID-only cleanup, never inferred group ownership. Actual forked-process tests
+  cover live/exited/TERM-resistant leaders with TERM-resistant descendants,
+  repeated stop, preserved supervision exit status, and an unowned session whose
+  descendant must survive. The test adopts and reaps its descendants and uses
+  independent failure cleanup rather than relying on the function under test.
+
+Reproduce the mounted-source suite from the repository root:
+
+```bash
+mounts=()
+for component in launch relay seed; do
+  mounts+=(--mount "type=bind,src=$PWD/coder/omnigent/$component.py,dst=/opt/cade/omnigent-$component.py,readonly")
+done
+mounts+=(--mount "type=bind,src=$PWD/tests/coder-omnigent-launch.py,dst=/tmp/test_launch.py,readonly")
+mounts+=(--mount "type=bind,src=$PWD/tests/coder-omnigent-readiness.py,dst=/tmp/test_readiness.py,readonly")
+mounts+=(--mount "type=bind,src=$PWD/coder/templates/docker-workspace/main.tf,dst=/tmp/docker.tf,readonly")
+mounts+=(--mount "type=bind,src=$PWD/coder/templates/agent-workspace/main.tf,dst=/tmp/agent.tf,readonly")
+docker run --rm --network none "${mounts[@]}" \
+  --entrypoint /opt/omnigent-venv/bin/python3 --workdir /tmp \
+  cade/reconcile-152-workspace:validation -m unittest -v test_launch test_readiness
+```
+
+Ruff 0.14.6 `check` and `format --check` over the changed launcher/test and
+`git diff --check` also pass. This does not resolve or supersede the incomplete
+cold-native-chat, approval/restart or deployment acceptance evidence above.

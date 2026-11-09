@@ -17,6 +17,25 @@ from pathlib import Path
 CLI = "/usr/local/bin/opencode"
 
 
+class OwnedProcess(subprocess.Popen[bytes]):
+    """Keep the session leader waitable; only stop() may reap this child."""
+
+    def __init__(
+        self, command: list[str], *, env: dict[str, str] | None = None
+    ) -> None:
+        super().__init__(command, env=env, start_new_session=True)
+
+    def poll(self) -> int | None:
+        if self.returncode is not None:
+            return self.returncode
+        status = os.waitid(os.P_PID, self.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if status is None:
+            return None
+        return (
+            status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
+        )
+
+
 def loopback_port(url: str) -> int:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port:
@@ -51,11 +70,12 @@ def fail_closed() -> None:
     evaluate = source[start:end]
     fallback = '{ result: "ALLOW" }'
     expected = "61a32da9c3702997c7555ee9aab0c371d6e0f771e46d859ed787324aa69fc9b8"
-    patched = "4432ea74ceb9b6c0ba1f1e108ca2b3361b894e1be86b78af0335b55e404609ba"
+    previous = "4432ea74ceb9b6c0ba1f1e108ca2b3361b894e1be86b78af0335b55e404609ba"
+    patched = "c9b65acf26528f151b7dbe05bc40fe86c199281f433fa29f4fdbeda1513faef8"
     digest = hashlib.sha256(evaluate.encode()).hexdigest()
     if digest == patched:
         return
-    if digest != expected:
+    if digest not in (expected, previous):
         raise RuntimeError(
             "pinned Omnigent policy plugin changed; refusing unsafe launch"
         )
@@ -67,13 +87,17 @@ def fail_closed() -> None:
     )
     evaluate = evaluate.replace(
         'body && typeof body === "object"',
-        'body && ["POLICY_ACTION_ALLOW", "POLICY_ACTION_DENY", "POLICY_ACTION_ASK"].includes(body.result)',
+        'body && ["POLICY_ACTION_ALLOW", "POLICY_ACTION_DENY"].includes(body.result)',
+    )
+    evaluate = evaluate.replace(
+        '["POLICY_ACTION_ALLOW", "POLICY_ACTION_DENY", "POLICY_ACTION_ASK"]',
+        '["POLICY_ACTION_ALLOW", "POLICY_ACTION_DENY"]',
     )
     plugin.write_text(source[:start] + evaluate + source[end:])
 
 
 def socat(first: str, second: str) -> subprocess.Popen[bytes]:
-    return subprocess.Popen(["socat", first, second], start_new_session=True)
+    return OwnedProcess(["socat", first, second])
 
 
 def check_bridges(processes: list[subprocess.Popen[bytes]]) -> None:
@@ -102,11 +126,11 @@ def wait_listener(
 def supervise(
     process: subprocess.Popen[bytes], bridges: list[subprocess.Popen[bytes]]
 ) -> int:
-    while process.poll() is None:
+    while (result := process.poll()) is None:
         check_bridges(bridges)
         time.sleep(0.1)
     check_bridges(bridges)
-    return process.returncode
+    return result
 
 
 def expected_mcp() -> set[str]:
@@ -125,20 +149,24 @@ def expected_mcp() -> set[str]:
 
 
 def stop(process: subprocess.Popen[bytes]) -> None:
+    if isinstance(process, OwnedProcess) and process.returncode is None:
+        # WNOWAIT keeps even an exited leader's PID reserved: no PGID-reuse race.
+        process.poll()
+        os.killpg(process.pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        # Leader exit does not imply its descendants accepted TERM.
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+        return
     if process.poll() is not None:
         return
-    group = os.getpgid(process.pid) == process.pid
-    if group:
-        os.killpg(process.pid, signal.SIGTERM)
-    if not group:
-        process.terminate()
+    process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        if group:
-            os.killpg(process.pid, signal.SIGKILL)
-        if not group:
-            process.kill()
+        process.kill()
         process.wait(timeout=5)
 
 
@@ -254,13 +282,12 @@ def run(args: list[str], *, inside: bool) -> int:
                     path.unlink(missing_ok=True)
                     sockets.append(path)
                     processes.append(
-                        subprocess.Popen(
+                        OwnedProcess(
                             [
                                 "/usr/bin/python3",
                                 "/opt/cade/omnigent-relay.py",
                                 str(relay),
                             ],
-                            start_new_session=True,
                         )
                     )
                     wait_listener(processes, str(path))
@@ -269,7 +296,7 @@ def run(args: list[str], *, inside: bool) -> int:
                 **os.environ,
                 "CADE_OMNIGENT_PARENT_NETNS": os.readlink("/proc/self/ns/net"),
             }
-            process = subprocess.Popen(command, env=environment, start_new_session=True)
+            process = OwnedProcess(command, env=environment)
             processes.append(process)
             return supervise(process, processes[:-1])
         if relay is not None:
@@ -288,7 +315,7 @@ def run(args: list[str], *, inside: bool) -> int:
                 )
             )
             wait_listener(processes, ("127.0.0.1", port))
-        process = subprocess.Popen([CLI, *args], start_new_session=True)
+        process = OwnedProcess([CLI, *args])
         processes.append(process)
         if serve and port is not None:
             path = Path(f"/tmp/opencode-bridge-{port}.sock")
