@@ -201,6 +201,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-11-09: Pitfall: shared CMake caches retain container-specific source paths, and host generators may be absent. Prevention: check generator availability and validate in a fresh out-of-tree directory without replacing existing build artifacts.
 - 2026-11-08: Pitfall: Compose project overrides bypass a pinned `name:` and select different volumes. Prevention: compare running project labels and DB mounts with rendered configuration before upgrades or backups.
 - 2026-11-08: Pitfall: concurrent browser input actions can type into the wrong field. Prevention: serialize interactions sharing one page; parallelize only independent browser contexts.
 - 2026-11-08: Pitfall: PostgreSQL's socket-only initialization server can pass readiness before restarting. Prevention: probe the final TCP listener before restoring data into a fresh container.
