@@ -76,6 +76,22 @@ class Endpoint(BaseHTTPRequestHandler):
         return
 
 
+def cleanup_process_fixture(
+    process: subprocess.Popen[bytes], child: int | None, marker: Path, reaped: bool
+) -> None:
+    # Independent cleanup must work even when stop() is the failure.
+    if process.returncode is None:
+        process.kill()
+    process.wait(timeout=5)
+    if marker.exists() and child is None:
+        child = int(marker.read_text())
+    if child is not None and not reaped:
+        status = os.waitpid(child, os.WNOHANG)
+        if status[0] == 0:
+            os.kill(child, signal.SIGKILL)
+            os.waitpid(child, 0)
+
+
 class NativeLaunch(unittest.TestCase):
     def setUp(self) -> None:
         self.environment = dict(os.environ)
@@ -502,17 +518,7 @@ console.log(JSON.stringify({blocked, output:result.result.content}));
                         # A repeated stop must not signal a reused ID.
                         launch.stop(process)
                     finally:
-                        # Independent cleanup must work even when stop() is the failure.
-                        if process.returncode is None:
-                            process.kill()
-                        process.wait(timeout=5)
-                        if marker.exists() and child is None:
-                            child = int(marker.read_text())
-                        if child is not None and not reaped:
-                            status = os.waitpid(child, os.WNOHANG)
-                            if status[0] == 0:
-                                os.kill(child, signal.SIGKILL)
-                                os.waitpid(child, 0)
+                        cleanup_process_fixture(process, child, marker, reaped)
         finally:
             self.assertEqual(libc.prctl(36, previous.value, 0, 0, 0), 0)
 
