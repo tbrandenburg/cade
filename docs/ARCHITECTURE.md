@@ -240,6 +240,15 @@ through the bridge to completion, with Issue #23's sandbox properties
 (`denyRead`/`denyWrite`) confirmed not regressed. Full design rationale
 and evidence: Issue #45 and `docs/milestone-reports/issue-45-bridge.md`.
 
+**Issue #146 corrective integration (acceptance incomplete):** OpenCode 2's
+native TUI reaches the SRT-confined server through its Unix socket; a separate
+Unix relay exposes only Omnigent policy evaluation and three context tools,
+not outside-runner shell/file/dispatch capabilities. Local docs dependencies
+are provisioned in trusted workspace startup rather than during sandboxed
+agent turns. Cold native-chat and restart acceptance remain incomplete on the
+current source; [#153](https://github.com/tbrandenburg/cade/issues/153) tracks the
+remaining failures. See the same report for historical versus current evidence.
+
 **Issue #50 (2026-08-31):** `temporal-worker` can now call the Coder API directly to resolve-or-create/reap `tw-`-prefixed Coder workspaces on demand (`demo/coder_client.py`, `demo/workspace_activity.py`). A `tw-`-prefixed workspace's own dashboard also gained a "Temporal Workflows" tile (§10 follow-up, verified live 2026-08-31) linking back to Temporal UI — purely a UI convenience, not a new C4 relationship.
 
 **Issue #54 (Phase 3 follow-up):** the deferred formal C4 `Rel` arrow above (`Rel(temporal, coder, ...)`) is now drawn in the Container diagram, and the create/start/stop/delete calls it represents are gated by a new `workspace.authz` OPA policy (`governance/opa/policy/workspace_authz.rego`) — see `docs/security.md`'s "Issue #54" section for the full rule set.

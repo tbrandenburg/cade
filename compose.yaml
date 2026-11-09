@@ -774,9 +774,10 @@ services:
       start_period: 10s
 
   # omnigent-server: Issue #43 Step 1. Shared, singleton Omnigent server
-  # (github.com/omnigent-ai/omnigent, pinned v0.11.0 — matches the
-  # OPENCODE_VERSION=1.18.25 pin in coder/Dockerfile, within Omnigent's
-  # supported OpenCode range [1.17.7, 1.19.0)). Image + env var names
+  # (github.com/omnigent-ai/omnigent, pinned v0.21.0 — matches the
+  # OMNIGENT_VERSION=0.21.0 host package in coder/Dockerfile; its OpenCode
+  # 2 harness supports 2.0.18 through 2.0.x; workspace CLI is pinned 2.0.32).
+  # Image + env var names
   # verified against the real upstream reference stack
   # (github.com/tbrandenburg/omnigent-sandbox deploy/docker/docker-compose.yaml
   # + .env.example, and the published Dockerfile's own HEALTHCHECK) rather
@@ -784,7 +785,7 @@ services:
   # because workspace containers on platform-workspaces must reach it by
   # its compose service name, same reasoning as `openbao` above.
   omnigent-server:
-    image: ghcr.io/omnigent-ai/omnigent-server:v0.11.0
+    image: ghcr.io/omnigent-ai/omnigent-server:v0.21.0
     container_name: omnigent-server
     restart: unless-stopped
     environment:

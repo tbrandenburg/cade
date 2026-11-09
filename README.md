@@ -918,6 +918,18 @@ full technical breakdown and reasoning.
 - **Azure is NOT LIVE TESTED.** The Azure template and doctor provide offline
   preparation only. A passing schema/Terraform validation does not establish
   provisioner identity, connectivity, quota, cost approval or disk durability.
+
+- **Omnigent/OpenCode 2 modernization (#146) is not acceptance-ready.**
+  Matching Omnigent 0.21.0/OpenCode 2.0.32 pins and scoped SRT bridges are
+  implemented. The metadata-probe timeout is reproduced and corrected. Historical
+  agent-image native tools, relay-loss safety and Coder restart evidence does not
+  establish acceptance of the current source. The final cold repeat failed on
+  both templates: Docker reached model usage limits before native tool evidence;
+  agent-workspace hit a docs-MCP startup timeout. Diagnosis and cold native-chat
+  acceptance remain outstanding in [#153](https://github.com/tbrandenburg/cade/issues/153).
+  Requested host-registration failures are exposed in Coder's startup status.
+  See [the runtime evidence](/docs/milestone-reports/issue-45-bridge.md).
+
 - **`gh-aw`'s agentic CI-failure investigation cannot yet execute its
   reasoning step.** Its AWF sandbox requires a real Docker Unix socket,
   which is incompatible with this platform's socket-proxy-mediated
