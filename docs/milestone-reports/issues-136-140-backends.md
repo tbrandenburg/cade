@@ -34,6 +34,9 @@ changed and secret values were not printed. Azure authentication was not used.
 a runtime blocker: an actual new Docker workspace started with
 `AppArmorProfile=cade-bwrap-workspace`. No security profile was weakened or loaded
 by this work. The inspection-warning distinction is tracked separately in #133.
+The final `make doctor` repeat still reported **13 passed, 2 failed**: 42 GB free
+(<100 GB) and the reused Coder listener on 7080. These host checks remain failures;
+they are not represented as a passing doctor or a reason to interrupt services.
 
 Baseline commands:
 
