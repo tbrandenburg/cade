@@ -926,8 +926,8 @@ full technical breakdown and reasoning.
   have demonstrated native docs calls and sandbox safety checks, but first
   startup or the first turn after a restart can still time out. Dependencies
   are precompiled during trusted workspace startup to reduce import work; this
-  does not guarantee a first-attempt success. The remaining reliability issue
-  is tracked in [#153](https://github.com/tbrandenburg/cade/issues/153).
+  does not guarantee a first-attempt success. See
+  [#153](https://github.com/tbrandenburg/cade/issues/153) for the investigation.
 
 - **`gh-aw`'s agentic CI-failure investigation cannot yet execute its
   reasoning step.** Its AWF sandbox requires a real Docker Unix socket,
