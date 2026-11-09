@@ -17,6 +17,8 @@ ifeq ($(strip $(REPO_SLUG)),)
 REPO_SLUG := tbrandenburg/cade
 endif
 TEMPLATE_REPO_URL := https://github.com/$(REPO_SLUG).git
+PYTHON ?= python3
+export PYTHON
 
 .PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule workspaces-restart
 
@@ -264,33 +266,25 @@ agent-workspace-build: coder-workspace-build
 			-t cade/agent-workspace:latest --load coder/agent-workspace; \
 	fi
 
-## templates-push: Push every Coder workspace template (docker-workspace, embedded-linux,
-## devcontainer, agent-workspace) to the running Coder server in one shot. Depends on all
-## four *-workspace-build targets, so it also builds/refreshes cade/coder-workspace,
-## cade/embedded-linux-workspace, cade/devcontainer-bootstrap, and cade/agent-workspace
-## first (cache-hit, near-instant unless code changed) — and inherits their dirty-tree
-## refusal check.
-## Requires: the `coder` CLI on PATH and an authenticated session
-## (`coder login`/`coder whoami`), and the Coder server itself already up (`make up`)
-## and healthy (`make status`).
-templates-push: embedded-workspace-build devcontainer-workspace-build agent-workspace-build
-	@coder templates push docker-workspace -d coder/templates/docker-workspace \
-		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
-	@coder templates push embedded-linux -d coder/templates/embedded-linux \
-		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
-	@coder templates push devcontainer -d coder/templates/devcontainer \
-		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
-	@coder templates push agent-workspace -d coder/templates/agent-workspace \
-		--variable "repo_url=$(TEMPLATE_REPO_URL)" --yes
+## templates-push: Publish enabled catalog implementations (legacy: four Docker templates).
+## Reuses selected Docker image builds and their dirty-tree guard; Azure never builds Docker.
+## Install scripts/requirements-template-publishing.txt in a venv; set PYTHON=/venv/bin/python.
+templates-push:
+	@"$(PYTHON)" scripts/templates_push.py --repo-url "$(TEMPLATE_REPO_URL)"
+
+## backend-templates-push: Publish one enabled connection: BACKEND=docker-local (or azure-remote-dev-env).
+.PHONY: backend-templates-push
+backend-templates-push:
+	@test -n "$(BACKEND)" || { echo "FAIL: BACKEND is required" >&2; exit 1; }
+	@"$(PYTHON)" scripts/templates_push.py --backend "$(BACKEND)" --repo-url "$(TEMPLATE_REPO_URL)"
 
 ## templates-verify-vars: Detect Coder server-side template-variable drift (Issue #73).
 ## Coder persists each template variable's *value* server-side across
 ## `templates push`, independent of the .tf file's `default` -- so a changed
 ## `.tf` default (e.g. the devenv-cloud -> cade rebrand) silently never takes
 ## effect on an already-pushed template unless a push explicitly passes
-## `--variable`. Fetches each of the 4 templates' live variable values via
-## the Coder API and compares them to their `variables.tf` defaults, except
-## devcontainer repo_url, which must match the URL published by templates-push.
+## `--variable`. Fetches selected catalog templates' live variables via the Coder API,
+## comparing HCL defaults and known publish-time overrides (including Azure required values).
 ## Requires: CODER_SESSION_TOKEN (or an existing `coder login` session) and
 ## the Coder server up/healthy (`make status`).
 templates-verify-vars:
