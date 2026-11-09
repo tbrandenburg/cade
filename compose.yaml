@@ -4,6 +4,8 @@ name: devenv-cloud # pinned explicitly: the eventual devenv-cloud -> cade rebran
 # Compose derives the project name (and every named-volume prefix, e.g.
 # devenv-cloud_coder_db_data) from the directory name unless pinned here.
 
+x-coder-image: &coder-image ghcr.io/coder/coder:v2.38.6
+
 services:
   coder-db:
     image: postgres:17.11-alpine
@@ -29,7 +31,7 @@ services:
       start_period: 10s
 
   coder:
-    image: ghcr.io/coder/coder:${CODER_VERSION:-v2.36.3}
+    image: *coder-image
     container_name: coder
     restart: unless-stopped
     # Issue #71: conditionally export CODER_EXTERNAL_AUTH_0_* only when
@@ -41,6 +43,28 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        case "$$CADE_CODER_IMAGE" in
+          ghcr.io/coder/coder:v*) supported=$${CADE_CODER_IMAGE#ghcr.io/coder/coder:} ;;
+          *) echo "ERROR: invalid supported Coder image; see README upgrading Coder." >&2; exit 1 ;;
+        esac
+        if [ -n "$$CADE_CODER_VERSION" ] && [ "$$CADE_CODER_VERSION" != "$$supported" ]; then
+          echo "ERROR: unsupported CODER_VERSION; see README upgrading Coder." >&2
+          exit 1
+        fi
+        version=$$(/opt/coder version) || exit 1
+        version=$${version#Coder }
+        version=$${version%%[[:space:]]*}
+        version=$${version%%+*}
+        if [ "$$version" != "$$supported" ]; then
+          echo "ERROR: unsupported Coder binary; see README upgrading Coder." >&2
+          exit 1
+        fi
+        case ",$$(printf '%s' "$$CODER_EXPERIMENTS" | tr -d '[:space:]')," in
+          *,oauth2,*)
+            echo "ERROR: remove the retired oauth2 experiment from CODER_EXPERIMENTS. See README upgrading Coder." >&2
+            exit 1
+            ;;
+        esac
         if [ -n "$$GITHUB_OAUTH_CLIENT_ID" ]; then
           export CODER_EXTERNAL_AUTH_0_ID=github
           export CODER_EXTERNAL_AUTH_0_TYPE=github
@@ -82,7 +106,10 @@ services:
       GITHUB_OAUTH_CLIENT_SECRET: "${GITHUB_OAUTH_CLIENT_SECRET:-}"
       # Coder MCP Server (remote HTTP mode) + OAuth2 discovery.
       # Required for /api/experimental/mcp/http to serve MCP clients.
-      CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-oauth2,mcp-server-http}"
+      CODER_OAUTH2_PROVIDER_ENABLE: "true"
+      CADE_CODER_IMAGE: *coder-image
+      CADE_CODER_VERSION: "${CODER_VERSION:-}"
+      CODER_EXPERIMENTS: "${CODER_EXPERIMENTS:-mcp-server-http}"
       # Issue #47: Coder's default CSP (`img-src 'self' https: data: blob:`)
       # blocks the `coder_app.omnigent` dashboard tile's icon, which points
       # at the plain-http omnigent_public_url (this platform has no TLS
@@ -649,7 +676,7 @@ services:
   # "Loki (logs) and/or Tempo (traces)" guidance) because the Manual E2E
   # Test's cross-service timestamp correlation needs per-request log
   # lines, not just aggregate metrics. Not published to the host -
-  # reachable only from `promtail` (writes) and `grafana` (queries).
+  # reachable only from `alloy` (writes) and `grafana` (queries).
   loki:
     image: grafana/loki:3.5.9
     container_name: loki
@@ -661,23 +688,17 @@ services:
     networks:
       - platform-control
 
-  # promtail: Milestone M13. Ships every compose-managed container's
-  # stdout/stderr to Loki (GitHub runner during a job, Temporal
-  # worker/server, MCP lab-sim, Coder/Agent Host) so a single execution can
-  # be found and timestamp-correlated across services in Grafana. Read-only
-  # access to the host's Docker socket for container discovery only - no
-  # exec/build/network privileges (same "minimum privilege" posture as
-  # `runner-docker-proxy` above, just via a different mechanism since
-  # promtail talks to the socket directly rather than through a proxy).
-  promtail:
-    image: grafana/promtail:3.5.9
-    container_name: promtail
+  # Alloy discovers Docker containers and ships their stdout/stderr to Loki.
+  # A read-only socket bind does not restrict Docker API operations: socket
+  # access still grants control of the host daemon, as it did for Promtail.
+  alloy:
+    image: grafana/alloy:v1.21.3
+    container_name: alloy
     restart: unless-stopped
-    command: ["-config.file=/etc/promtail/config.yaml"]
     volumes:
-      - ./observability/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - alloy_data:/var/lib/alloy/data
     networks:
       - platform-control
     depends_on:
@@ -833,6 +854,7 @@ volumes:
   openbao_data:
   prometheus_data:
   loki_data:
+  alloy_data:
   grafana_data:
   omnigent_db_data:
   omnigent_artifact_data:

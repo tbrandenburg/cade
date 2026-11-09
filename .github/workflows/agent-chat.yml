@@ -146,7 +146,7 @@ jobs:
           echo "workspace_id=${workspace_id}" >> "$GITHUB_OUTPUT"
 
       - name: Create Coder Agents chat
-        uses: coder/agents-chat-action@v0
+        uses: coder/agents-chat-action@9b3ac42d568e9206f9cd51a97789820d6935cc8d # v0.5.1
         with:
           coder-url: ${{ secrets.CODER_URL }}
           coder-token: ${{ secrets.CODER_SESSION_TOKEN }}

@@ -62,7 +62,9 @@ engineering work:
   explicit approval) with real Rego policy, not hardcoded checks.
 - **Observability** — every execution path (runner, Temporal worker, MCP
   services, containers) emits metrics/logs collected centrally and
-  visualized in Grafana, correlated across services by timestamp.
+  visualized in Grafana, correlated across services by timestamp. Alloy ships
+  Docker logs to Loki; see [`docs/operations.md`](docs/operations.md) for
+  Promtail cutover and verification.
 - **Backup/restore & release discipline** — every category of
   non-regenerable state (repo, Coder DB, Temporal DB, OpenBao, workspace
   home volumes) is backed up and proven restorable end-to-end.
@@ -167,11 +169,24 @@ make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
 # 9. Push the Terraform template(s) and create a workspace
-make templates-push                 # pushes all three templates in one shot
+make templates-push                 # pushes the workspace templates
+make templates-verify-vars          # checks published values for drift
 # (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
 coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 ```
+
+`make templates-push` publishes the `devcontainer` template with
+`repo_url=https://github.com/<REPO_SLUG>.git`; `make templates-verify-vars`
+expects that exact URL and checks other template variables against their
+Terraform defaults. `REPO_SLUG` comes from the environment, `.env`, or the
+Make command line. Without a Coder session token the verifier reports `SKIP`
+and exits successfully, so check its output. The standalone
+`scripts/verify-template-vars.sh` instead checks the blank Terraform default.
+To switch an existing devcontainer
+template back to blank workspaces, explicitly publish it with
+`coder templates push devcontainer -d coder/templates/devcontainer --yes --variable 'repo_url='`;
+Coder retains prior template values when not explicitly overridden.
 
 Once a workspace is running, `scripts/configure-coder-ssh.sh` wires up local
 SSH config for `ssh coder.<workspace-name>`. Microsoft's standalone Agent
@@ -181,6 +196,169 @@ user-local provisioning and manual startup. Issue #132 verified real local and
 SSH-forwarded authenticated AHP discovery after human AppArmor profile loading.
 The final corrected-launcher coordinator E2E repeat passed; HUMAN fresh-workspace
 acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unvalidated here.
+
+### Upgrading Coder to 2.38
+
+The supported Coder image is pinned once in `compose.yaml` and reused as the
+runtime guard value without a host bind; use a matching Coder CLI. `make up`
+checks the effective Compose image, settings, actual image binary and database volume
+before recreating services, then waits for Coder health. If `coder-db` is absent,
+preflight refuses a database-volume override that differs from the selected
+project's baseline. The entrypoint also checks its own binary and refuses stale
+version or `oauth2` experiment settings.
+Preflight rejects mismatched image or guard values and requires the OAuth2
+provider and `mcp-server-http` experiment to remain enabled. `make up` forces
+orphan removal off, even if `COMPOSE_REMOVE_ORPHANS` is set in the shell.
+Before starting the new revision, remove the old
+`CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
+`CODER_EXPERIMENTS=oauth2,mcp-server-http` with `mcp-server-http`. Preserve
+any other experiments you intentionally use. Compose now enables the OAuth2
+provider separately; the retired `oauth2` experiment no longer enables it.
+Check the effective image with `docker compose config --images` before starting.
+Direct `docker compose up` bypasses the `make up` preflight and can stop the old
+container before its replacement rejects invalid settings. Neither check takes
+a backup; follow the quiescence procedure below before starting the new revision.
+
+An existing deployment may use a Compose project other than the repository's
+default. Before using `make up` or the backup procedure, compare the effective
+project with the running containers' labels:
+
+```bash
+docker inspect --format '{{.Name}} {{index .Config.Labels "com.docker.compose.project"}}' coder coder-db
+docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])'
+```
+
+If the verified existing project differs, explicitly select it in this shell,
+for example `export COMPOSE_PROJECT_NAME=your-existing-project`, then repeat
+the checks. Do not select or create a different database volume for the upgrade.
+Keep the reviewed deployment checkout available for subsequent lifecycle
+commands. Running an older Compose file against the same project can restore
+Promtail or remove the OAuth configuration even when its image tag is current.
+
+Before upgrading an existing deployment, record its workspace names and
+templates (`coder list`). Schedule downtime, stop user and automation writes
+(including Temporal workspace operations and direct database writers), wait for
+in-flight operations to finish, and use the checked procedure below to stop
+Coder. Keep those writers quiescent until the upgrade and verification are
+complete. This procedure requires Coder and its database to be running before
+the stop; if either is already stopped, investigate rather than starting it just
+to satisfy the check. Immediately before migration, dump the Coder database;
+this creates a private directory and checks the archive's table of contents
+while the database stays running. The single fail-fast block pulls the image and
+runs preflight before attempting the stop, then verifies the backup before
+rechecking preflight and recreating Coder. Do not continue if it fails.
+
+If the stop or backup fails, no restart or recreation is attempted. Coder's state
+may still be changing: wait for any in-flight stop to finish, then re-check the
+original Coder and database container IDs, selected project and database volume,
+and the database migration schema before any manual restart. Investigate any
+change or uncertainty instead of restarting. If preflight, recreation, or the
+health wait fails after backup verification, migration may have started: preserve
+the printed archive and check the schema and container/database identity before
+any recovery. Uncatchable signals or host failure can prevent the warning; check
+Coder's state before retrying.
+
+```bash
+(
+  set -euo pipefail
+  umask 077
+  docker compose pull coder
+  make coder-preflight
+  metadata="$(docker compose config --format json | python3 -c '
+import json, sys
+c = json.load(sys.stdin)
+services = c["services"]
+if any(services[n].get("container_name") != n for n in ("coder", "coder-db")):
+    sys.exit("Unexpected Coder container names")
+mounts = [m for m in services["coder-db"]["volumes"] if m["target"] == "/var/lib/postgresql/data"]
+if len(mounts) != 1 or mounts[0]["type"] != "volume":
+    sys.exit("Expected exactly one named Coder database volume")
+print(c["name"])
+print(c["volumes"][mounts[0]["source"]]["name"])
+')"
+  mapfile -t selected <<< "$metadata"
+  if [ "${#selected[@]}" -ne 2 ] || [ -z "${selected[0]}" ] || [ -z "${selected[1]}" ]; then
+    echo 'ERROR: could not resolve the Compose project and database volume' >&2
+    exit 1
+  fi
+  project="${selected[0]}"
+  volume="${selected[1]}"
+  coder_id="$(docker inspect --format '{{.Id}}' coder)"
+  db_id="$(docker inspect --format '{{.Id}}' coder-db)"
+  for item in "$coder_id:coder" "$db_id:coder-db"; do
+    id="${item%%:*}"
+    service="${item#*:}"
+    labels="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
+    if [ "$labels" != "$project:$service" ]; then
+      echo "ERROR: $service does not belong to selected project $project" >&2
+      exit 1
+    fi
+  done
+  mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}' "$db_id")"
+  if [ "$mount" != "volume:$volume" ]; then
+    echo 'ERROR: Coder database volume differs from the selected Compose configuration' >&2
+    exit 1
+  fi
+  compose_id="$(docker compose ps --all -q coder)"
+  if [ -z "$compose_id" ] || [ "$(docker inspect --format '{{.Id}}' "$compose_id")" != "$coder_id" ]; then
+    echo 'ERROR: Compose does not select the intended Coder container' >&2
+    exit 1
+  fi
+  if [ "$(docker inspect --format '{{.State.Running}}' "$coder_id")" != true ] ||
+     [ "$(docker inspect --format '{{.State.Running}}' "$db_id")" != true ]; then
+    echo 'ERROR: Coder and its database must be running before this procedure' >&2
+    exit 1
+  fi
+  printf 'Original Coder ID: %s; database ID: %s; project: %s; database volume: %s\n' "$coder_id" "$db_id" "$project" "$volume"
+  backup_verified=false
+  trap 'if [ "$backup_verified" = true ]; then
+    printf "ERROR: Upgrade failed after backup verification. Verified backup: %s/coder.dump. Coder state may still be changing; wait for any in-flight operation and check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before recovery. No automatic rollback or restart of old Coder was attempted.\n" "$backup_dir" "$coder_id" "$db_id" "$project" "$volume" >&2
+  else
+    printf "ERROR: Coder state may still be changing. Wait for any in-flight stop; re-check original Coder ID %s, database ID %s, project %s, database volume %s and migration schema before any manual restart. No restart or recreation was attempted.\n" "$coder_id" "$db_id" "$project" "$volume" >&2
+  fi' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  docker compose stop coder
+  if [ "$(docker inspect --format '{{.State.Running}}' "$coder_id")" != false ] ||
+     [ "$(docker inspect --format '{{.Id}}' coder)" != "$coder_id" ] ||
+     [ "$(docker inspect --format '{{.Id}}' coder-db)" != "$db_id" ] ||
+     [ "$(docker inspect --format '{{.State.Running}}' "$db_id")" != true ]; then
+    echo 'ERROR: Coder was not stopped or the selected containers changed' >&2
+    exit 1
+  fi
+  backup_dir="$(mktemp -d "${HOME}/coder-pre-upgrade.XXXXXX")"
+  docker exec "$db_id" sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' >"${backup_dir}/coder.dump"
+  docker exec -i "$db_id" pg_restore --list <"${backup_dir}/coder.dump" >/dev/null
+  backup_verified=true
+  printf 'Coder database archive verified: %s/coder.dump\n' "$backup_dir"
+  make coder-preflight
+  COMPOSE_REMOVE_ORPHANS=0 docker compose up -d --no-deps coder
+  bash scripts/wait-for-coder.sh
+  trap - EXIT INT TERM HUP
+)
+```
+
+Keep the archive safe; do not delete the database or workspace volumes. The
+dump is the rollback recovery point: restoring it loses Coder database changes
+made after the dump, including any writes allowed after the upgrade. Workspace
+home volumes are not covered by this dump. A
+schema migration may prevent an old server from starting against the upgraded
+database: a rollback requires restoring the pre-upgrade dump, not just changing
+the image tag.
+
+Check
+`docker inspect coder`, `coder version`, and Coder migration logs, then publish
+and verify templates and test workspace SSH and stop/start persistence. Test
+the configured AI/MCP client and Temporal Coder workflow; record missing
+credentials or unavailable clients as untested.
+
+For remote MCP clients, dynamic OAuth client registration is disabled by
+default in 2.38. Register an application explicitly or, if self-registration is
+needed and acceptable for the deployment, enable it as an owner with
+`coder oauth2-provider dcr enable` and disable it again after registration.
+Existing registered applications remain usable. See the
+[Coder OAuth2 provider documentation](https://coder.com/docs/admin/integrations/oauth2-provider/).
 
 ### Resetting a Coder user's password
 

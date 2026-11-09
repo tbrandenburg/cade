@@ -10,12 +10,12 @@ Secret handling: resolve_secret() is the only place a secret value is ever
 read. redact() is applied to any string before it is printed/logged so a raw
 API key can never reach stdout/stderr, even inside an HTTP error body.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.error
@@ -26,6 +26,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CODER_URL = os.environ.get("CODER_URL", "http://localhost:7080")
 SECRET_NAME_RE = re.compile(r"(API_KEY|TOKEN|SECRET)$", re.IGNORECASE)
+MODELS_PATH = "/api/v2/organizations/default/chats/models"
 
 
 def resolve_secret(name: str) -> str:
@@ -155,7 +156,9 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
 
     status, existing = http_request("GET", "/api/v2/ai/providers", token)
     if status != 200 or not isinstance(existing, list):
-        log(f"WARNING: could not list existing AI providers (status {status}) — skipping '{name}'")
+        log(
+            f"WARNING: could not list existing AI providers (status {status}) — skipping '{name}'"
+        )
         results.append({"kind": "provider", "name": name, "action": "skipped"})
         return None
 
@@ -188,7 +191,9 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
         }
         fields_differ = any(current.get(k) != v for k, v in non_secret_fields.items())
         current_keys = current.get("api_keys") or []
-        key_matches = bool(current_keys) and current_keys[0].get("masked") == expected_masked(secret)
+        key_matches = bool(current_keys) and current_keys[0].get(
+            "masked"
+        ) == expected_masked(secret)
 
         if not fields_differ and key_matches:
             log(f"Provider '{name}': unchanged")
@@ -218,7 +223,6 @@ def reconcile_provider(provider: dict, token: str, results: list[dict]) -> str |
         "display_name": provider["display_name"],
         "type": provider["type"],
         "base_url": provider["base_url"],
-
         "enabled": provider.get("enabled", True),
         "api_keys": [secret],
     }
@@ -237,21 +241,27 @@ def reconcile_model(
 ) -> None:
     label = f"{model['provider']}/{model['model']}"
     if provider_id is None:
-        log(f"WARNING: no provider id for '{model['provider']}' — skipping model '{label}'")
+        log(
+            f"WARNING: no provider id for '{model['provider']}' — skipping model '{label}'"
+        )
         results.append({"kind": "model", "name": label, "action": "skipped"})
         return
 
-    status, existing = http_request(
-        "GET", "/api/experimental/chats/model-configs", token
-    )
+    status, response = http_request("GET", MODELS_PATH, token)
+    existing = response.get("models") if isinstance(response, dict) else None
     if status != 200 or not isinstance(existing, list):
-        log(f"WARNING: could not list model-configs (status {status}) — skipping '{label}'")
+        log(
+            f"WARNING: could not list model-configs (status {status}) — skipping '{label}'"
+        )
         results.append({"kind": "model", "name": label, "action": "skipped"})
         return
 
     match = None
     for item in existing:
-        if item.get("ai_provider_id") == provider_id and item.get("model") == model["model"]:
+        if (
+            item.get("ai_provider_id") == provider_id
+            and item.get("model") == model["model"]
+        ):
             match = item
             break
 
@@ -270,9 +280,7 @@ def reconcile_model(
             results.append({"kind": "model", "name": label, "action": "unchanged"})
             return
         config_id = match.get("id")
-        status, _ = http_request(
-            "PATCH", f"/api/experimental/chats/model-configs/{config_id}", token, body
-        )
+        status, _ = http_request("PATCH", f"{MODELS_PATH}/{config_id}", token, body)
         if status not in (200, 204):
             log(f"WARNING: PATCH model-config '{label}' failed (status {status})")
             results.append({"kind": "model", "name": label, "action": "skipped"})
@@ -281,9 +289,7 @@ def reconcile_model(
         results.append({"kind": "model", "name": label, "action": "updated"})
         return
 
-    status, _ = http_request(
-        "POST", "/api/experimental/chats/model-configs", token, body
-    )
+    status, _ = http_request("POST", MODELS_PATH, token, body)
     if status not in (200, 201):
         log(f"WARNING: POST model-config '{label}' failed (status {status})")
         results.append({"kind": "model", "name": label, "action": "skipped"})
@@ -292,30 +298,43 @@ def reconcile_model(
     results.append({"kind": "model", "name": label, "action": "created"})
 
 
-def handle_default_model(models: list[dict], token: str, results: list[dict]) -> None:
-    """Set the deployment default model, verified live 2026-08-30: the
-    model-config object returned by GET /api/experimental/chats/model-configs
-    has an `is_default` boolean field, and PATCHing a target config's id with
-    `{"is_default": true}` both sets it and atomically clears the flag on
-    whichever config previously held it (server-enforced "exactly one
-    default", confirmed by re-GETting afterward) — no separate "unset old
-    default" call is needed.
-    """
+def handle_default_model(
+    models: list[dict],
+    provider_ids: dict[str, str | None],
+    token: str,
+    results: list[dict],
+) -> None:
+    """Set the default model in Coder's default organization."""
     defaults = [m for m in models if m.get("default")]
     if not defaults:
         return
     default_model = defaults[0]
     label = f"{default_model['provider']}/{default_model['model']}"
 
-    status, configs = http_request(
-        "GET", "/api/experimental/chats/model-configs", token
-    )
-    if status != 200 or not isinstance(configs, list):
-        log(f"WARNING: could not list model-configs (status {status}) — skipping default '{label}'")
+    provider_id = provider_ids.get(default_model["provider"])
+    if provider_id is None:
+        log(f"WARNING: no provider id for default '{label}' — skipping")
         results.append({"kind": "default", "name": label, "action": "skipped"})
         return
 
-    match = next((c for c in configs if c.get("model") == default_model["model"]), None)
+    status, response = http_request("GET", MODELS_PATH, token)
+    configs = response.get("models") if isinstance(response, dict) else None
+    if status != 200 or not isinstance(configs, list):
+        log(
+            f"WARNING: could not list model-configs (status {status}) — skipping default '{label}'"
+        )
+        results.append({"kind": "default", "name": label, "action": "skipped"})
+        return
+
+    match = next(
+        (
+            c
+            for c in configs
+            if c.get("model") == default_model["model"]
+            and c.get("ai_provider_id") == provider_id
+        ),
+        None,
+    )
     if match is None:
         log(f"WARNING: model-config for '{label}' not found — skipping default")
         results.append({"kind": "default", "name": label, "action": "skipped"})
@@ -328,7 +347,7 @@ def handle_default_model(models: list[dict], token: str, results: list[dict]) ->
 
     status, _ = http_request(
         "PATCH",
-        f"/api/experimental/chats/model-configs/{match['id']}",
+        f"{MODELS_PATH}/{match['id']}",
         token,
         {"is_default": True},
     )
@@ -386,7 +405,7 @@ def main(argv: list[str]) -> int:
     for model in models:
         reconcile_model(model, provider_ids.get(model["provider"]), token, results)
 
-    handle_default_model(models, token, results)
+    handle_default_model(models, provider_ids, token, results)
     print_summary(results)
     return 0
 

@@ -44,7 +44,7 @@ make runner-build CACERT=/path/to/ca-bundle.pem
 ## Observability stack (Milestone M13)
 
 `docker compose up -d` starts `otel-collector`, `prometheus`, `loki`,
-`promtail`, `cadvisor`, and `grafana` alongside the rest of the platform.
+`alloy`, `cadvisor`, and `grafana` alongside the rest of the platform.
 Grafana is the only observability service published to the host
 (`127.0.0.1:${GRAFANA_PORT:-3001}`, default `http://localhost:3001`,
 default credentials `admin` / `${GRAFANA_ADMIN_PASSWORD:-admin}` — change
@@ -76,11 +76,67 @@ Observability (Minimum Dashboard)"). Panels, top to bottom:
 3. Switch to the **Loki** datasource (Explore, or a Loki panel) and query
    `{container=~"lab-sim|temporal-worker|temporal|runner-health"}`
    restricted to the same time window — every compose container's stdout/
-   stderr is shipped there by `promtail` (Docker service discovery against
-   `/var/run/docker.sock`, read-only). Correlate the specific request/
-   workflow by matching timestamps and identifiers (workflow_id,
-   reservation_id, caller_id) that appear in the log lines across the
-   different `container` label values.
+   stderr is shipped there by `alloy` (Docker service discovery against
+   `/var/run/docker.sock`). The read-only bind does not restrict Docker API
+   privileges; access to the socket still grants host daemon control.
+   Correlate the specific request/workflow by matching timestamps and
+   identifiers (workflow_id, reservation_id, caller_id) that appear in the
+   log lines across the different `container` label values.
+
+### Migrating from Promtail
+
+Before deploying Alloy on an existing installation, stop and remove the old
+collector. This also works after checking out this revision, whose Compose file
+no longer defines Promtail. The old service used the explicit container name
+`promtail`; verify its Compose labels before acting on its immutable ID:
+If the existing deployment uses a nondefault project, explicitly select it
+with `COMPOSE_PROJECT_NAME` as described in the
+[Coder upgrade procedure](/README.md#upgrading-coder-to-238) before continuing.
+
+```bash
+(
+  set -euo pipefail
+  project="$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+  id="$(docker inspect --format '{{.Id}}' promtail)"
+  labels="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}:{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
+  if [ -z "$project" ] || [ "$labels" != "$project:promtail" ]; then
+    printf 'Refusing to remove container with unexpected Compose labels: %s\n' "$labels" >&2
+    exit 1
+  fi
+  docker stop "$id"
+  docker rm "$id"
+)
+```
+
+Before using `make up` to deploy this revision, complete the mandatory
+[Coder upgrade and database backup procedure](/README.md#upgrading-coder-to-238)
+if upgrading an existing deployment. Then deploy with `make up`. Compose does
+not remove orphaned services by default, so omitting the removal could leave both collectors
+running. Alloy's `alloy_data` volume stores Docker read positions across
+restarts. Alloy does not import Promtail's Docker positions: its first start,
+or loss of that volume, can replay Docker-retained log history and duplicate
+entries. Check the relevant Loki streams during the cutover. Removing the old
+collector avoids concurrent ingestion but does not itself prevent replay.
+Alloy's Docker cursor has whole-second precision, so entries in the last
+recorded second may also be re-sent after a restart; check the resulting Loki
+streams rather than assuming exactly-once delivery.
+
+For acceptance, before stopping Promtail emit distinct nonsecret stdout and
+stderr markers in a disposable discovered container and record their Loki
+timestamps and counts, using the same streams and time windows after cutover. Compare
+the retained pre-cutover entries and counts after Alloy starts to detect replay;
+allow ingestion to settle before each comparison. In Grafana Explore use
+`{container="<name>", stream="stdout"} |= "<marker>"` and the corresponding
+`stderr` selector. Also emit distinct markers after cutover, record their
+timestamps and counts, restart Alloy, then query those **same pre-restart**
+markers over the same time window and compare counts. Emit new post-restart
+markers to check continued ingestion, and verify Promtail is absent. Report
+missing or increased counts rather than assuming either is impossible: a test
+fixture observed duplication at a whole-second cursor boundary. Loki query
+results, retention, timestamp boundaries and deduplication can obscure what was
+sent; these comparisons are diagnostic, not proof of exactly-once delivery.
+For `docker exec` markers, write to `/proc/1/fd/1` or `/proc/1/fd/2` so Docker
+captures them in the container log.
 
 Prometheus targets (`otel-collector`, `temporal-server`, `temporal-worker`,
 `lab-sim`, `cadvisor`) can be checked directly with `docker exec prometheus
@@ -189,5 +245,3 @@ the sidecar restores it locally instead. **No DNS/wildcard hostname setup
 of any kind is required** — `CODER_WILDCARD_ACCESS_URL` and its
 auto-derivation machinery have been removed entirely (no template in this
 repo uses `subdomain = true` anymore).
-
-

@@ -6,6 +6,14 @@ what was verified against a live, unlicensed Coder server, not a feature
 pitch — read `docs/security.md` and `AGENTS.md` for related boundary and
 governance context.
 
+> The live observations below were made on Coder 2.36, not 2.38. In 2.38,
+> use `/api/v2/chats` and `/api/v2/organizations/default/chats/models`
+> instead of the historical experimental chat and model-config routes shown
+> in the evidence. Models are organization-scoped; the collection response
+> contains a `models` list. See the upgrade and OAuth guidance in the
+> [README](/README.md#upgrading-coder-to-238). Re-run the live AI/MCP checks
+> after upgrading; historical results are not 2.38 acceptance evidence.
+
 ## Entitlement matrix (verified against the live deployment)
 
 | Capability | Status | Evidence |

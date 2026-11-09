@@ -42,6 +42,12 @@ _(Concrete, binding rules discovered during implementation — not restated theo
 
 ## Agent Instructions
 
+### Development environment autonomy
+
+- **Development, not production** — CADE is still under development. Its Coder instances and workspaces are non-production resources; agents may stop, restart, remove, and recreate them without additional permission when needed to unblock development or validation.
+- **Act on prerequisites** — provision missing environments and recreate or rotate development secrets as needed; update their consumers and verify the result. Take the necessary scoped action instead of treating a missing service, expired token, or disposable environment as a reason to stop. Never expose secret values.
+- **Conserve host resources** — reuse one Coder instance and keep concurrent workspaces to the minimum needed. Prefer sequential validation; clean up idle, legacy, and test instances/workspaces and start them again when needed. Preserve unrelated work and keep destructive cleanup scoped to identified development resources.
+
 ### How to use the Makefile
 
 All platform lifecycle operations are exposed as `make` targets at the repo
@@ -157,6 +163,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Coder / Terraform / Docker
 
+- 2026-11-08: Pitfall: Coder can return a deleted user by ID with status `active`. Prevention: verify deletion through the username lookup, `users.deleted`, and rejected authentication.
 - A `server create-admin-user`-bootstrapped admin can never delete or suspend itself via `coder users delete/suspend` — mint throwaway test admins sparingly and clean them up from a *different* already-authenticated session, or accept they accumulate.
 - `coder templates push` never resets an already-pushed variable to its `.tf` default — only an explicit `--variable` overrides the live value; re-run a drift-check script after any `.tf` default change.
 - Pass every `coder_parameter` explicitly on `coder create --yes`, even ones with defaults — otherwise it hangs with an opaque `prepare build: EOF`.
@@ -194,6 +201,11 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-11-08: Pitfall: Compose project overrides bypass a pinned `name:` and select different volumes. Prevention: compare running project labels and DB mounts with rendered configuration before upgrades or backups.
+- 2026-11-08: Pitfall: concurrent browser input actions can type into the wrong field. Prevention: serialize interactions sharing one page; parallelize only independent browser contexts.
+- 2026-11-08: Pitfall: PostgreSQL's socket-only initialization server can pass readiness before restarting. Prevention: probe the final TCP listener before restoring data into a fresh container.
+- 2026-11-08: Pitfall: `xdotool type` consumes subsequent tokens as text. Prevention: send typing and key commands separately, then verify the saved bytes.
+- 2026-11-08: Pitfall: a bind-only port probe can fail on `TIME_WAIT` after the listener exits. Prevention: check listeners and test bind/listen with `SO_REUSEADDR` without killing other processes.
 - 2026-10-15: Pitfall: readiness waited for a request-lazy backend before sending a request. Prevention: separate supervisor/listener readiness from authenticated protocol readiness; attest backend process binding after the first real request.
 - 2026-10-15: Pitfall: runc's procfs ENOENT concealed an unavailable AppArmor label. Prevention: correlate startup errors with kernel audit events and default/custom-label controls before attributing a failure to runtime upgrades or changing confinement.
 - 2026-10-15: Pitfall: an absent development service was treated as an external blocker. Prevention: verify safe scoped startup first; isolate historical volumes and credentials, and distinguish full-platform recommendations from local development prerequisites.

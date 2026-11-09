@@ -26,9 +26,10 @@ sensitive, see `docs/security.md` M14 section):
    volume (agent sessions, git worktrees, in-progress work).
 
 Everything else running in `docker compose` (`registry`, `prometheus`,
-`grafana`, `loki`, `opa`, `lab-sim`, `otel-collector`, `promtail`,
+`grafana`, `loki`, `opa`, `lab-sim`, `otel-collector`, `alloy`,
 `cadvisor`, `runner-docker-proxy`, `runner-health`) is REPRODUCIBLE —
-rebuilt from the versioned config in this repo, not backed up.
+rebuilt from the versioned config in this repo, not backed up. Alloy's
+positions volume is not backed up; losing it can replay retained Docker logs.
 
 ## OpenBao deviation from the plan's literal wording
 
