@@ -98,7 +98,7 @@ class TemplatesPushTest(TemplateFixture):
             "\n".join(f'variable "{key}" {{ type = string }}' for key in AZURE)
         )
 
-    def test_legacy_and_explicit_keep_build_and_push_order(self):
+    def test_legacy_and_explicit_build_and_publish_selected_templates(self):
         for explicit in (False, True):
             with self.subTest(explicit=explicit):
                 if explicit:
@@ -108,7 +108,7 @@ class TemplatesPushTest(TemplateFixture):
                     "make", "templates-push", "REPO_SLUG=fixture/project"
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(
+                self.assertCountEqual(
                     self.calls("coder"),
                     [
                         [
@@ -124,7 +124,7 @@ class TemplatesPushTest(TemplateFixture):
                         for name in DEFAULTS
                     ],
                 )
-                self.assertEqual(
+                self.assertCountEqual(
                     [call[call.index("-t") + 1] for call in self.calls("docker")],
                     [
                         "cade/coder-workspace:latest",
@@ -154,6 +154,15 @@ class TemplatesPushTest(TemplateFixture):
                         ],
                     ],
                 )
+                records = self.records()
+                docker = [
+                    index for index, call in enumerate(records) if call[0] == "docker"
+                ]
+                coder = [
+                    index for index, call in enumerate(records) if call[0] == "coder"
+                ]
+                self.assertLess(max(docker), min(coder))
+                self.assertIn("cade/coder-workspace:latest", records[docker[0]])
 
     def test_disabled_azure_and_both_enabled(self):
         self.azure_catalog()
@@ -165,10 +174,26 @@ class TemplatesPushTest(TemplateFixture):
         self.connections(azure=True)
         result = self.run_command("make", "templates-push")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
+        self.assertCountEqual(
             [call[2] for call in self.calls("coder")],
             [*DEFAULTS, "generic-linux-azure"],
         )
+        azure = next(
+            call for call in self.calls("coder") if call[2] == "generic-linux-azure"
+        )
+        self.assertEqual(
+            azure[5:-1],
+            [
+                arg
+                for key, value in AZURE.items()
+                for arg in ("--variable", f"{key}={value}")
+            ],
+        )
+        for command in self.calls("coder"):
+            if command[2] in DEFAULTS:
+                self.assertIn(
+                    "repo_url=https://github.com/tbrandenburg/cade.git", command
+                )
         self.assertEqual(len(self.calls("docker")), 4)
 
     def test_explicit_docker_target_and_repo_slug_precedence(self):
@@ -275,6 +300,8 @@ class TemplatesPushTest(TemplateFixture):
                 self.assertIn(message, result.stdout + result.stderr)
                 self.assertNotIn("synthetic-secret", result.stdout + result.stderr)
                 self.assertLessEqual(len(self.calls("coder")), 2)
+                if changes.get("CODER_SESSION_TOKEN") in ("", "invalid"):
+                    self.assertEqual(self.records(), [])
 
     def test_disabled_and_unsupported_target(self):
         self.azure_catalog(supported=False)
