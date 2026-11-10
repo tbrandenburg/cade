@@ -17,6 +17,7 @@ delivery status.
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
   - [Optional full platform stack](#optional-full-platform-stack)
+  - [Agent-capable workspace autostop](#agent-capable-workspace-autostop)
   - [Optional Omnigent chat](#optional-omnigent-chat)
   - [Resetting a Coder user's password](#resetting-a-coder-users-password)
 - [Optional workspace backends](#optional-workspace-backends)
@@ -178,7 +179,11 @@ make coder-workspace-build
 coder templates push docker-workspace --directory coder/templates/docker-workspace \
   --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
-  --parameter 'repo_url=' --use-parameter-defaults
+  --parameter 'repo_url=' --parameter 'github_token=' \
+  --parameter agent_capable=false --parameter temporal_owned=false \
+  --parameter enable_jupyter=false --parameter enable_nodered=false \
+  --parameter enable_omnigent=false --parameter omnigent_admin_username=admin \
+  --parameter 'omnigent_admin_password='
 ```
 
 `make coder-up` runs the Coder preflight and waits for health; it does not
@@ -235,20 +240,51 @@ make governance-bootstrap  # one-time init/unseal and credential rotation
 Governance bootstrap prompts privately for a cade-operator password; save it
 separately from unseal shares. On initialized instances it only re-unseals.
 
+### Agent-capable workspace autostop
+
+Setting `agent_capable=true` does not itself disable Coder's autostop. If you
+choose to disable it for an agent workspace, first confirm creation succeeded
+and identify the intended workspace. From an authenticated host session,
+`scripts/verify-agent-capable-autostop.sh <owner>/<name>` checks its parameter
+and TTL and **changes its schedule to manual** if needed; it is not read-only.
+Do not run it against an existing workspace unintentionally.
+
 ### Optional Omnigent chat
 
 To use Omnigent without starting the full stack, configure the first-admin
-settings in `.env`, then start its server and database and verify the account:
+settings in `.env`. For the default port, set `OMNIGENT_PORT=8000` and
+`OMNIGENT_ACCOUNTS_BASE_URL=http://localhost:8000`, then start its server and
+database and verify the account:
 
 ```bash
 COMPOSE_REMOVE_ORPHANS=0 docker compose up -d omnigent-server
 make omnigent-bootstrap
 ```
 
+Compose publishes Omnigent only on the server's `127.0.0.1:8000`; a remote
+browser cannot reach it by using the server's IP. From the browser's machine,
+keep this SSH tunnel open (replace `user@server` with your SSH destination):
+
+```bash
+ssh -N -L 127.0.0.1:8000:127.0.0.1:8000 user@server
+```
+
+Open `http://localhost:8000` on that machine. Set the published template's
+`omnigent_public_url` to the same URL (its default, but retained template
+values may differ); `omnigent_server_url` remains the internal workspace URL
+`http://omnigent-server:8000`. If port 8000 is occupied, choose a local tunnel
+port and match both `OMNIGENT_ACCOUNTS_BASE_URL` and `omnigent_public_url` to
+that browser URL before starting the server and publishing the template; the
+tunnel's destination port must match `OMNIGENT_PORT`. Coder's default icon CSP
+allows `localhost:${OMNIGENT_PORT}`, so a different browser port also needs a
+matching CSP allowance for the tile icon.
+An externally hosted Omnigent server needs its own secure, browser- and
+workspace-reachable configuration; a public URL alone does not expose this
+loopback-bound Compose service.
+
 Alternatively create the first admin through the browser setup form. For a
 `docker-workspace`, enable `enable_omnigent` and provide the shared admin
-credentials as workspace parameters; configure a browser-reachable
-`omnigent_public_url` if needed. See the [template instructions](/coder/templates/docker-workspace/README.md)
+credentials as workspace parameters. See the [template instructions](/coder/templates/docker-workspace/README.md)
 for the tile, host registration, and changing the parameter later. The
 `agent-workspace` template has its own always-on Omnigent integration.
 
@@ -497,11 +533,16 @@ coder templates push docker-workspace -d coder/templates/docker-workspace \
   --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
   --parameter 'repo_url=https://github.com/tbrandenburg/cade.git' \
-  --parameter agent_capable=true --use-parameter-defaults
-scripts/verify-agent-capable-autostop.sh <owner>/<name>
+  --parameter 'github_token=' --parameter agent_capable=true \
+  --parameter temporal_owned=false --parameter enable_jupyter=false \
+  --parameter enable_nodered=false --parameter enable_omnigent=false \
+  --parameter omnigent_admin_username=admin --parameter 'omnigent_admin_password='
 scripts/configure-coder-ssh.sh
 ssh coder.<name>   # or open http://<server-ip>:7080 in a browser (code-server)
 ```
+
+See [agent-capable workspace autostop](#agent-capable-workspace-autostop)
+before relying on unattended execution.
 
 Inside the workspace:
 
@@ -663,10 +704,17 @@ make coder-workspace-build
 coder templates push docker-workspace -d coder/templates/docker-workspace \
   --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
-  --parameter agent_capable=true --use-parameter-defaults
-scripts/verify-agent-capable-autostop.sh <owner>/<name>
+  --parameter 'repo_url=' --parameter 'github_token=' \
+  --parameter agent_capable=true --parameter temporal_owned=false \
+  --parameter enable_jupyter=false --parameter enable_nodered=false \
+  --parameter enable_omnigent=false --parameter omnigent_admin_username=admin \
+  --parameter 'omnigent_admin_password='
 scripts/configure-coder-ssh.sh
 ```
+
+This example creates a blank project; set `repo_url` as in Journey 1 to clone
+a repository. See [agent-capable workspace autostop](#agent-capable-workspace-autostop)
+before relying on unattended execution.
 
 **Intended Desktop scenario — unverified; operator acceptance required:**
 open the Agents window → select `coder.<name>` → start
