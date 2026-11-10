@@ -16,6 +16,8 @@ delivery status.
 - [Why it exists](#why-it-exists)
 - [Repository layout](#repository-layout)
 - [Quickstart](#quickstart)
+  - [Optional full platform stack](#optional-full-platform-stack)
+  - [Optional Omnigent chat](#optional-omnigent-chat)
   - [Resetting a Coder user's password](#resetting-a-coder-users-password)
 - [Optional workspace backends](#optional-workspace-backends)
 - [User journeys](#user-journeys)
@@ -158,31 +160,10 @@ make doctor
 cp .env.example .env
 $EDITOR .env   # set DOCKER_GID: getent group docker | cut -d: -f3
 
-# 3. Start the platform control plane (Postgres + Coder)
-#    (this also auto-generates governance/openbao/certs/openbao.crt via
-#    scripts/openbao-gen-cert.sh if it doesn't already exist — required for
-#    openbao's TLS listener, otherwise it crash-loops forever once step 4 runs)
-make up
+# 3. Start Coder and its Postgres database; wait for Coder health
+make coder-up
 
-# 4. One-time: generate registry credentials (cache/registry/auth/htpasswd).
-#    Required before step 5 — without it, the registry service crash-loops
-#    forever, since credentials can't be invented automatically.
-make registry-bootstrap USER=<user> PASSWORD=<password>
-
-# 5. Bring up the remaining services (runner support, Temporal, MCP,
-#    governance, observability)
-docker compose up -d
-make status   # wait until every service is (healthy)/Up
-
-# 6. One-time: initialize/unseal OpenBao and rotate credentials
-#    (the TLS cert prerequisite is already handled by step 3's `make up` —
-#    this step only does init/unseal/credential-rotation, no longer a
-#    dependency for the cert existing)
-#    Prompts privately for a new cade-operator password; save it separately
-#    from unseal shares. Existing initialized instances only re-unseal.
-make governance-bootstrap
-
-# 7. First login: open http://localhost:7080 in a browser and complete
+# 4. First login: open http://localhost:7080 in a browser and complete
 #    Coder's first-run admin setup — or from the CLI:
 coder login http://localhost:7080
 #    (If the browser doesn't show a "create first admin" form, an admin
@@ -190,12 +171,12 @@ coder login http://localhost:7080
 #    "Resetting a Coder user's password" below to regain access instead
 #    of wiping the deployment.)
 
-# 8. Build the workspace image(s) workspaces will run
+# 5. Build the workspace image(s) workspaces will run
 make coder-workspace-build          # docker-workspace template
 make embedded-workspace-build       # embedded-linux template (optional)
 make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
 
-# 9. Push the Terraform template(s) and create a workspace
+# 6. Push the Terraform template(s) and create a workspace
 python3 -m venv .venv-backends
 .venv-backends/bin/python -m pip install -r scripts/requirements-template-publishing.txt
 source .venv-backends/bin/activate
@@ -205,6 +186,15 @@ make templates-verify-vars          # checks published values for drift
 coder create <owner>/<name> --template docker-workspace --yes \
   --parameter github_token=<token or empty> --parameter agent_capable=true
 ```
+
+`make coder-up` runs the Coder preflight and waits for health; it does not
+build Temporal/lab-sim images or bootstrap the full stack. It forces orphan
+removal off and leaves unrelated running services in place. Like `make up`,
+it can recreate Coder and its database when their configuration changes.
+See [Upgrading Coder to 2.38](#upgrading-coder-to-238) before upgrading an
+existing deployment. Coder and its database have fixed container names: a
+different Compose project name alone cannot isolate another deployment on the
+same Docker daemon.
 
 `make templates-push` publishes the `devcontainer` template with
 `repo_url=https://github.com/<REPO_SLUG>.git`; `make templates-verify-vars`
@@ -230,17 +220,50 @@ SSH-forwarded authenticated AHP discovery after human AppArmor profile loading.
 The final corrected-launcher coordinator E2E repeat passed; HUMAN fresh-workspace
 acceptance remains pending. The legacy `verify-ahp-session.sh` is unchanged/unvalidated here.
 
+### Optional full platform stack
+
+For Temporal, governance, observability, and the other platform services, use
+the existing full-stack path instead. Configure registry credentials before
+starting the stack to avoid a restarting registry:
+
+```bash
+make registry-bootstrap USER=<user> PASSWORD=<password>
+make up       # builds Temporal worker and lab-sim; generates OpenBao TLS cert
+make status   # wait until services are (healthy)/Up
+make governance-bootstrap  # one-time init/unseal and credential rotation
+```
+
+Governance bootstrap prompts privately for a cade-operator password; save it
+separately from unseal shares. On initialized instances it only re-unseals.
+
+### Optional Omnigent chat
+
+To use Omnigent without starting the full stack, configure the first-admin
+settings in `.env`, then start its server and database and verify the account:
+
+```bash
+COMPOSE_REMOVE_ORPHANS=0 docker compose up -d omnigent-server
+make omnigent-bootstrap
+```
+
+Alternatively create the first admin through the browser setup form. For a
+`docker-workspace`, enable `enable_omnigent` and provide the shared admin
+credentials as workspace parameters; configure a browser-reachable
+`omnigent_public_url` if needed. See the [template instructions](/coder/templates/docker-workspace/README.md)
+for the tile, host registration, and changing the parameter later. The
+`agent-workspace` template has its own always-on Omnigent integration.
+
 ### Upgrading Coder to 2.38
 
 The supported Coder image is pinned once in `compose.yaml` and reused as the
-runtime guard value without a host bind; use a matching Coder CLI. `make up`
-checks the effective Compose image, settings, actual image binary and database volume
-before recreating services, then waits for Coder health. If `coder-db` is absent,
+runtime guard value without a host bind; use a matching Coder CLI. `make up` and
+`make coder-up` check the effective Compose image, settings, actual image binary
+and database volume before recreating services, then wait for Coder health. If `coder-db` is absent,
 preflight refuses a database-volume override that differs from the selected
 project's baseline. The entrypoint also checks its own binary and refuses stale
 version or `oauth2` experiment settings.
 Preflight rejects mismatched image or guard values and requires the OAuth2
-provider and `mcp-server-http` experiment to remain enabled. `make up` forces
+provider and `mcp-server-http` experiment to remain enabled. Both targets force
 orphan removal off, even if `COMPOSE_REMOVE_ORPHANS` is set in the shell.
 Before starting the new revision, remove the old
 `CODER_VERSION=v2.36.4` line (or set it to `v2.38.6`) and replace
@@ -248,12 +271,12 @@ Before starting the new revision, remove the old
 any other experiments you intentionally use. Compose now enables the OAuth2
 provider separately; the retired `oauth2` experiment no longer enables it.
 Check the effective image with `docker compose config --images` before starting.
-Direct `docker compose up` bypasses the `make up` preflight and can stop the old
+Direct `docker compose up` bypasses the Make targets' preflight and can stop the old
 container before its replacement rejects invalid settings. Neither check takes
 a backup; follow the quiescence procedure below before starting the new revision.
 
 An existing deployment may use a Compose project other than the repository's
-default. Before using `make up` or the backup procedure, compare the effective
+default. Before using either startup target or the backup procedure, compare the effective
 project with the running containers' labels:
 
 ```bash
@@ -397,7 +420,7 @@ Existing registered applications remain usable. See the
 
 Coder's admin account has no seeded/default credentials — it's created
 either via the first-run browser wizard or `coder login`'s
-`--first-user-*` flags (see Quickstart step 7), and the password only ever
+`--first-user-*` flags (see Quickstart step 4), and the password only ever
 exists wherever you first set it. If it's lost, or a fresh clone shows a
 
 normal login form instead of the "create first admin" wizard (meaning an
@@ -469,7 +492,7 @@ Node, GitHub CLI, and AI agent CLIs (`opencode`, `pi`) pre-installed, with
 this repo already cloned.
 
 ```bash
-make up && make status
+make coder-up
 make coder-workspace-build
 coder templates push docker-workspace -d coder/templates/docker-workspace --yes
 coder create <owner>/<name> --template docker-workspace --yes \
@@ -724,7 +747,8 @@ full "fix it and open a PR" loop — that end-to-end path is not yet proven.
 | Target                              | Milestone | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make doctor`                       | M0        | Verify host OS/arch/tooling/disk/ports meet baseline requirements.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `make up`                           | M1        | Start the platform control plane (Postgres + Coder) in the background. Also builds the `temporal-worker`/`lab-sim` images first (cache-hit, near-instant unless code changed) since compose.yaml has no `build:` stanza for them, then prints the main web UI URLs (Coder, Temporal, Grafana).                                                                                                                                                                                                                                |
+| `make coder-up`                     | —         | Run Coder preflight, start Coder and its database, and wait for Coder health without starting the full stack. |
+| `make up`                           | M1        | Run preflight, build `temporal-worker` and `lab-sim`, and start the full platform stack; then wait for Coder health and run the existing best-effort bootstrap steps. |
 | `make down`                         | —         | Stop and remove the platform stack's containers (named volumes persist).                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `make status`                       | —         | Show status/health of every stack container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `make logs`                         | —         | Follow logs of the platform stack's containers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

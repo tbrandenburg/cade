@@ -20,7 +20,7 @@ TEMPLATE_REPO_URL := https://github.com/$(REPO_SLUG).git
 PYTHON ?= python3
 export PYTHON
 
-.PHONY: doctor up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule workspaces-restart
+.PHONY: doctor up coder-up down status logs registry-bootstrap coder-workspace-build embedded-workspace-build devcontainer-workspace-build agent-workspace-build templates-push templates-verify-vars runner-build runner-run temporal-worker-build lab-sim-build temporal-demo-start governance-bootstrap governance-verify opa-policy-check backup restore-test ai-bootstrap ai-token verify-ai omnigent-bootstrap coder-svc-token temporal-workspace-demo-start temporal-reaper-schedule workspaces-restart
 
 ## doctor: Verify the host meets the baseline requirements (Milestone M0).
 ## Also checks (read-only, Issue #23) whether the scoped `cade-bwrap-workspace`
@@ -54,6 +54,11 @@ up: coder-preflight
 	@bash scripts/openbao-reunseal.sh || true
 	@bash scripts/ai-bootstrap.sh --best-effort || true
 	@bash scripts/restart-disconnected-workspaces.sh --check || true
+
+## coder-up: Start Coder and its database without the full platform stack.
+coder-up: coder-preflight
+	@COMPOSE_REMOVE_ORPHANS=0 $(COMPOSE) up -d coder
+	@bash scripts/wait-for-coder.sh
 
 .PHONY: coder-preflight
 coder-preflight:
