@@ -169,7 +169,6 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - Make a guarded generated-plugin correction idempotent for its exact corrected source; test repeated launch as well as unexpected-source rejection.
 - Derive required MCP presence from the generated config, not the returned catalog. Hash-check mounted-source regression inputs against the built launcher/relay before trusting image tests.
 - Distinguish a bounded CLI metadata probe from agent startup. A correct manual version under a longer budget does not prove the daemon's real readiness probe succeeds.
-
 - Never trust a direct-container/synthetic reproduction (`docker exec ... curl`, a bare `bwrap` smoke test, an isolated unit repro) as proof a fix works — always re-verify through the real caller (the actual dashboard proxy, the real CLI invocation, the real multi-hop flow) before closing an issue.
 - An "official upstream approach should just work" claim is a hypothesis, not evidence — verify against this specific deployment/version through the real proxy/API before trusting it.
 - A `200` response with an empty/wrong body is not success — always check response length/content, not just status code, especially through a real reverse proxy.
@@ -224,6 +223,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-11-10: Pitfall: a small test VM caused host swap and memory pressure during guest setup. Prevention: monitor host memory PSI and swap, and stop owned guests before impacting existing services.
 - 2026-11-09: Pitfall: a timed-out account creation completed server-side. Prevention: inspect the actual resource before retrying a timed-out mutation.
 - 2026-11-09: Pitfall: leader exit left descendants alive. Prevention: keep owned group leaders unreaped until descendant cleanup finishes; establish ownership at spawn rather than guessing a later PGID.
 - 2026-11-09: Pitfall: shared CMake caches retain container-specific source paths, and host generators may be absent. Prevention: check generator availability and validate in a fresh out-of-tree directory without replacing existing build artifacts.
