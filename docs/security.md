@@ -248,8 +248,10 @@ external credential), not something this step can create.
   generates a self-signed cert/key pair into `governance/openbao/certs/`
   (gitignored, regenerated per host, never committed) if one doesn't
   already exist. Plain HTTP is not offered.
-- `-tls-skip-verify` is limited to the OpenBao health check and local
-  bootstrap/backup/restore scripts because the listener uses that
+- Bootstrap, rotation, re-unseal, and copied-storage recovery use the mounted
+  CA certificate with verified TLS; self-signing does not justify bypassing
+  verification. Legacy `-tls-skip-verify` remains in the health check and
+  older backup/restore scripts because the listener uses that
   host-generated self-signed certificate. It is not a public-endpoint
   workaround; clients accessing any externally trusted endpoint must
   validate its certificate normally. Do not reuse this pattern for Coder,
@@ -257,15 +259,32 @@ external credential), not something this step can create.
 - **Bootstrap procedure** (`scripts/openbao-init.sh`, idempotent):
   1. `bao operator init` (5 key shares, threshold 3) if not already
      initialized; unseal with 3 of the 5 shares.
-  2. Enable the `kv-v2` secrets engine at `secret/`.
-  3. Write a freshly generated (never previously used) random value for
+  2. Enable `kv-v2` at `secret/`, userpass, and the existing AppRole mount.
+     Provision fixed user `cade-operator` with only read/create/update on
+     `secret/data/devenv-cloud/*`, no default policy, five-minute
+     non-renewable batch sessions. Verify a fresh login before proceeding.
+  3. On first bootstrap or explicit `--force-rotate`, write a freshly generated random value for
      every Phase 1–3 credential into `secret/devenv-cloud/*` (see rotation
      log below) — the old `.env` values are discarded, not reused.
-  4. Enable the `approle` auth method and a least-privilege
+  4. Keep a separate least-privilege
      `devenv-cloud-read` policy (`secret/data/devenv-cloud/*`, read-only)
      for non-root access going forward.
   5. **Revoke the initial root token.** Verified live: a `bao kv get`
-     issued with the revoked root token returns `403 permission denied`.
+      issued with the revoked root token returns `403 permission denied`.
+     Failed provisioning/login leaves bootstrap root available for explicit
+     `--resume-bootstrap`; ordinary runs only unseal. Missing/wrong operator
+     credentials make forced rotation fail rather than report success.
+     Passwords, shares, JSON payloads, and tokens use private files/stdin,
+     not process arguments, plaintext temporary rotation files, or logs.
+     See [operator lifecycle](/docs/operations.md#openbao-operator-lifecycle).
+- **Recovery boundary:** normal TLS listeners keep legacy unauthenticated
+  root-generation endpoints disabled. A tested one-time recovery may enable
+  them only on stopped disposable copied storage, `--network none`, with no
+  published ports/shared network. The helper temporarily journals recovered
+  root in an owner-only cleanup file until revocation is verified; unresolved
+  cleanup blocks retry/cutover. Restore the normal config and
+  verify unauthenticated root generation is denied before any cutover; see
+  [recovery runbook](/docs/disaster-recovery.md#openbao-locked-out-administration-recovery).
 - **Key file permissions:** `scripts/openbao-gen-cert.sh` originally
   `chmod 644`d both the cert and the private key; the private key has
   since been tightened to `640` (owner read/write, group read only, no

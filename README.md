@@ -178,6 +178,8 @@ make status   # wait until every service is (healthy)/Up
 #    (the TLS cert prerequisite is already handled by step 3's `make up` —
 #    this step only does init/unseal/credential-rotation, no longer a
 #    dependency for the cert existing)
+#    Prompts privately for a new cade-operator password; save it separately
+#    from unseal shares. Existing initialized instances only re-unseal.
 make governance-bootstrap
 
 # 7. First login: open http://localhost:7080 in a browser and complete
@@ -532,7 +534,7 @@ Call a narrow, audited API instead of arbitrary shell access to interact
 with a simulated hardware lab, gated by a real OPA policy.
 
 ```bash
-make governance-bootstrap   # one-time: init/unseal OpenBao, rotate credentials
+make governance-bootstrap   # first time: operator password prompt, init/unseal, stored rotation
 make governance-verify      # opa test 6/6 + live MCP allow/deny round trip
 ```
 
@@ -737,7 +739,7 @@ full "fix it and open a PR" loop — that end-to-end path is not yet proven.
 | `make temporal-worker-build`        | M8        | Build the Temporal worker image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `make lab-sim-build`                | M11       | Build the lab-sim MCP service image. Optional `CACERT=/path/to/ca-bundle.pem` for corporate TLS-intercepting proxies.                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `make temporal-demo-start`          | M8        | Start one durable-workflow execution against the live Temporal cluster.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `make governance-bootstrap`         | M12       | Init/unseal OpenBao, rotate credentials, revoke root token. Re-run whenever the `openbao` container is recreated (does not auto-unseal).                                                                                                                                                                                                                                                                                                                                                                                      |
+| `make governance-bootstrap`         | M12       | First run: private operator password, init/unseal, stored credential rotation, root revocation. Later runs: unseal only. See [operator lifecycle](/docs/operations.md#openbao-operator-lifecycle) for explicit rotation/resume and [locked-out recovery](/docs/disaster-recovery.md#openbao-locked-out-administration-recovery). |
 | `make governance-verify`            | M12       | Run `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `make backup`                       | M14       | Create a timestamped backup set covering every MUST-BACK-UP category.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `make restore-test`                 | M14       | Destroy the MUST-BACK-UP resources and restore them from the latest backup set.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -949,8 +951,10 @@ full technical breakdown and reasoning.
   remains unfixed; no complete agent-isolation claim. See the
   [runbook](/docs/headless-agent-host.md) and [M4 report](/docs/milestone-reports/M4-agent-host.md).
 - **OpenBao does not auto-unseal** across a container restart/recreate —
-  rerun `make governance-bootstrap` whenever the `openbao` container is
-  recreated.
+  `make up` attempts a rotation-free re-unseal from matching private shares;
+  run `make governance-bootstrap` if manual unseal is needed. Neither routine
+  path rotates credentials. The scoped operator handles explicit rotation;
+  see [operator lifecycle](/docs/operations.md#openbao-operator-lifecycle).
 - This is a **local/demo-scale deployment** (single Docker host, no HA, no
   paid cloud infrastructure) — it proves the architecture works, not that
   it is hardened for a multi-tenant production environment.

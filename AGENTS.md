@@ -77,7 +77,7 @@ root (see `Makefile`); run them from the repo root, not from subdirectories:
 | `make temporal-worker-build` | M8 | Builds `cade/temporal-worker:latest`. |
 | `make lab-sim-build` | M11 | Builds `cade/lab-sim:latest` (no Terraform template, so no dirty-tree check). |
 | `make temporal-demo-start` | M8 | Starts one durable-workflow execution against the live Temporal cluster; prints `workflow_id`. |
-| `make governance-bootstrap` | M12 | Init/unseal OpenBao, rotate Phase 1-3 credentials, revoke root token. **Must be re-run any time the `openbao` container is recreated** — it does not auto-unseal across restarts. |
+| `make governance-bootstrap` | M12 | First run: private operator password, init/unseal, stored rotation, root revocation. Later: unseal only. Rotation/resume require explicit flags; see `docs/operations.md`. |
 | `make governance-verify` | M12 | Runs `opa test` plus a live OPA/MCP ALLOW-`run_test` / DENY-`flash_device` round trip (`scripts/verify-governance.sh`). |
 | `make backup` / `make restore-test` | M14 | Creates a timestamped backup set under `backup/artifacts/<timestamp>/` (git bundle, Coder DB, Temporal DB, OpenBao snapshot + unseal keys, workspace home volumes); `restore-test` destroys and restores them (`scripts/restore-test.sh`, `docs/disaster-recovery.md`). |
 | `make ai-bootstrap` / `make ai-token` / `make verify-ai` | Issue #13 | Reconciles `coder/ai/{providers,models}.yaml` into the running Coder deployment; mints an admin token first (`scripts/ai-token.sh`); `verify-ai` proves the integration end to end. |
@@ -199,7 +199,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - Coder parses an external-auth/AI provider from an env var's *presence*, not its value — comment out an unused integration block entirely, never default it to an inert-looking empty string.
 - A masked-secret PATCH endpoint may reject the same body shape its POST accepts — only resend a secret once you've reproduced the provider's own masked format and detected real drift.
 - A freshly-created, never-logged-in Coder user's workspace agent returns `401 dormant`, not the suspend-rejection error — always `coder users activate` first so a later `suspend`-rejection regression test isn't masked by the dormant-user 401.
-- `scripts/openbao-init.sh` (`make governance-bootstrap`) unconditionally rotates Phase 1-3 credentials on every run where the root token is still valid, even if only re-unsealing after a restart — grep for real consumers of the rotated `secret/devenv-cloud/*` paths before assuming a routine re-unseal is side-effect-free.
+- Verify a fresh least-privilege operator login before revoking bootstrap root; keep re-unseal rotation-free. Test locked-out OpenBao recovery only on stopped copied storage, with matching shares and an isolated TLS listener; preserve the original.
 - Coder Agents' Chats API needs `coder_agent.dir` set or MCP tool auto-discovery silently fails (defaults to `$HOME`); `.agents/skills/` discovery works headless, `.mcp.json` discovery may not — don't assume by analogy.
 - A REST API field can be a string enum, not a boolean, with a non-obvious "reset" value — probe the actual accepted values directly rather than guessing from convention; also check `/api/v2/experiments`, not just `/entitlements`, for feature gates.
 - Coder's token `lifetime` field is nanoseconds, not seconds, and is capped server-side (168h) regardless of what's requested — verify the created token's actual `expires_at`, not just a non-error create response.
@@ -209,7 +209,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - `gh repo view --json <field>` field names don't always match the CLI docs' apparent shorthand (e.g. `parent` is `{name, owner:{login}}`, never a flat `nameWithOwner`) — pipe one real response through `jq` to confirm the actual shape before writing an extraction filter.
 
 ### Sandbox / security
-
+- 2026-11-09: Pitfall: a failed recovery-root revoke lost its cleanup handle. Prevention: durably journal before provisioning, verify revocation on retry, and block cutover when root cleanup is unresolved.
 - 2026-11-09: Pitfall: a development credential was placed inside an image build context. Prevention: store secrets outside build contexts, verify exclusion, and rotate if exposure is uncertain.
 - 2026-11-09: Pitfall: urllib forwarded a custom authentication header across an API redirect. Prevention: reject redirects before sending a credentialed follow-up request; test with separate loopback origins and assert the destination receives no request.
 - Docker layers multiple independent confinement mechanisms (seccomp, AppArmor, capabilities, `systempaths`) — when a sandboxing fix "should" work but doesn't, toggle each layer to its most permissive setting individually to isolate which one is still blocking, rather than assuming the last-touched layer is at fault.
