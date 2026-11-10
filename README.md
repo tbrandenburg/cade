@@ -272,12 +272,10 @@ ssh -N -L 127.0.0.1:8000:127.0.0.1:8000 user@server
 Open `http://localhost:8000` on that machine. Set the published template's
 `omnigent_public_url` to the same URL (its default, but retained template
 values may differ); `omnigent_server_url` remains the internal workspace URL
-`http://omnigent-server:8000`. If port 8000 is occupied, choose a local tunnel
-port and match both `OMNIGENT_ACCOUNTS_BASE_URL` and `omnigent_public_url` to
-that browser URL before starting the server and publishing the template; the
-tunnel's destination port must match `OMNIGENT_PORT`. Coder's default icon CSP
-allows `localhost:${OMNIGENT_PORT}`, so a different browser port also needs a
-matching CSP allowance for the tile icon.
+`http://omnigent-server:8000`. If port 8000 is occupied on the browser machine,
+leave the existing service running and use a machine where that port is free.
+Using a different browser port also requires a matching Coder icon CSP override,
+which is outside this quickstart.
 An externally hosted Omnigent server needs its own secure, browser- and
 workspace-reachable configuration; a public URL alone does not expose this
 loopback-bound Compose service.
