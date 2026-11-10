@@ -223,7 +223,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
-- 2026-11-10: Pitfall: a small test VM caused host swap and memory pressure during guest setup. Prevention: monitor host memory PSI and swap, and stop owned guests before impacting existing services.
+- 2026-11-10: Pitfall: a small test VM and image export caused host pressure despite available swap. Prevention: cap VM memory, test direct disk I/O, and monitor host PSI during host-daemon exports.
 - 2026-11-09: Pitfall: a timed-out account creation completed server-side. Prevention: inspect the actual resource before retrying a timed-out mutation.
 - 2026-11-09: Pitfall: leader exit left descendants alive. Prevention: keep owned group leaders unreaped until descendant cleanup finishes; establish ownership at spawn rather than guessing a later PGID.
 - 2026-11-09: Pitfall: shared CMake caches retain container-specific source paths, and host generators may be absent. Prevention: check generator availability and validate in a fresh out-of-tree directory without replacing existing build artifacts.
