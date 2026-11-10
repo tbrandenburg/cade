@@ -171,20 +171,14 @@ coder login http://localhost:7080
 #    "Resetting a Coder user's password" below to regain access instead
 #    of wiping the deployment.)
 
-# 5. Build the workspace image(s) workspaces will run
-make coder-workspace-build          # docker-workspace template
-make embedded-workspace-build       # embedded-linux template (optional)
-make devcontainer-workspace-build   # devcontainer template (optional, Issue #6)
+# 5. Build the local workspace image
+make coder-workspace-build
 
-# 6. Push the Terraform template(s) and create a workspace
-python3 -m venv .venv-backends
-.venv-backends/bin/python -m pip install -r scripts/requirements-template-publishing.txt
-source .venv-backends/bin/activate
-make templates-push                 # pushes the workspace templates
-make templates-verify-vars          # checks published values for drift
-# (or push just one: coder templates push docker-workspace -d coder/templates/docker-workspace --yes)
+# 6. Publish only docker-workspace and create a blank workspace
+coder templates push docker-workspace --directory coder/templates/docker-workspace \
+  --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
-  --parameter github_token=<token or empty> --parameter agent_capable=true
+  --parameter 'repo_url=' --use-parameter-defaults
 ```
 
 `make coder-up` runs the Coder preflight and waits for health; it does not
@@ -196,20 +190,25 @@ existing deployment. Coder and its database have fixed container names: a
 different Compose project name alone cannot isolate another deployment on the
 same Docker daemon.
 
-`make templates-push` publishes the `devcontainer` template with
-`repo_url=https://github.com/<REPO_SLUG>.git`; `make templates-verify-vars`
-expects that exact URL and checks other template variables against their
-Terraform defaults. `REPO_SLUG` comes from the environment, `.env`, or the
-Make command line. Missing or expired Coder authentication is an error, not a
-successful skip. The standalone
-`scripts/verify-template-vars.sh` instead checks the blank Terraform default.
-The verifier uses a non-empty exported `CODER_URL` first, then `.env`'s
-`CODER_URL`, falling back to `http://localhost:7080` if neither provides a
-non-empty value.
-To switch an existing devcontainer
-template back to blank workspaces, explicitly publish it with
-`coder templates push devcontainer -d coder/templates/devcontainer --yes --variable 'repo_url='`;
-Coder retains prior template values when not explicitly overridden.
+The new workspace starts with a blank `/home/coder/project` by default. To
+clone a public repository instead, replace `--parameter 'repo_url='` in the
+create command with, for example,
+`--parameter 'repo_url=https://github.com/tbrandenburg/cade.git'`. This is a
+per-workspace Coder parameter, not a Terraform variable for `templates push`.
+For private repositories, see the [template instructions](/coder/templates/docker-workspace/README.md#private-repo-cloning-issue-105).
+
+Coder retains template variable values across pushes, so the explicit
+`workspace_image` overrides a previously saved image rather than relying on
+the Terraform default. Check the published value in Coder's Template Settings;
+after creation, inspect the actual container image tag on the Docker host:
+`docker inspect --format '{{.Config.Image}}' 'coder-<owner>-<name>'`.
+
+For catalog-selected bulk or backend-specific publishing and variable drift
+verification, see [publishing instructions](/docs/backends.md#publishing-and-variable-verification).
+Those commands need the publishing Python environment. Direct publication does
+not perform the catalog's retirement checks or retire other templates; consult
+the [retirement guidance](/docs/backends.md#retirement-block) before changing
+backend selection.
 
 Once a workspace is running, `scripts/configure-coder-ssh.sh` wires up local
 SSH config for `ssh coder.<workspace-name>`. Microsoft's standalone Agent
@@ -489,14 +488,17 @@ yourself" for the complete, combined walkthrough.
 
 Get a fully provisioned, reproducible Docker workspace with git, Python,
 Node, GitHub CLI, and AI agent CLIs (`opencode`, `pi`) pre-installed, with
-this repo already cloned.
+this repo explicitly selected for cloning.
 
 ```bash
 make coder-up
 make coder-workspace-build
-coder templates push docker-workspace -d coder/templates/docker-workspace --yes
+coder templates push docker-workspace -d coder/templates/docker-workspace \
+  --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
-  --parameter github_token=<token> --parameter agent_capable=true
+  --parameter 'repo_url=https://github.com/tbrandenburg/cade.git' \
+  --parameter agent_capable=true --use-parameter-defaults
+scripts/verify-agent-capable-autostop.sh <owner>/<name>
 scripts/configure-coder-ssh.sh
 ssh coder.<name>   # or open http://<server-ip>:7080 in a browser (code-server)
 ```
@@ -658,9 +660,11 @@ close VS Code, by connecting through VS Code's own Agent Host over AHP
 
 ```bash
 make coder-workspace-build
-coder templates push docker-workspace -d coder/templates/docker-workspace --yes
+coder templates push docker-workspace -d coder/templates/docker-workspace \
+  --variable 'workspace_image=cade/coder-workspace:latest' --yes
 coder create <owner>/<name> --template docker-workspace --yes \
-  --parameter github_token=<token or empty> --parameter agent_capable=true
+  --parameter agent_capable=true --use-parameter-defaults
+scripts/verify-agent-capable-autostop.sh <owner>/<name>
 scripts/configure-coder-ssh.sh
 ```
 
