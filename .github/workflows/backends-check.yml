@@ -12,7 +12,14 @@ on:
       - "scripts/doctor_azure.py"
       - "scripts/requirements-backends.txt"
       - "scripts/requirements-template-publishing.txt"
-      - "tests/**"
+      - "tests/test_azure_template.py"
+      - "tests/test_backend_templates.py"
+      - "tests/test_backends_config.py"
+      - "tests/test_doctor_azure.py"
+      - "tests/test_template_vars.py"
+      - "tests/test_templates_push.py"
+      - "tests/fixtures/backends/**"
+      - "tests/fixtures/doctor-azure/**"
       - "Makefile"
       - ".github/workflows/backends-check.yml"
   push:
@@ -27,7 +34,14 @@ on:
       - "scripts/doctor_azure.py"
       - "scripts/requirements-backends.txt"
       - "scripts/requirements-template-publishing.txt"
-      - "tests/**"
+      - "tests/test_azure_template.py"
+      - "tests/test_backend_templates.py"
+      - "tests/test_backends_config.py"
+      - "tests/test_doctor_azure.py"
+      - "tests/test_template_vars.py"
+      - "tests/test_templates_push.py"
+      - "tests/fixtures/backends/**"
+      - "tests/fixtures/doctor-azure/**"
       - "Makefile"
       - ".github/workflows/backends-check.yml"
   workflow_dispatch: {}
@@ -51,11 +65,18 @@ jobs:
           terraform_version: "1.14.5"
           terraform_wrapper: false
       - name: Backend tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          PYTHONPATH=tests python -m unittest -v \
+            test_azure_template test_backend_templates test_backends_config \
+            test_doctor_azure test_template_vars test_templates_push
       - name: Backend Python lint and format
         run: |
-          ruff check --select E4,E7,E9,F,C901 scripts/backend*.py scripts/backends-config.py scripts/templates_push.py scripts/template_vars.py scripts/doctor_azure.py tests
-          ruff format --check scripts/backend*.py scripts/backends-config.py scripts/templates_push.py scripts/template_vars.py scripts/doctor_azure.py tests
+          ruff check --select E4,E7,E9,F,C901 scripts/backend*.py scripts/backends-config.py scripts/templates_push.py scripts/template_vars.py scripts/doctor_azure.py \
+            tests/test_azure_template.py tests/test_backend_templates.py tests/test_backends_config.py \
+            tests/test_doctor_azure.py tests/test_template_vars.py tests/test_templates_push.py
+          ruff format --check scripts/backend*.py scripts/backends-config.py scripts/templates_push.py scripts/template_vars.py scripts/doctor_azure.py \
+            tests/test_azure_template.py tests/test_backend_templates.py tests/test_backends_config.py \
+            tests/test_doctor_azure.py tests/test_template_vars.py tests/test_templates_push.py
       - name: Shell checks
         run: shellcheck scripts/doctor-azure.sh scripts/verify-template-vars.sh coder/templates/generic-linux-azure/mount-home.sh
       - name: Azure Terraform format and static validation

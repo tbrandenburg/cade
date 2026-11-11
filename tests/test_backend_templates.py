@@ -137,17 +137,41 @@ class CoderAPITest(unittest.TestCase):
 
 
 class BackendWorkflowTest(unittest.TestCase):
-    def test_doctor_implementation_triggers_both_events(self) -> None:
+    def test_backend_paths_trigger_both_events_but_omnigent_tests_do_not(self) -> None:
         workflow = yaml.load(
             (ROOT / ".github/workflows/backends-check.yml").read_text(),
             Loader=yaml.BaseLoader,
         )
-        implementation = "scripts/doctor_azure.py"
-        self.assertTrue((ROOT / implementation).is_file())
+        included = (
+            "workspace/backend-connection.schema.json",
+            "workspace/catalog.yaml",
+            "coder/templates/generic-linux-azure/main.tf",
+            "coder/templates/generic-linux-azure/mount-home.sh",
+            "scripts/doctor_azure.py",
+            "scripts/doctor-azure.sh",
+            "scripts/backend_templates.py",
+            "scripts/templates_push.py",
+            "scripts/template_vars.py",
+            "scripts/verify-template-vars.sh",
+            "scripts/requirements-backends.txt",
+            "scripts/requirements-template-publishing.txt",
+            "tests/test_template_vars.py",
+            "tests/test_templates_push.py",
+            "tests/fixtures/backends/azure-enabled.yaml",
+            "tests/fixtures/doctor-azure/enabled.yaml",
+            "Makefile",
+            ".github/workflows/backends-check.yml",
+        )
+        excluded = ("tests/test_omnigent.py", "tests/coder-omnigent-launch.py")
+        self.assertEqual(
+            workflow["on"]["pull_request"]["paths"], workflow["on"]["push"]["paths"]
+        )
         for event in ("pull_request", "push"):
-            with self.subTest(event=event):
-                paths = workflow["on"][event]["paths"]
-                self.assertIn(implementation, paths)
-                self.assertTrue(
-                    any(fnmatchcase(implementation, path) for path in paths)
-                )
+            paths = workflow["on"][event]["paths"]
+            for name in included:
+                with self.subTest(event=event, name=name):
+                    self.assertTrue((ROOT / name).is_file())
+                    self.assertTrue(any(fnmatchcase(name, path) for path in paths))
+            for name in excluded:
+                with self.subTest(event=event, name=name):
+                    self.assertFalse(any(fnmatchcase(name, path) for path in paths))

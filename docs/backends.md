@@ -172,13 +172,19 @@ does not invoke that publishing behavior.
 
 ## Publishing and variable verification
 
-Publishing/verification additionally needs the pinned HCL parser. Install the
-publishing requirements (which include the backend requirements), then activate
-the venv or set Make's `PYTHON` explicitly:
+The [local quickstart](/README.md#quickstart) can publish `docker-workspace`
+directly with the Coder CLI after building its image, without this Python
+environment. Direct publication does not apply catalog selection or its retirement
+block and does not retire other templates or bypass Azure prerequisites.
+
+Catalog publishing/verification additionally needs the pinned HCL parser. Create
+a venv if needed and install the publishing requirements (which include the
+backend requirements), then activate it or set Make's `PYTHON` explicitly:
 
 ```bash
 (
   set -euo pipefail
+  python3 -m venv .venv-backends
   .venv-backends/bin/python -m pip install -r scripts/requirements-template-publishing.txt
   export CADE_BACKENDS_DIR=/path/to/cade-deployment/backends
   make templates-push PYTHON="$PWD/.venv-backends/bin/python"
@@ -191,7 +197,18 @@ The legacy target publishes the selected catalog in source order. The targeted
 target requires a known, enabled connection. Docker image builds use the existing
 Make targets and dirty-tree refusal; commit the relevant files before building.
 Only Azure's five nonsecret connection variables are sent for Azure. Docker keeps
-the existing `repo_url` override behavior. Neither operation creates Azure VMs
+the existing `devcontainer.repo_url` override behavior: `make templates-push`
+publishes `https://github.com/<REPO_SLUG>.git`, where `REPO_SLUG` comes from the
+environment, `.env`, or the Make command line. This is different from the
+per-workspace `docker-workspace` parameter. To restore blank devcontainer
+workspaces, explicitly override the saved value:
+
+```bash
+coder templates push devcontainer -d coder/templates/devcontainer --yes --variable 'repo_url='
+```
+
+Coder retains previously published template variables when they are not explicitly
+overridden. Neither catalog operation creates Azure VMs
 locally; **publishing an enabled Azure template can still run provider/data-source
 operations in Coder**, so do not publish Azure until B1 prerequisites are accepted.
 Use the stubbed dispatcher tests for offline Azure publication acceptance.
@@ -204,10 +221,16 @@ manual verification rather than printing their contents. An explicit empty
 `variables.tf` denotes an implementation with no variables; a missing file is an
 error. The standalone verifier accepts `--expected-repo-url URL`; without it,
 `devcontainer.repo_url` is checked against its blank Terraform default.
+`make templates-verify-vars` instead expects the `REPO_SLUG` URL used by the
+catalog publisher and checks the other selected template variables against their
+defaults and publishing overrides. A deliberate blank devcontainer override will
+therefore be reported as drift by that Make target.
 Configure `CODER_URL` to the direct API-serving Coder URL: authenticated HTTP
 redirects, including same-origin redirects, are rejected before forwarding the
 session header. A login/proxy redirect is a configuration error, not a reason to
 disable this protection.
+The verifier uses a non-empty exported `CODER_URL` first, then `.env`'s
+`CODER_URL`, falling back to `http://localhost:7080` if neither is set.
 
 Publishing and verification retain the existing `.env` loading behavior for
 unset/empty environment values; the read-only configuration CLI reads its explicit

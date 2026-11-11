@@ -4,8 +4,8 @@ workspace on demand (Phase 2 of #49's persistent-workspace work).
 
 HARD requirement (see the issue body and AGENTS.md's two recorded
 token-leak incidents for `scripts/ai-token.sh`): the session token must
-never appear in any log line, exception message, or `__repr__`. Every
-place this module logs or raises includes only `_redact()`'d values, and
+never appear in any log line, exception message, or `__repr__`. HTTP error
+response bodies are untrusted and must not be logged or included in errors.
 `CoderClient.__repr__` never includes the raw token.
 
 Coder REST API shapes referenced here (verified against Coder v2.36.3's
@@ -50,15 +50,11 @@ def _redact(value: str | None) -> str:
 
 
 class CoderAPIError(RuntimeError):
-    """Raised for a non-2xx/404 Coder API response. Deliberately never
-    includes the request's Authorization header (httpx exceptions can
-    otherwise echo full request details) - only status code and a
-    truncated, token-free response body snippet."""
+    """Coder API failure with method, endpoint and status, without response bodies."""
 
-    def __init__(self, method: str, url: str, status_code: int, body_snippet: str):
-        super().__init__(
-            f"Coder API error: {method} {url} -> {status_code}: {body_snippet}"
-        )
+    def __init__(self, method: str, url: str, status_code: int, detail: str = ""):
+        message = f"Coder API error: {method} {url} -> {status_code}"
+        super().__init__(f"{message}: {detail}" if detail else message)
         self.status_code = status_code
 
 
@@ -81,23 +77,21 @@ class CoderClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "CoderClient":
+    async def __aenter__(self) -> CoderClient:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
 
-    async def _request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+    async def _request(
+        self, method: str, path: str, **kwargs: object
+    ) -> httpx.Response:
         response = await self._client.request(method, path, **kwargs)
         if response.status_code >= 400:
-            # Truncate and never assume the body is token-free noise -
-            # but the token itself is never echoed by the Coder API in a
-            # response body, so a length-capped snippet is safe here.
-            snippet = response.text[:500]
             logger.warning(
-                "coder_client: %s %s -> %s: %s", method, path, response.status_code, snippet
+                "coder_client: %s %s -> %s", method, path, response.status_code
             )
-            raise CoderAPIError(method, path, response.status_code, snippet)
+            raise CoderAPIError(method, path, response.status_code)
         return response
 
     async def me(self) -> dict:
@@ -109,16 +103,17 @@ class CoderClient:
         not exist yet) rather than raising, matching the issue's
         resolve-or-create contract."""
         try:
-            response = await self._client.get(
-                f"/api/v2/users/{owner}/workspace/{name}"
-            )
+            response = await self._client.get(f"/api/v2/users/{owner}/workspace/{name}")
         except httpx.HTTPError as exc:
-            raise CoderAPIError("GET", f"/api/v2/users/{owner}/workspace/{name}", 0, str(exc)) from exc
+            raise CoderAPIError(
+                "GET", f"/api/v2/users/{owner}/workspace/{name}", 0, str(exc)
+            ) from exc
         if response.status_code == 404:
             return None
         if response.status_code >= 400:
-            snippet = response.text[:500]
-            raise CoderAPIError("GET", f"/api/v2/users/{owner}/workspace/{name}", response.status_code, snippet)
+            raise CoderAPIError(
+                "GET", f"/api/v2/users/{owner}/workspace/{name}", response.status_code
+            )
         return response.json()
 
     async def get_workspace_by_id(self, workspace_id: str) -> dict:
@@ -140,7 +135,9 @@ class CoderClient:
         response = await self._request("GET", "/api/v2/organizations")
         orgs = response.json()
         if not orgs:
-            raise CoderAPIError("GET", "/api/v2/organizations", 200, "no organizations returned")
+            raise CoderAPIError(
+                "GET", "/api/v2/organizations", 200, "no organizations returned"
+            )
         for org in orgs:
             if org.get("is_default"):
                 return org["id"]

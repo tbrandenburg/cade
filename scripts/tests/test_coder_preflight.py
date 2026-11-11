@@ -1,4 +1,4 @@
-"""Exercise make up and real Compose config with a synthetic Docker daemon."""
+"""Exercise startup targets and real Compose config with a synthetic Docker daemon."""
 
 import importlib.util
 import json
@@ -115,13 +115,13 @@ exit 0
             "REAL_DOCKER": shutil.which("docker"),
         }
 
-    def run_make(self, settings="", override="", extra=None, arguments=()):
+    def run_make(self, settings="", override="", extra=None, arguments=(), target="up"):
         (self.root / ".env").write_text(settings)
         if override:
             (self.root / "override.yaml").write_text(override)
             self.env["COMPOSE_FILE"] = "compose.yaml:override.yaml"
         return subprocess.run(
-            ["make", "up", *arguments],
+            ["make", target, *arguments],
             cwd=self.root,
             env={**self.env, **(extra or {})},
             capture_output=True,
@@ -527,6 +527,53 @@ exit 0
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("up COMPOSE_REMOVE_ORPHANS=0", self.trace.read_text())
         self.assertNotIn("up COMPOSE_REMOVE_ORPHANS=1", self.trace.read_text())
+
+    def test_coder_up_selects_coder_after_preflight_then_waits(self):
+        result = self.run_make(
+            target="coder-up", extra={"COMPOSE_REMOVE_ORPHANS": "1"}, arguments=("-j3",)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        trace = self.trace.read_text()
+        self.assertEqual(trace.count("docker compose up "), 1)
+        self.assertLess(
+            trace.index("docker run"), trace.index("docker compose up -d coder\n")
+        )
+        self.assertLess(
+            trace.index("docker compose up -d coder\n"),
+            trace.index("bash scripts/wait-for-coder.sh"),
+        )
+        self.assertIn("up COMPOSE_REMOVE_ORPHANS=0\n", trace)
+        self.assertNotIn("docker buildx build", trace)
+        self.assertNotIn("scripts/openbao", trace)
+        self.assertNotIn("scripts/print-urls.sh", trace)
+        self.assertNotIn("scripts/ai-bootstrap.sh", trace)
+        self.assertNotIn("scripts/restart-disconnected-workspaces.sh", trace)
+        self.assertIn("Coder is healthy", result.stdout)
+
+    def test_coder_up_failures_stop_next_steps(self):
+        for extra, settings, message, started, waited in (
+            ({}, "CODER_VERSION=v2.36.4\n", "unsupported CODER_VERSION", False, False),
+            ({"UP_FAILURE": "1"}, "", "Error", True, False),
+            (
+                {"CODER_STATE": "running unhealthy"},
+                "",
+                "Coder startup failed",
+                True,
+                True,
+            ),
+        ):
+            with self.subTest(extra=extra, settings=settings):
+                self.trace.write_text("")
+                result = self.run_make(
+                    target="coder-up", settings=settings, extra=extra
+                )
+                trace = self.trace.read_text()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertEqual("docker compose up -d coder\n" in trace, started)
+                self.assertEqual("bash scripts/wait-for-coder.sh" in trace, waited)
+                self.assertNotIn("docker buildx build", trace)
+                self.assertNotIn("scripts/ai-bootstrap.sh", trace)
 
     def test_standalone_build_targets_do_not_require_preflight(self):
         result = subprocess.run(
