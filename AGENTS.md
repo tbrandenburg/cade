@@ -154,7 +154,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - 2026-11-09: Pitfall: an expanded catalog broke fixtures with missing unselected paths and duplicate appended rows. Prevention: materialize every catalog-declared template in fixture repositories; replace named mappings rather than blindly appending them.
 - Never trust a subagent's "complete"/"passing" report — check `git log --oneline -3 <branch>` (not just `git status`) to confirm it actually committed.
 - Treat any change to `compose.yaml`/a template/a config file as inert until the consuming container is verified recreated (`docker inspect ... Config.Env`) — a committed diff and a live effect are different claims.
-- Never trust a `200`/"Succeeded" status string alone — cross-check the real resource (`docker inspect`, `docker exec ... cat log`, a live API round trip) before declaring a step done.
+- Never trust `200`/"Succeeded" alone — verify the real resource and a non-empty, correct body (`docker inspect`, live API round trip) before declaring a step done.
 - Run `git status --short` on the *whole* repo, not just the files you think you touched, before closing any step — untracked deliverables (reports, screenshots, doc edits) are the most common false "done".
 - `git add` silently no-ops on gitignored paths (e.g. screenshots under `.playwright-mcp/`) — use `git add -f` for any deliverable saved under a gitignored dir.
 - Re-verify a stated blocker's premise with one direct command (e.g. `gh repo view --json visibility`) before repeating a prior remediation plan — the premise may no longer hold.
@@ -171,7 +171,6 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 - Distinguish a bounded CLI metadata probe from agent startup. A correct manual version under a longer budget does not prove the daemon's real readiness probe succeeds.
 - Never trust a direct-container/synthetic reproduction (`docker exec ... curl`, a bare `bwrap` smoke test, an isolated unit repro) as proof a fix works — always re-verify through the real caller (the actual dashboard proxy, the real CLI invocation, the real multi-hop flow) before closing an issue.
 - An "official upstream approach should just work" claim is a hypothesis, not evidence — verify against this specific deployment/version through the real proxy/API before trusting it.
-- A `200` response with an empty/wrong body is not success — always check response length/content, not just status code, especially through a real reverse proxy.
 - Manually diff a subagent's changes line-by-line against the target branch before merging, especially near a resource with a previously-hardcoded identifier — `terraform validate`/`fmt` passing does not prove an adjacent critical line wasn't silently dropped.
 - Fixing one bug (a CLI flag, a syntax error) can fully mask a second, independent bug behind it — after any fix, re-verify the *whole* call path (auth, execution, effect), not just that it now parses.
 - Before assuming a third-party CLI/library flag exists, run `--help`/read the installed source for the *actual installed version* — don't infer flag names from naming conventions used elsewhere in the repo.
@@ -223,6 +222,7 @@ _(Recurring, transferable pitfalls only — imperative prevention rules. Chronol
 
 ### Environment / process
 
+- 2026-11-11: Pitfall: Compose aborted when Temporal DB was temporarily unhealthy during throttled startup. Prevention: capture health history, verify readiness and distinguish transient recovery from persistent failure before retrying.
 - 2026-11-10: Pitfall: a small test VM and image export caused host pressure despite available swap. Prevention: cap VM memory, test direct disk I/O, and monitor host PSI during host-daemon exports.
 - 2026-11-09: Pitfall: a timed-out account creation completed server-side. Prevention: inspect the actual resource before retrying a timed-out mutation.
 - 2026-11-09: Pitfall: leader exit left descendants alive. Prevention: keep owned group leaders unreaped until descendant cleanup finishes; establish ownership at spawn rather than guessing a later PGID.
